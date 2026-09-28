@@ -24,9 +24,9 @@
     "package:vscode": "npm run build && node scripts/package-vscode.mjs"
   },
   "devDependencies": {
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.2",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1",
+    "vitest": "^5.0.2",
     "esbuild": "0.28.2",
     "@vscode/vsce": "4.0.0"
   }
