@@ -21,7 +21,7 @@ Code Conductor v0.x is intentionally **not another standalone desktop app**.
 
 ### Sibling product: Code Workflow
 
-[Code Workflow](https://github.com/saulpatinojr/Proj-Code_Workflow) is the slim, in-client sibling. It runs multi-agent workflows inside one AI client (Claude Code, Codex CLI, or GitHub Copilot) through that client's own subagents, installs with one script, and has no background runtime. Code Conductor remains the full cross-provider program: routing, risk classes, independence, worktrees, gates, and human approval. The boundary and the shared `AgentResult`/`RunManifest` contract are locked in [ADR 0011](docs/adr/0011-code-workflow-sibling-boundary-and-shared-contract.md) (D-057).
+[Code Workflow](https://github.com/saulpatinojr/Proj-Code_Workflow) is the slim, in-client sibling. It runs multi-agent workflows inside one AI client (Claude Code, Codex CLI, or GitHub Copilot) through that client's own subagents, installs with one script, and has no background runtime. Code Conductor remains the full cross-provider program: routing, risk classes, independence, worktrees, gates, and human approval. Work exported from Code Workflow (`workflow.py export`) can be brought under Code Conductor review with `cc import <run-manifest.json>`; import never establishes readiness. The boundary and the shared `AgentResult`/`RunManifest` contract are locked in [ADR 0011](docs/adr/0011-code-workflow-sibling-boundary-and-shared-contract.md) (D-057).
 
 ## Architecture at a glance
 
