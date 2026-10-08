@@ -43,4 +43,21 @@ describe('agent result parsing', () => {
     expect(result.status).toBe('failed');
     expect(result.blockers[0]).toMatch(/contract validation/);
   });
+
+  it('preserves an optional notVerified list declared by the agent', () => {
+    const result = parseAgentResult(assignment, outcome('CC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":[],"findings":[],"risks":[],"blockers":[],"recommendation":"review","notVerified":["Live deployment was not performed."]}'));
+    expect(result.status).toBe('completed');
+    expect(result.notVerified).toEqual(['Live deployment was not performed.']);
+  });
+
+  it('omits notVerified when the agent does not declare it', () => {
+    const result = parseAgentResult(assignment, outcome('CC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":[],"findings":[],"risks":[],"blockers":[],"recommendation":"review"}'));
+    expect('notVerified' in result).toBe(false);
+  });
+
+  it('fails closed when notVerified violates the contract', () => {
+    const result = parseAgentResult(assignment, outcome('CC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":[],"findings":[],"risks":[],"blockers":[],"recommendation":"review","notVerified":"nothing"}'));
+    expect(result.status).toBe('failed');
+    expect(result.blockers[0]).toMatch(/contract validation/);
+  });
 });
