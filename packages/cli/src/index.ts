@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig } from '@code-conductor/policy';
-import { createTask, executeTask, planTask, parseAgentResult } from '@code-conductor/runtime';
+import { createTask, executeTask, importRunManifest, planTask, parseAgentResult } from '@code-conductor/runtime';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
@@ -159,6 +159,18 @@ function agentsList(args: string[]): number {
   if (inventory.truncated) console.log('WARN native-inventory.truncated: file budget reached; results are partial.');
   return 0;
 }
+function importRun(args: string[]): number {
+  const file = args.find((value) => !value.startsWith('--') && args[args.indexOf(value) - 1] !== '--source');
+  if (!file) { console.error('Usage: cc import <run-manifest.json> [--source <label>] [--force]'); return 2; }
+  try {
+    const outcome = importRunManifest(resolve(file), { source: getOption(args, '--source') ?? 'external', force: args.includes('--force') });
+    console.log(JSON.stringify(outcome, null, 2));
+    return 0;
+  } catch (error) {
+    console.error(`ERROR import.rejected: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
 function mcpList(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root); const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api'); console.log(JSON.stringify({ profiles, allowSeparatelyBilledApi: allowApi, servers: selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({ id, publisher: server.publisher, maturity: server.maturity, authentication: server.authentication, defaultAccess: server.default_access })) }, null, 2)); return 0; }
 function apmCheck(rootArg?: string): number { const root = resolve(rootArg ?? '.'); if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; } const result = apmAudit(root); process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.ok ? 0 : 1; }
 function githubGate(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required.'); return 1; } const status = pullRequestStatus(root); process.stdout.write(status.stdout); process.stderr.write(status.stderr); if (!status.ok) return 1; const checks = pullRequestChecks(root); process.stdout.write(checks.stdout); process.stderr.write(checks.stderr); return checks.ok ? 0 : 1; }
@@ -178,7 +190,7 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|doctor|plan|run|harness-smoke|mcp|agents|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.'); }
+function usage(): void { console.log('Usage: cc <validate|doctor|plan|run|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
@@ -189,6 +201,7 @@ switch (command) {
   case 'harness-smoke': exitCode = await harnessSmoke(args); break;
   case 'mcp': exitCode = mcpList(args); break;
   case 'agents': exitCode = agentsList(args); break;
+  case 'import': exitCode = importRun(args); break;
   case 'apm-audit': exitCode = apmCheck(args[0]); break;
   case 'github-gate': exitCode = githubGate(args); break;
   case 'context-stats': exitCode = contextStats(); break;
