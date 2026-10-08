@@ -20,8 +20,15 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Repository governance documentation, contribution/security/review policies, templates, CODEOWNERS, Dependabot, EditorConfig, and Git attributes.
 - Regression coverage for deep recursive gate-profile discovery, owner-only worktree directories, invalid structured agent-result payloads, configured role authority projection, independent-provider challenger enforcement, missing GitHub/APM/Git CLI diagnostics, ref-safe task/agent identifiers, rename-aware sensitive-path handling, evidence-store path traversal prevention, no-scan exact-file gate detection, context workspace boundaries, symlink escapes, sensitive/oversized context files, and first-party MCP provenance policy.
 
+- `cc agents` command and a `cc doctor` summary providing a read-only provider-native agent/skill inventory across Claude, Copilot, Codex, Kiro, and Agent Skills locations at project and user scope, marked against `apm.lock.yaml` (ADR 0011).
+- Optional `AgentResult.notVerified` contract field; agents are instructed to declare checks they did not or could not verify, and malformed values fail closed (ADR 0011).
+- ADR 0011 (Accepted) locking the Code Workflow sibling boundary and shared result contract, and ADR 0012 (Proposed) for provider-local subagent evidence hooks.
+
 ### Changed
 
+- Deterministic gate evidence now records `sha256` over the full untruncated gate output.
+- Refreshed `fast-uri` (3.1.8) and `source-map-js` (1.2.2) in the npm lockfile to clear new moderate/high advisories reported by `npm audit --audit-level=high`.
+- `code-conductor-protocol` skill now asks agents to list unverified checks in `notVerified`; projections and `apm.lock.yaml` were re-materialized with APM 0.30.0.
 - Upgraded Vitest to 5.0.0 and refreshed the committed npm lockfile.
 - Standardized ongoing workflow names and removed temporary/bootstrap write-back workflows after their one-time use.
 - Pinned maintained GitHub Actions to reviewed immutable commit SHAs.
