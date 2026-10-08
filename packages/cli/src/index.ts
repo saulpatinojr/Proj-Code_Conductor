@@ -8,7 +8,7 @@ import { validateRepositoryConfig } from '@code-conductor/policy';
 import { createTask, executeTask, planTask, parseAgentResult } from '@code-conductor/runtime';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
-import { apmAudit, apmLockPresent, apmTargets } from '@code-conductor/apm-adapter';
+import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
 import { githubAuthStatus, pullRequestChecks, pullRequestStatus } from '@code-conductor/github-gate';
 import { ContextOptimizer } from '@code-conductor/context-optimizer';
@@ -75,6 +75,10 @@ function doctor(root: string): number {
   for (const variable of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY']) if (process.env[variable]) console.log(`WARN billing.api_credential_detected: ${variable} is set; subscription-first policy may be bypassed. Value is intentionally not displayed.`);
   if (hasCommand('gh')) console.log(`${githubAuthStatus(root).ok ? 'OK' : 'WARN'} github-auth`);
   if (hasCommand('apm')) { console.log(`${apmTargets(root).ok ? 'OK' : 'WARN'} apm-targets`); console.log(`${apmLockPresent(root) ? 'OK' : 'WARN'} apm-lock`); }
+  const inventory = inventoryNativeCustomizations(root);
+  const count = (kind: string, scope: string): number => inventory.entries.filter((entry) => entry.kind === kind && entry.scope === scope).length;
+  console.log(`INFO native-inventory: project agents=${count('agent', 'project')} skills=${count('skill', 'project')}; user agents=${count('agent', 'user')} skills=${count('skill', 'user')}${inventory.truncated ? ' (truncated)' : ''}. Details: cc agents`);
+  if (inventory.unmanagedProjectPaths.length) console.log(`INFO native-inventory.unmanaged: ${inventory.unmanagedProjectPaths.length} project file(s) not recorded in apm.lock.yaml (informational; apm audit is authoritative): ${inventory.unmanagedProjectPaths.join(', ')}`);
   const configStatus = printValidation(root);
   return missingRequired || configStatus !== 0 ? 1 : 0;
 }
@@ -146,6 +150,15 @@ async function harnessSmoke(args: string[]): Promise<number> {
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
+function agentsList(args: string[]): number {
+  const root = resolve(getOption(args, '--repo') ?? '.');
+  const inventory = inventoryNativeCustomizations(root);
+  if (args.includes('--json')) { console.log(JSON.stringify(inventory, null, 2)); return 0; }
+  console.log(`Provider-native agents and skills (read-only inventory; ADR 0011)\nRepository: ${root}\nAPM lock: ${inventory.lockPresent ? 'present' : 'absent'}`);
+  for (const entry of inventory.entries) console.log(`${entry.scope.padEnd(7)} ${entry.kind.padEnd(5)} ${entry.ecosystem.padEnd(12)} ${entry.name.padEnd(36)} ${entry.scope === 'project' ? (inventory.lockPresent ? (entry.managedByApm ? 'apm' : 'unmanaged') : 'no-lock') : 'user'}  ${entry.path}`);
+  if (inventory.truncated) console.log('WARN native-inventory.truncated: file budget reached; results are partial.');
+  return 0;
+}
 function mcpList(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root); const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api'); console.log(JSON.stringify({ profiles, allowSeparatelyBilledApi: allowApi, servers: selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({ id, publisher: server.publisher, maturity: server.maturity, authentication: server.authentication, defaultAccess: server.default_access })) }, null, 2)); return 0; }
 function apmCheck(rootArg?: string): number { const root = resolve(rootArg ?? '.'); if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; } const result = apmAudit(root); process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.ok ? 0 : 1; }
 function githubGate(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required.'); return 1; } const status = pullRequestStatus(root); process.stdout.write(status.stdout); process.stderr.write(status.stderr); if (!status.ok) return 1; const checks = pullRequestChecks(root); process.stdout.write(checks.stdout); process.stderr.write(checks.stderr); return checks.ok ? 0 : 1; }
@@ -165,7 +178,7 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|doctor|plan|run|harness-smoke|mcp|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.'); }
+function usage(): void { console.log('Usage: cc <validate|doctor|plan|run|harness-smoke|mcp|agents|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
@@ -175,6 +188,7 @@ switch (command) {
   case 'run': exitCode = await run(args); break;
   case 'harness-smoke': exitCode = await harnessSmoke(args); break;
   case 'mcp': exitCode = mcpList(args); break;
+  case 'agents': exitCode = agentsList(args); break;
   case 'apm-audit': exitCode = apmCheck(args[0]); break;
   case 'github-gate': exitCode = githubGate(args); break;
   case 'context-stats': exitCode = contextStats(); break;

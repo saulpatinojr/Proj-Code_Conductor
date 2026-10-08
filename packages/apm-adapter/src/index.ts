@@ -70,3 +70,13 @@ export function apmAudit(root: string, options?: ApmRunOptions): ApmCommandResul
 export function apmLockPresent(root: string): boolean {
   return existsSync(join(root, 'apm.lock.yaml'));
 }
+
+export {
+  apmLockDeployedFiles,
+  inventoryNativeCustomizations,
+  type NativeEcosystem,
+  type NativeInventory,
+  type NativeInventoryEntry,
+  type NativeKind,
+  type NativeScope,
+} from './inventory.js';
