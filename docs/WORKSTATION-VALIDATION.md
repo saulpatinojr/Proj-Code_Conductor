@@ -6,15 +6,24 @@ This runbook follows ADR 0008/0009: the workstation is VS Code-centered, startup
 
 ## 1. Baseline
 
-Use an up-to-date VS Code installation, Git, Node 22+ (24 recommended), GitHub CLI, APM, and the official provider/tool clients required by the repository. On Windows, prefer WSL2 or another supported OS-level containment environment for unattended agent work whenever the harness documents stronger isolation there.
+Use an up-to-date VS Code installation, Git, Node 22+ (24 recommended), GitHub CLI, and the official provider/tool clients required by the repository. APM is needed only for repositories that package agent packs (§5). On Windows, prefer WSL2 or another supported OS-level containment environment for unattended agent work whenever the harness documents stronger isolation there.
 
 Install Code Conductor from a release `.vsix` ([`INSTALL.md`](INSTALL.md)) after verifying it ([`RELEASE.md`](RELEASE.md#verify-a-package)). For a pull-request build, use the `vsix-preflight-<run>` artifact of the Release preflight workflow instead, which is packaged under a validation-only publisher. The installation must work in an ordinary repository without the Code Conductor source tree or a local `npm run build`. Validation that uses this repository's own build instead must say so in its evidence.
 
-**How commands are written here.** The extension does not put `cc` on `PATH` ([`INSTALL.md`](INSTALL.md#run-cc-commands-yourself)). Every `cc <command>` below means:
+**How commands are written here.** The extension does not put `cc` on `PATH` ([`INSTALL.md`](INSTALL.md#run-cc-commands-yourself)). Set the path of its bundled runtime once, then run each command through `node`.
+
+bash or zsh:
 
 ```bash
-CC="node '<extension folder>/dist/cc.js'"   # for example ~/.vscode/extensions/<publisher>.code-conductor-vscode-<version>
-$CC <command>
+CC_JS="$HOME/.vscode/extensions/<publisher>.code-conductor-vscode-<version>/dist/cc.js"
+node "$CC_JS" <command>
+```
+
+PowerShell:
+
+```powershell
+$CC_JS = "$env:USERPROFILE\.vscode\extensions\<publisher>.code-conductor-vscode-<version>\dist\cc.js"
+node $CC_JS <command>
 ```
 
 In a development checkout, `node packages/cli/dist/index.js <command>` after `npm run build` is the equivalent.
@@ -65,7 +74,7 @@ pwsh --version
 Then run Doctor from the installed extension, either with **Code Conductor: Doctor** in the Command Palette, or in a terminal:
 
 ```bash
-$CC doctor .
+node "$CC_JS" doctor .
 ```
 
 In a development checkout, `npm run cc:doctor` builds and runs the same command.
@@ -85,7 +94,7 @@ Missing optional tool commands are not failures when the active repository profi
 - official sign-in state and billing class (see [`AUTHENTICATION.md`](AUTHENTICATION.md#client-states-before-a-provider-starts));
 - billing lane conflicts that can be safely inferred.
 
-## 5. APM validation
+## 5. APM validation (repositories with agent packs only)
 
 ```bash
 apm targets
@@ -109,13 +118,13 @@ kiro-cli acp --help
 Before consuming Kiro subscription-backed execution, review the current Kiro subscription/automation policy for the installed/current service terms. Code Conductor requires an explicit acknowledgement on the smoke command so this step is not silently skipped:
 
 ```bash
-cc harness-smoke kiro --mode read --ack-kiro-policy
+node "$CC_JS" harness-smoke kiro --mode read --ack-kiro-policy
 ```
 
 Only after read smoke passes should modify authority be tested in the disposable smoke repository:
 
 ```bash
-cc harness-smoke kiro --mode modify --ack-kiro-policy
+node "$CC_JS" harness-smoke kiro --mode modify --ack-kiro-policy
 ```
 
 Important safety behavior:
@@ -161,10 +170,10 @@ For Codex:
 The existing smoke commands remain useful for current CLI adapters:
 
 ```bash
-cc harness-smoke codex --mode read
-cc harness-smoke claude --mode read
-cc harness-smoke codex --mode modify
-cc harness-smoke claude --mode modify
+node "$CC_JS" harness-smoke codex --mode read
+node "$CC_JS" harness-smoke claude --mode read
+node "$CC_JS" harness-smoke codex --mode modify
+node "$CC_JS" harness-smoke claude --mode modify
 ```
 
 If a smoke test fails, do not mark the harness trusted manually; inspect the installed client's permissions/sandbox configuration and current official documentation.
@@ -217,19 +226,13 @@ Restart/reload VS Code and verify that normal startup:
 Use VS Code's own measurement. Do not time it by hand.
 
 1. Run **Developer: Show Running Extensions**. Record Code Conductor's activation time for a first run (new workspace), for a warm start (reload with nothing changed), and for a start after a configuration change.
-2. Right after a warm start, confirm that no provider, ACP, MCP or APM process was started:
-
-   ```bash
-   pgrep -fl 'claude|codex|kiro-cli|apm' || echo "none started"
-   ```
-
-   On Windows, use `Get-Process` instead.
+2. Right after a warm start, open **Developer: Open Process Explorer** and confirm that the extension host has no Claude, Codex, `kiro-cli`, MCP or APM child process. A name search with `pgrep` or `Get-Process` is not enough: it also finds the native extensions' and terminals' own processes.
 3. Repeat the warm start while offline. The views should show cached state, and no error should block activation.
 
 **Initial budget, to be confirmed by this first baseline:**
 
 - A warm start activates in under 250 ms and starts no child process.
-- A first run, or a start after a configuration change, adds only the `PATH` lookups for the tools in the Connections view, about 16 bounded probes.
+- A first run, or a start after a configuration change, adds only the `PATH` lookups for the tools in the Connections view, 16 bounded probes.
 
 Record the measured values with the machine, OS and VS Code version. If they exceed the budget, open an issue with them before changing code.
 
@@ -246,7 +249,7 @@ Activate the minimum profile required for the repository. Confirm:
 ## 12. First real dry run and dogfood
 
 ```bash
-$CC run --repo . --risk R1 --objective "Review the Code Conductor foundation"
+node "$CC_JS" run --repo . --risk R1 --objective "Review the Code Conductor foundation"
 ```
 
 This plans and persists a run but does not launch paid clients unless `--execute` is explicitly supplied.
@@ -254,7 +257,7 @@ This plans and persists a run but does not launch paid clients unless `--execute
 Only after required surface-specific trust validation passes:
 
 ```bash
-$CC run --repo . --risk R1 --objective "Implement the approved test task" --execute
+node "$CC_JS" run --repo . --risk R1 --objective "Implement the approved test task" --execute
 ```
 
 The run asks in the terminal before each consequential action: starting a provider, disclosing the prompt and repository to it, running gate commands, and committing. Each request is bound to the exact recipient, revision, content and diff ([`APPROVALS.md`](APPROVALS.md)). Validate on the workstation that the prompt appears in the integrated/task terminal, that only the literal `approve` proceeds, and that a denial leaves the run `human_required` with changes preserved.
@@ -264,11 +267,11 @@ A modifying agent receives an isolated worktree. Review/validation remains indep
 Then repeat the scenario at R2, with a different-provider challenger, and take it through GitHub:
 
 ```bash
-$CC run --repo . --risk R2 --objective "<the approved R2 task>" --execute
-$CC next                      # the native next steps for the run
-$CC pr                        # preview the draft pull request
-$CC pr --create               # approve, push the exact commit, open the draft
-$CC github-gate --pr <number> # native checks and reviews, read-only
+node "$CC_JS" run --repo . --risk R2 --objective "<the approved R2 task>" --execute
+node "$CC_JS" next                      # the native next steps for the run
+node "$CC_JS" pr                        # preview the draft pull request
+node "$CC_JS" pr --create               # approve, push the exact commit, open the draft
+node "$CC_JS" github-gate --pr <number> # native checks and reviews, read-only
 ```
 
 Request a Copilot review on the draft, address it, and request a re-review. `github-gate` must report every signal green before a person merges.
