@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AgentAssignment, AgentResult, ApprovalRecord, RunManifest } from '../../packages/schemas/src/index.js';
-import { formatCommand, GIT_CONTROL_CHANGED, nextActions, printable } from '../../packages/runtime/src/next-actions.js';
+import { CLIENT_BILLS_SEPARATELY, CLIENT_NOT_SIGNED_IN, formatCommand, GIT_CONTROL_CHANGED, nextActions, printable } from '../../packages/runtime/src/next-actions.js';
 
 // Worktree records are only offered when the path exists inside the root after
 // symlinks are resolved, so the fixture uses a real directory tree.
@@ -65,6 +65,13 @@ describe('next actions', () => {
   it('points an untrusted harness at official sign-in and the smoke test for its authority', () => {
     const [action] = nextActions(manifest({ results: [result(builder, { status: 'blocked', blockers: ['Harness codex surface cli has not passed Code Conductor workstation modify smoke validation.'] })] }));
     expect(action).toMatchObject({ kind: 'validate_harness', surface: 'official_client', commands: [['cc', 'harness-smoke', 'codex', '--mode', 'modify']] });
+  });
+
+  it('points a client that is not signed in, or signed in with metered billing, at its official sign-in', () => {
+    const signIn = nextActions(manifest({ results: [result(builder, { status: 'blocked', recommendation: 'changes_required', blockers: [`Harness codex ${CLIENT_NOT_SIGNED_IN}: \`codex login status\` reports that it is not signed in.`] })] }));
+    expect(signIn).toEqual([expect.objectContaining({ kind: 'validate_harness', title: 'Sign in to codex in its official client', surface: 'official_client', commands: [['cc', 'doctor']] })]);
+    const billing = nextActions(manifest({ results: [result(reviewer, { status: 'blocked', recommendation: 'changes_required', blockers: [`Harness claude would use ${CLIENT_BILLS_SEPARATELY} (api_key).`] })] }));
+    expect(billing[0]).toMatchObject({ kind: 'validate_harness', title: 'Use your subscription sign-in for claude' });
   });
 
   it('routes GitHub gatekeeping to GitHub and other external lanes to a manual handoff', () => {

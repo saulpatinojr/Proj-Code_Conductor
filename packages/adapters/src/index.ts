@@ -1,9 +1,15 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
 import { KILL_GRACE_MS, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
 import { withoutGitLocalEnv } from '@code-conductor/git';
+import { officialAuthStatus, type ClientAuthStatus } from './client-status.js';
+
+export { hasOfficialAuthStatus, officialAuthStatus, parseClaudeAuthStatus, parseCodexLoginStatus, parseKiroWhoami, probeClient, type ClientAuthStatus, type ProbeOutcome } from './client-status.js';
 
 export type HarnessExecutionSurface = 'cli' | 'acp' | 'platform' | 'manual' | 'ide' | 'local' | 'mcp_api';
 
@@ -38,6 +44,8 @@ export interface HarnessAdapter {
   version(): string | undefined;
   /** The exact process invocation execute() would use, so pre-action approval can bind it. */
   invocation?(request: HarnessExecutionRequest): { command: string; args: string[] };
+  /** Sign-in state from the official client's own status command, for clients that have one. */
+  authStatus?(): Promise<ClientAuthStatus>;
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome>;
 }
 
@@ -46,9 +54,14 @@ function commandExists(command: string): boolean {
   return spawnSync(probe, [command], { stdio: 'ignore' }).status === 0;
 }
 
+// Like the sign-in status probe: no repository, so a repository's own client
+// configuration cannot change what the client reports.
 function commandVersion(command: string): string | undefined {
-  const result = spawnSync(command, ['--version'], { encoding: 'utf8', shell: false, timeout: 15000 });
-  return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;
+  const directory = mkdtempSync(join(tmpdir(), 'cc-probe-'));
+  try {
+    const result = spawnSync(command, ['--version'], { cwd: directory, env: providerEnvironment(), encoding: 'utf8', shell: false, timeout: 15000, maxBuffer: 64 * 1024 });
+    return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 // Provider clients run isolated from the controlling terminal, in their own process
@@ -124,6 +137,7 @@ class SubprocessAdapter implements HarnessAdapter {
   available(): boolean { return commandExists(this.command); }
   version(): string | undefined { return this.available() ? commandVersion(this.command) : undefined; }
   invocation(request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: this.command, args: argsFor(this.id, request) }; }
+  authStatus(): Promise<ClientAuthStatus> { return officialAuthStatus(this.id, this.command, providerEnvironment()); }
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const args = argsFor(this.id, request);
     const startedAt = new Date().toISOString();
@@ -186,11 +200,14 @@ export class KiroAcpAdapter implements HarnessAdapter {
   readonly command: string;
   readonly args: string[];
   private readonly env: NodeJS.ProcessEnv;
+  /** Only the official `kiro-cli` is asked for its sign-in state, as only it reports a version. */
+  readonly authStatus?: () => Promise<ClientAuthStatus>;
 
   constructor(options: KiroAcpAdapterOptions = {}) {
     this.command = options.command ?? 'kiro-cli';
     this.args = options.args ?? ['acp'];
     this.env = options.env ?? providerEnvironment();
+    if (this.command === 'kiro-cli') this.authStatus = () => officialAuthStatus('kiro', this.command, this.env);
   }
 
   available(): boolean { return commandExists(this.command); }

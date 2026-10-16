@@ -144,6 +144,11 @@ There is intentionally no flag that pre-approves or auto-approves.
 fixed, documented smoke prompt and remains the trust step that must pass before any
 execution is offered.
 
+Client diagnostics (`--version`, and each client's official sign-in status command) are
+not gated. They receive no prompt, repository or task context, and run in an empty
+private directory with the provider environment
+([`AUTHENTICATION.md`](AUTHENTICATION.md#client-states-before-a-provider-starts)).
+
 ## Evidence
 
 `RunManifest.approvals` stores one `ApprovalRecord` per request. Each record holds the

@@ -33,6 +33,10 @@ export interface NextActionOptions {
  * next actions never suggest running Git (status, diff, Source Control) in that state.
  */
 export const GIT_CONTROL_CHANGED = 'Git configuration or history files';
+/** Recorded when the official client reports no sign-in Code Conductor recognises. */
+export const CLIENT_NOT_SIGNED_IN = 'is not signed in through its official client';
+/** Recorded when a subscription assignment's client is signed in with a separately billed credential. */
+export const CLIENT_BILLS_SEPARATELY = 'a separately billed sign-in';
 
 const UNSAFE_DISPLAY = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
@@ -168,6 +172,18 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
       };
       // The harness name comes from the run record; only a plain name goes into a command.
       actions.push(PLAIN_ID.test(harness) ? withCommands(action, [['cc', 'harness-smoke', harness, '--mode', mode]]) : { ...action, detail: `${action.detail} (No command is shown because the harness name is not plain.)` });
+      continue;
+    }
+    if (result.status === 'blocked' && (blockers.includes(CLIENT_NOT_SIGNED_IN) || blockers.includes(CLIENT_BILLS_SEPARATELY))) {
+      const harness = assignment?.harness ?? result.harness;
+      const billing = !blockers.includes(CLIENT_NOT_SIGNED_IN);
+      actions.push(withCommands({
+        kind: 'validate_harness', title: billing ? `Use your subscription sign-in for ${harness}` : `Sign in to ${harness} in its official client`,
+        detail: billing
+          ? 'The client is signed in with a credential billed separately from your subscription, so Code Conductor did not start it. Sign in with your subscription in the official client, or remove that credential from the client\'s own configuration, then run the task again.'
+          : 'The official client did not report a sign-in, so Code Conductor did not start it. `cc doctor` shows each client\'s official sign-in command and documentation. Sign in there, then run the task again.',
+        surface: 'official_client', assignmentId: result.assignmentId, evidenceIds: [],
+      }, [['cc', 'doctor']]));
       continue;
     }
     if (result.status === 'awaiting_external') {

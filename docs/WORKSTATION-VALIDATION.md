@@ -78,7 +78,8 @@ Missing optional tool commands are not failures when the active repository profi
 - MCP capability/profile state;
 - manual-only vs automated lane;
 - deterministic tool availability;
-- installed-version smoke/trust state;
+- installed-version smoke/trust state (trust is bound to the smoke-tested client version; an upgrade needs a new smoke test);
+- official sign-in state and billing class (see [`AUTHENTICATION.md`](AUTHENTICATION.md#client-states-before-a-provider-starts));
 - billing lane conflicts that can be safely inferred.
 
 ## 5. APM validation

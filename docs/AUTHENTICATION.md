@@ -57,6 +57,58 @@ AWS                  authenticated / unavailable
 GCP                  authenticated / unavailable
 ```
 
+## Client states before a provider starts
+
+Implements I02 (#34). Decision: D-065. For Codex, Claude Code and Kiro, Code Conductor
+tells four states apart, and `cc doctor` reports each one on its own line:
+
+| State | Established by | Without it |
+|---|---|---|
+| Installed | The client is on `PATH` and reports `--version`. | The assignment waits for a manual handoff. |
+| Signed in | The client's own documented status command (below). | The provider is not started. |
+| Healthy | The client reports its version and a sign-in state Code Conductor recognises. | `cc doctor` warns. A state it does not recognise also blocks starting. |
+| Trusted | `cc harness-smoke <client> --mode read\|modify` passed **for the installed version**. | The provider is not started. |
+
+Official status commands:
+
+| Client | Command | Signed in when | Subscription when | Source |
+|---|---|---|---|---|
+| Claude Code | `claude auth status` | Exit 0 and `"loggedIn": true` | `authMethod` is `claude.ai` or `oauth_token`. `api_key`, `api_key_helper` and `third_party` are billed separately. | [CLI reference](https://code.claude.com/docs/en/cli-reference) |
+| Codex | `codex login status` | Exit 0 and `Logged in using …` on stderr | `Logged in using ChatGPT`. An API key or Amazon Bedrock is billed separately. | [`codex-rs/cli/src/login.rs`](https://github.com/openai/codex/blob/main/codex-rs/cli/src/login.rs) |
+| Kiro | `kiro-cli whoami` | Exit 0 and `Logged in with …` | Always: every Kiro sign-in draws on the subscription's credits. | [CLI commands](https://kiro.dev/docs/reference/cli-commands/), [authentication](https://kiro.dev/docs/getting-started/authentication/) |
+
+How the checks work:
+
+- **The probes are diagnostics.** They run with no prompt and no repository: in an empty
+  private temporary directory, so a repository's own client configuration cannot change
+  the answer. They use the provider environment, so a variable Code Conductor removes
+  does not count. They have a 15-second timeout and bounded output.
+- **Only three things are kept:** the state, the billing class and the client's short
+  name for the method. Email addresses, organisations and the masked key Codex prints
+  are not.
+- **A provider starts only when all of these hold:**
+  - the smoke test passed for its installed version;
+  - its client reports a sign-in;
+  - for an assignment billed to the subscription (`subscription_first`), that sign-in
+    is a subscription.
+
+  Otherwise the assignment is blocked before any worktree is created or approval asked,
+  and `cc next` points to the official sign-in. `cc harness-smoke` refuses in the same
+  cases, because the smoke test runs the provider for real.
+- **Anything not recognised never counts.** That includes a status line or `authMethod`
+  that is not documented, a probe that fails or times out, and a version that cannot be
+  read.
+- **Trust is bound to the client version.** After an upgrade, run the smoke tests
+  again. A smoke test on a new version also clears what an older version had passed.
+
+Limits:
+
+- **Classification follows the vendors' documented values.** A new method shows as
+  unrecognised and blocks until Code Conductor learns it.
+- **Codex methods that are not recognised as subscription billing:** access token,
+  personal access token and workload identity.
+- **Kiro's JSON output is not documented**, so its plain output is read instead.
+
 Potential billing-changing environment variables should trigger warnings, for example API-key variables for AI providers when repository policy is `subscription_first` and `allow_separately_billed_api: false`. Code Conductor also removes these credentials, and the variables that select a separately billed provider or endpoint (such as `CLAUDE_CODE_USE_BEDROCK` or `ANTHROPIC_BASE_URL`), from the environment of the provider clients it starts. The full list, and what it cannot cover (credentials a client reads from its own configuration), is in [`WORKTREES.md`](WORKTREES.md#provider-environment).
 
 The diagnostic MUST print variable names/status only, never secret values.

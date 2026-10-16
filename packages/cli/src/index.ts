@@ -55,7 +55,7 @@ function vscodeExtensions(): Set<string> {
   return new Set(result.stdout.split(/\r?\n/).map((value) => value.trim().toLowerCase()).filter(Boolean));
 }
 
-function doctor(root: string): number {
+async function doctor(root: string): Promise<number> {
   const requiredClients = [['node', ['node']], ['git', ['git']], ['github', ['gh']]] as const;
   const optionalTools = [['apm', ['apm']], ['terraform', ['terraform']], ['ansible', ['ansible']], ['powershell', ['pwsh']], ['azure-cli', ['az']], ['aws-cli', ['aws']], ['gcloud', ['gcloud']], ['kubectl', ['kubectl']], ['helm', ['helm']]] as const;
   const workstation = new WorkstationStore();
@@ -78,9 +78,26 @@ function doctor(root: string): number {
     if (id === 'internal-validator') continue;
     const hint = signIn[id];
     const official = hint?.command ? ` sign-in=\`${formatCommand(hint.command)}\`${hint.docs ? ` (${hint.docs})` : ''}` : '';
-    console.log(`${adapter.available() ? 'OK' : 'INFO'} harness ${id}: surface=${adapter.executionSurface} command=${adapter.command ?? 'platform/manual'} version=${adapter.version() ?? 'unknown/not-applicable'}${official}`);
+    const installed = adapter.available();
+    const version = installed ? adapter.version() : undefined;
+    console.log(`${installed ? 'OK' : 'INFO'} harness ${id}: surface=${adapter.executionSurface} command=${adapter.command ?? 'platform/manual'} version=${version ? printable(version) : 'unknown/not-applicable'}${official}`);
+    if (!installed) continue;
+    // Four separate states: installed (above), signed in, healthy and trusted.
+    if (adapter.authStatus) {
+      const auth = await adapter.authStatus();
+      const how = `\`${formatCommand(auth.command)}\``;
+      if (auth.state === 'authenticated') console.log(`${auth.billing === 'subscription' ? 'OK' : 'WARN'} signed-in ${id}: ${printable(auth.method ?? 'unknown method')} (${auth.billing === 'subscription' ? 'subscription' : auth.billing === 'separately_billed' ? 'billed separately; subscription assignments will not start' : 'billing not recognised; subscription assignments will not start'}) per ${how}`);
+      else console.log(`WARN signed-in ${id}: ${auth.state === 'unauthenticated' ? 'not signed in' : 'state not recognised'} per ${how}; assignments will not start until it is.`);
+      console.log(`${version && auth.state !== 'unknown' ? 'OK' : 'WARN'} healthy ${id}: ${version ? 'reports its version' : 'does not report its version'} and ${auth.state !== 'unknown' ? 'its sign-in state' : 'no recognisable sign-in state'}`);
+    }
+    for (const mode of ['read', 'modify'] as const) {
+      const record = state.harnesses[`${id}@${adapter.executionSurface}`];
+      const trusted = workstation.isTrusted(id, mode, adapter.executionSurface, version ?? '');
+      if (trusted) console.log(`OK trusted ${id} ${mode}: smoke test passed for ${printable(version ?? '')}`);
+      else console.log(`INFO trusted ${id} ${mode}: ${record?.clientVersion && record.clientVersion !== version && (record.readValidatedAt || record.modifyValidatedAt) ? `smoke test passed for ${printable(record.clientVersion)}, not the installed version; ` : ''}run \`cc harness-smoke ${id} --mode ${mode}\``);
+    }
   }
-  console.log('INFO authentication stays in each official client; installed or detected does not mean signed in, healthy or trusted. Code Conductor never reads or stores credentials.');
+  console.log('INFO authentication stays in each official client; Code Conductor runs only its documented status command and never reads or stores credentials.');
 
   const knownExtensions = [
     ['claude', 'anthropic.claude-code'],
@@ -100,7 +117,6 @@ function doctor(root: string): number {
     console.log(`${found ? 'OK' : 'INFO'} tool ${name}: ${found ? candidates.find(hasCommand) : 'not found (optional unless repository profile requires it)'}`);
   }
 
-  for (const [key, record] of Object.entries(state.harnesses)) console.log(`TRUST ${key}: read=${Boolean(record.readValidatedAt || record.modifyValidatedAt)} modify=${Boolean(record.modifyValidatedAt)} version=${record.clientVersion ?? 'unknown'}`);
   for (const variable of BILLING_CREDENTIAL_VARIABLES) if (process.env[variable]) console.log(`WARN billing.api_credential_detected: ${variable} is set in this shell; Code Conductor removes it from provider processes (subscription-first), but other tools may still use it. Value is intentionally not displayed.`);
   for (const variable of BILLING_ROUTING_VARIABLES) if (process.env[variable]) console.log(`WARN billing.provider_selection_detected: ${variable} is set in this shell and selects a separately billed provider, endpoint or credential; Code Conductor removes it from provider processes (subscription-first). Value is intentionally not displayed.`);
   if (hasCommand('gh')) console.log(`${githubAuthStatus(root).ok ? 'OK' : 'WARN'} github-auth`);
@@ -136,7 +152,7 @@ async function run(args: string[]): Promise<number> {
   if (!objective) { console.error('ERROR run.objective_required: --objective is required.'); return 2; }
   const execute = args.includes('--execute'); const workstation = new WorkstationStore();
   const task = createTask(objective, risk, root, listOption(args, '--specializations'));
-  const outcome = await executeTask(root, task, { execute, keepWorktrees: !args.includes('--cleanup-worktrees'), isHarnessTrusted: (harness, mode, surface) => workstation.isTrusted(harness, mode, surface), approver: new TerminalApprover(), ...(listOption(args, '--gate-profiles').length ? { gateProfiles: listOption(args, '--gate-profiles') } : {}) });
+  const outcome = await executeTask(root, task, { execute, keepWorktrees: !args.includes('--cleanup-worktrees'), isHarnessTrusted: (harness, mode, surface, clientVersion) => workstation.isTrusted(harness, mode, surface, clientVersion ?? ''), approver: new TerminalApprover(), ...(listOption(args, '--gate-profiles').length ? { gateProfiles: listOption(args, '--gate-profiles') } : {}) });
   console.log(JSON.stringify({ runId: outcome.plan.runId, execute, manifestPath: outcome.manifestPath, mergeDecision: outcome.manifest.mergeDecision, assignments: outcome.plan.assignments.map((a) => ({ role: a.role, harness: a.harness, surface: a.surface, stance: a.stance, authority: a.authority })), approvals: (outcome.manifest.approvals ?? []).map((a) => ({ action: a.action, recipient: a.recipient, status: a.status, requestDigest: a.requestDigest })), nextActions: nextActions(outcome.manifest, { worktreeRoot: defaultWorktreeRoot() }).map(presentAction), pendingExternal: outcome.pendingExternal.map((a) => a.id), worktrees: outcome.worktrees.map((w) => ({ path: w.path, branch: w.branch, baseSha: w.baseSha })) }, null, 2));
   return outcome.manifest.mergeDecision && outcome.manifest.mergeDecision.decision !== 'ready' ? 1 : 0;
 }
@@ -158,10 +174,16 @@ async function harnessSmoke(args: string[]): Promise<number> {
       console.error('BLOCKED: Kiro ACP smoke may consume Kiro subscription credits. Read the current Kiro subscription/automation policy and rerun with --ack-kiro-policy only if this ACP-compatible development workflow is permitted for your account/use case.');
       return 1;
     }
-    if (mode === 'modify' && !workstation.isTrusted('kiro', 'read', 'acp')) {
-      console.error('BLOCKED: Run and pass the Kiro ACP read smoke before attempting modify smoke.');
+    if (mode === 'modify' && !workstation.isTrusted('kiro', 'read', 'acp', adapter.version() ?? '')) {
+      console.error('BLOCKED: Run and pass the Kiro ACP read smoke (for the installed version) before attempting modify smoke.');
       return 1;
     }
+  }
+  // The smoke test runs the provider for real, on the subscription.
+  if (adapter.authStatus) {
+    const auth = await adapter.authStatus();
+    if (auth.state !== 'authenticated') { console.error(`BLOCKED: ${harness} is not signed in (\`${formatCommand(auth.command)}\` reported ${auth.state}). Sign in with the official client first; \`cc doctor\` shows how.`); return 1; }
+    if (auth.billing !== 'subscription') { console.error(`BLOCKED: ${harness} is signed in with ${printable(auth.method ?? 'an unrecognised method')}, which ${auth.billing === 'separately_billed' ? 'is billed separately from your subscription' : 'Code Conductor cannot confirm as subscription billing'}. Sign in with your subscription first.`); return 1; }
   }
 
   const root = mkdtempSync(join(tmpdir(), 'cc-smoke-')); const workspace = join(root, 'workspace');
@@ -417,13 +439,13 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|pr|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.\n\ngithub-gate [--repo <dir>] [--pr <number|url|branch>] [--json] summarizes native GitHub state for a pull request (checks, reviews, stale approvals, merge state) read-only, and exits 0 only when every signal is green.\n\npr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>] [--create] previews the draft pull request for a run\'s agent branch. With --create it asks in this terminal, then pushes that exact commit (never forced, no hooks) with your own Git credentials and opens a draft with gh. Branches whose history touches sensitive paths or adds credential-looking strings are refused.'); }
+function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|pr|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. A provider starts only when its smoke test passed for the installed client version and its official client reports a subscription sign-in (codex login status, claude auth status, kiro-cli whoami); cc doctor shows installed, signed-in, healthy and trusted separately. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.\n\ngithub-gate [--repo <dir>] [--pr <number|url|branch>] [--json] summarizes native GitHub state for a pull request (checks, reviews, stale approvals, merge state) read-only, and exits 0 only when every signal is green.\n\npr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>] [--create] previews the draft pull request for a run\'s agent branch. With --create it asks in this terminal, then pushes that exact commit (never forced, no hooks) with your own Git credentials and opens a draft with gh. Branches whose history touches sensitive paths or adds credential-looking strings are refused.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
   case 'workspace-validate': exitCode = validateWorkspace(resolve(args[0] ?? '.')); break;
   case 'validate': exitCode = printValidation(resolve(args[0] ?? '.')); break;
-  case 'doctor': exitCode = doctor(resolve(args[0] ?? '.')); break;
+  case 'doctor': exitCode = await doctor(resolve(args[0] ?? '.')); break;
   case 'plan': exitCode = plan(args); break;
   case 'run': exitCode = await run(args); break;
   case 'harness-smoke': exitCode = await harnessSmoke(args); break;
