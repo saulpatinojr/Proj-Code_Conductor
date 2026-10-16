@@ -31,9 +31,10 @@ try {
   manifest.bugs = { url: 'https://github.com/saulpatinojr/Proj-Code_Conductor/issues' };
   delete manifest.private;
   // The extension and cc runtime are bundled, so Marketplace packages should
-  // not carry the workspace node_modules graph.
+  // not carry the workspace node_modules graph. @types/vscode stays so vsce
+  // still refuses API types newer than engines.vscode.
   delete manifest.dependencies;
-  delete manifest.devDependencies;
+  manifest.devDependencies = { '@types/vscode': manifest.devDependencies['@types/vscode'] };
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   const out = join(releaseRoot, `code-conductor-${manifest.version}.vsix`);

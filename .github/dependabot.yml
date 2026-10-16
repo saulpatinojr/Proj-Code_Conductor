@@ -9,6 +9,12 @@ updates:
     groups:
       development-dependencies:
         dependency-type: development
+    ignore:
+      # @types/vscode must not be newer than engines.vscode, or the extension can
+      # compile against APIs its oldest supported VS Code lacks (vsce refuses to
+      # package it). Raise both together, deliberately.
+      - dependency-name: '@types/vscode'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
   - package-ecosystem: github-actions
     directory: /
     schedule:

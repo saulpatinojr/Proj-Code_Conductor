@@ -136,6 +136,6 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.140.0"
+    "@types/vscode": "~1.105.0"
   }
 }
