@@ -9,6 +9,7 @@ import {
   isSensitiveContextPath,
   minifyPayload,
 } from '../../packages/context-optimizer/src/index.js';
+import { DESCRIPTOR_LOCATION_SUPPORTED } from '../../packages/context-optimizer/src/checked-read.js';
 
 function mode(path: string): number {
   return statSync(path).mode & 0o777;
@@ -121,7 +122,8 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('reads only workspace-scoped files and preserves authoritative context by default', () => {
+    // Reads succeed only where the opened file's location can be verified (checked-read.test.ts).
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('reads only workspace-scoped files and preserves authoritative context by default', () => {
       const tempDir = mkdtempSync(join(tmpdir(), 'cc-optimizer-file-'));
       const testFile = join(tempDir, 'test.yaml');
       const statsFile = join(tempDir, 'stats.json');
@@ -180,7 +182,7 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it.skipIf(process.platform === 'win32')('refuses a hard link, which can make a file from outside appear inside the workspace', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('refuses a hard link, which can make a file from outside appear inside the workspace', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-hardlink-root-'));
       const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-hardlink-outside-'));
       const secret = join(outside, 'private.txt');

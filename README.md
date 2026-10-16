@@ -98,7 +98,7 @@ List provider-native agents and skills (project and user scope, read-only), mark
 node packages/cli/dist/index.js agents --repo .
 ```
 
-Prepare a repository file as context after building. Reads are scoped to the supplied root and sensitive/state paths are blocked:
+Prepare a repository file as context after building. Reads are scoped to the supplied root and sensitive/state paths are blocked. File reads need Linux (including WSL), the only platform where the opened file's location can be verified ([ADR 0007](docs/adr/0007-context-optimization-boundary.md)):
 
 ```bash
 node packages/cli/dist/index.js compress README.md --root .

@@ -101,7 +101,7 @@ export function runMcpServer(): void {
             },
             {
               name: 'read_compressed_file',
-              description: 'Read a regular file under an allowed workspace root and prepare it as context. Sensitive files, oversized files, and path escapes are blocked.',
+              description: 'Read a regular file under an allowed workspace root and prepare it as context. Sensitive files, oversized files, hard links and path escapes are blocked. Available on Linux only; elsewhere, pass the content to compress_context.',
               inputSchema: {
                 type: 'object',
                 additionalProperties: false,
