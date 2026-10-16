@@ -28,7 +28,7 @@ Parallel work continues under #13 for the actual legacy corpus migration and #14
 - The context optimizer preserves comments/instructions by default, permits aggressive removal only explicitly, compacts valid JSON semantically, and does not inject provider-specific cache-control markup into core output.
 - Context file reads are restricted to approved workspace roots after canonical/symlink resolution and reject sensitive/state paths, non-regular files, and oversized inputs.
 - Context telemetry is owner-private on POSIX systems and token counts are explicitly estimates rather than provider billing/quota data.
-- The context optimizer is cataloged as a Code Conductor first-party **experimental** MCP adapter rather than a vendor-official/GA server, and catalog policy requires explicit first-party approval.
+- The context optimizer's experimental MCP adapter is not in the packaged catalog until W-006 validates it (I08, #40); catalog policy still requires explicit approval for Code Conductor first-party servers.
 - The repository-specific GitHub Copilot review skill is retained and aligned with Code Conductor's context/MCP boundaries.
 - Repository-scoped Copilot CLI MCP configuration is minimal under `.github/mcp.json`; the duplicate `.github/copilot-mcp.json`, transplanted Copilot setup workflow, and unused GitHub App token minter were removed because they duplicated platform-native paths and referenced infrastructure not owned by this repository.
 - GitHub Actions used by maintained workflows remain pinned to reviewed immutable commit SHAs; executable Ansible/Azure MCP package references remain pinned rather than floating.

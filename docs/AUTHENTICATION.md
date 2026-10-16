@@ -16,7 +16,7 @@ Separately billed model APIs are disabled by default. Prefer each user's existin
 | Kiro CLI | Kiro official authentication | Kiro Pro | Use Kiro CLI as Spec Lead and supported headless worker lane. Validate exact installed CLI auth/headless behavior before unattended use. |
 | Google / Antigravity | Google official sign-in/keyring | Google AI Pro | Use official Google execution lane. Do not reuse browser cookies or export consumer session credentials. |
 | Perplexity Pro | Perplexity consumer sign-in | Perplexity Pro | Human-in-the-loop research only. |
-| Perplexity MCP/API | Official API key | separately billed API | Disabled by default; enable only through explicit policy/consent. |
+| Perplexity MCP/API | Official API key | separately billed API | Disabled by default; enable only with your own key and an explicit `--allow-api` (below). |
 | Azure MCP/CLI | Microsoft Entra/Azure Identity | cloud account/IAM | Use user/service identity and RBAC; cloud writes remain policy-gated. |
 | AWS MCP/CLI | Official AWS identity/OAuth/IAM | cloud account/IAM | Use AWS permissions as source of authority; cloud writes remain policy-gated. |
 | Google Cloud MCP/CLI | Google Cloud IAM | cloud account/IAM | Use IAM as authority; enable only project-required toolsets. |

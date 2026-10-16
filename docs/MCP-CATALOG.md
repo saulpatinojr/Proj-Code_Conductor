@@ -23,16 +23,17 @@ Vendor-official MCP servers and explicitly approved Code Conductor first-party a
 The context optimizer's MCP transport is **not in the catalog**. Its server exists only in
 a source checkout, not in the packaged extension, and it stays experimental until W-006
 validates it against the official MCP TypeScript SDK (ADR 0007). Use its direct path,
-`cc compress`, instead. Catalog policy still allows Code Conductor first-party
-provenance, so a validated adapter can be listed again.
+`cc compress <file>`, instead; it reads files on Linux and WSL only (ADR 0007). Catalog
+policy still allows Code Conductor first-party provenance, so a validated adapter can be
+listed again.
 
 ## What selection means (I08, #40)
 
 `cc mcp [--repo <dir>] [--profiles <a,b>] [--allow-api]` lists the servers that match the
 repository's profiles. For each server it shows the publisher, whether it is
-vendor-official, its provenance, maturity, source and transport, its authentication, its
-default access, whether it is separately billed, and, where the catalog records one, the
-exact endpoint (or endpoint template) or pinned launch command. It is **selection only**:
+vendor-official, its provenance, maturity and source, its authentication, its default
+access and whether it is separately billed. Where the catalog records them, it also shows
+the transport and the exact endpoint (or endpoint template) or pinned launch command. It is **selection only**:
 
 - Code Conductor starts no MCP server and grants no authority. Each native client
   (Claude Code, Codex, Copilot, Kiro) activates, authenticates and authorizes its own
