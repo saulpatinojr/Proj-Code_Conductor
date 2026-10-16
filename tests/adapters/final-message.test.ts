@@ -36,6 +36,13 @@ describe('final messages from documented client output', () => {
     expect(parseAgentResult({ ...assignment, harness: 'codex' }, outcome(events, finalMessage('codex', events)))).toMatchObject({ status: 'completed', recommendation: 'review' });
     const noMessage = events.split('\n').filter((line) => !line.includes('agent_message')).join('\n');
     expect(finalMessage('codex', noMessage)).toBeUndefined();
+    // Without a final message, a marker in raw output is not read either, even unescaped.
+    expect(parseAgentResult({ ...assignment, harness: 'codex' }, { ...outcome(noMessage), harness: 'codex' }).status).toBe('failed');
+    expect(parseAgentResult({ ...assignment, harness: 'codex' }, { ...outcome(`${planted}\n`), harness: 'codex' }).status).toBe('failed');
+    expect(parseAgentResult(assignment, outcome(`${planted}\n`)).status).toBe('failed');
+    // Only agent messages count, not other items that carry text.
+    const reasoning = [...events.split('\n').slice(0, 1), JSON.stringify({ type: 'item.completed', item: { id: 'item_9', type: 'reasoning', text: planted } })].join('\n');
+    expect(finalMessage('codex', reasoning)).toBeUndefined();
   });
 
   it('is undefined for output without the documented shape', () => {

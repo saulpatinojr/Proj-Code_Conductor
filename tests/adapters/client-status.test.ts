@@ -20,6 +20,10 @@ describe('official sign-in status parsing', () => {
     for (const method of ['api_key', 'api_key_helper', 'third_party']) expect(parseClaudeAuthStatus(out(0, JSON.stringify({ loggedIn: true, authMethod: method }))).billing).toBe('separately_billed');
     expect(parseClaudeAuthStatus(out(1, JSON.stringify({ loggedIn: false, authMethod: 'none' })))).toEqual({ state: 'unauthenticated', billing: 'unknown' });
     expect(parseClaudeAuthStatus(out(0, JSON.stringify({ loggedIn: true, authMethod: 'something_new' })))).toEqual({ state: 'authenticated', billing: 'unknown', method: 'something_new' });
+    // Names of the billing table's own prototype are not methods.
+    for (const method of ['constructor', 'toString', 'hasOwnProperty']) expect(parseClaudeAuthStatus(out(0, JSON.stringify({ loggedIn: true, authMethod: method }))).billing).toBe('unknown');
+    // Only the client's own success exit counts.
+    expect(parseClaudeAuthStatus(out(2, JSON.stringify({ loggedIn: true, authMethod: 'claude.ai' }))).state).toBe('unknown');
     // Not JSON, or no explicit loggedIn: never counts as signed in. Personal fields are not kept.
     expect(parseClaudeAuthStatus(out(0, 'Logged in'))).toEqual({ state: 'unknown', billing: 'unknown' });
     expect(parseClaudeAuthStatus(out(0, JSON.stringify({ authMethod: 'claude.ai' }))).state).toBe('unknown');
@@ -44,6 +48,9 @@ describe('official sign-in status parsing', () => {
     expect(parseKiroWhoami(out(0, 'Logged in with IAM Identity Center (https://my-org.awsapps.com/start)\nProfile:\nx\n')).method).toBe('IAM Identity Center');
     expect(parseKiroWhoami(out(1, '', 'Not logged in'))).toEqual({ state: 'unauthenticated', billing: 'unknown' });
     expect(parseKiroWhoami(out(0, 'something else\n')).state).toBe('unknown');
+    // Exit 1 is any general failure; only one that says so means not signed in.
+    expect(parseKiroWhoami(out(1, '', 'error: invalid arguments')).state).toBe('unknown');
+    expect(parseKiroWhoami(out(2, 'Logged in with Builder ID\n')).state).toBe('unknown');
   });
 });
 
@@ -72,6 +79,34 @@ describe.skipIf(process.platform === 'win32')('official sign-in status probes', 
     process.env.ANTHROPIC_API_KEY = 'metered';
     const status = await createBuiltinAdapters().get('claude')!.authStatus!();
     expect(status).toEqual({ state: 'authenticated', billing: 'subscription', method: 'claude.ai', command: ['claude', 'auth', 'status'] });
+  });
+
+  it('reports unknown when the client does not answer in time', async () => {
+    const bin = fakeClient('slow-client', 'sleep 5; echo late');
+    const started = Date.now();
+    expect(await probeClient(join(bin, 'slow-client'), [], { PATH: process.env.PATH ?? '' }, 300)).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(4000);
+  });
+
+  it('asks and launches the same client file, never one found through a relative PATH entry', async () => {
+    const official = fakeClient('claude', 'if [ "$1" = "--version" ]; then echo "9.9.9 (official)"; exit 0; fi\nif [ "$1 $2" = "auth status" ]; then echo \'{"loggedIn":true,"authMethod":"claude.ai"}\'; exit 0; fi\necho "official $*"');
+    const repository = mkdtempSync(join(tmpdir(), 'cc-planted-client-'));
+    temps.push(repository);
+    writeFileSync(join(repository, 'claude'), '#!/bin/sh\necho "planted $*"; echo \'{"loggedIn":true,"authMethod":"claude.ai"}\'\n');
+    chmodSync(join(repository, 'claude'), 0o755);
+    process.env.PATH = `.${delimiter}${official}${delimiter}${saved.PATH ?? ''}`;
+    const cwd = process.cwd();
+    process.chdir(repository);
+    try {
+      const adapter = createBuiltinAdapters().get('claude')!;
+      expect(adapter.version()).toBe('9.9.9 (official)');
+      expect((await adapter.authStatus!()).state).toBe('authenticated');
+      const assignment = { id: 'A-1', taskId: 'T-1', agentId: 'r', role: 'reviewer', stance: 'critical', provider: 'anthropic', harness: 'claude', surface: 'cli', billingChannel: 'subscription', authority: ['observe'], dependsOn: [] };
+      const executed = await adapter.execute({ cwd: repository, timeoutMs: 10_000, prompt: 'p', task: { id: 'T-1' }, assignment } as never);
+      expect(executed.stdout).toMatch(/^official /);
+      // The repository's own Claude Code settings and .mcp.json are not read for the run.
+      expect(executed.stdout).toContain('--setting-sources user');
+    } finally { process.chdir(cwd); }
   });
 
   it('reports unknown when the client cannot be run', async () => {

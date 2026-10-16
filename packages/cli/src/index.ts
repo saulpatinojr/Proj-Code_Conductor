@@ -92,7 +92,7 @@ async function doctor(root: string): Promise<number> {
     }
     for (const mode of ['read', 'modify'] as const) {
       const record = state.harnesses[`${id}@${adapter.executionSurface}`];
-      const trusted = workstation.isTrusted(id, mode, adapter.executionSurface, version ?? '');
+      const trusted = workstation.isTrusted(id, mode, adapter.executionSurface, version);
       if (trusted) console.log(`OK trusted ${id} ${mode}: smoke test passed for ${printable(version ?? '')}`);
       else console.log(`INFO trusted ${id} ${mode}: ${record?.clientVersion && record.clientVersion !== version && (record.readValidatedAt || record.modifyValidatedAt) ? `smoke test passed for ${printable(record.clientVersion)}, not the installed version; ` : ''}run \`cc harness-smoke ${id} --mode ${mode}\``);
     }
@@ -152,7 +152,7 @@ async function run(args: string[]): Promise<number> {
   if (!objective) { console.error('ERROR run.objective_required: --objective is required.'); return 2; }
   const execute = args.includes('--execute'); const workstation = new WorkstationStore();
   const task = createTask(objective, risk, root, listOption(args, '--specializations'));
-  const outcome = await executeTask(root, task, { execute, keepWorktrees: !args.includes('--cleanup-worktrees'), isHarnessTrusted: (harness, mode, surface, clientVersion) => workstation.isTrusted(harness, mode, surface, clientVersion ?? ''), approver: new TerminalApprover(), ...(listOption(args, '--gate-profiles').length ? { gateProfiles: listOption(args, '--gate-profiles') } : {}) });
+  const outcome = await executeTask(root, task, { execute, keepWorktrees: !args.includes('--cleanup-worktrees'), isHarnessTrusted: (harness, mode, surface, clientVersion) => workstation.isTrusted(harness, mode, surface ?? 'cli', clientVersion), approver: new TerminalApprover(), ...(listOption(args, '--gate-profiles').length ? { gateProfiles: listOption(args, '--gate-profiles') } : {}) });
   console.log(JSON.stringify({ runId: outcome.plan.runId, execute, manifestPath: outcome.manifestPath, mergeDecision: outcome.manifest.mergeDecision, assignments: outcome.plan.assignments.map((a) => ({ role: a.role, harness: a.harness, surface: a.surface, stance: a.stance, authority: a.authority })), approvals: (outcome.manifest.approvals ?? []).map((a) => ({ action: a.action, recipient: a.recipient, status: a.status, requestDigest: a.requestDigest })), nextActions: nextActions(outcome.manifest, { worktreeRoot: defaultWorktreeRoot() }).map(presentAction), pendingExternal: outcome.pendingExternal.map((a) => a.id), worktrees: outcome.worktrees.map((w) => ({ path: w.path, branch: w.branch, baseSha: w.baseSha })) }, null, 2));
   return outcome.manifest.mergeDecision && outcome.manifest.mergeDecision.decision !== 'ready' ? 1 : 0;
 }
@@ -174,7 +174,7 @@ async function harnessSmoke(args: string[]): Promise<number> {
       console.error('BLOCKED: Kiro ACP smoke may consume Kiro subscription credits. Read the current Kiro subscription/automation policy and rerun with --ack-kiro-policy only if this ACP-compatible development workflow is permitted for your account/use case.');
       return 1;
     }
-    if (mode === 'modify' && !workstation.isTrusted('kiro', 'read', 'acp', adapter.version() ?? '')) {
+    if (mode === 'modify' && !workstation.isTrusted('kiro', 'read', 'acp', adapter.version())) {
       console.error('BLOCKED: Run and pass the Kiro ACP read smoke (for the installed version) before attempting modify smoke.');
       return 1;
     }
@@ -186,6 +186,8 @@ async function harnessSmoke(args: string[]): Promise<number> {
     if (auth.billing !== 'subscription') { console.error(`BLOCKED: ${harness} is signed in with ${printable(auth.method ?? 'an unrecognised method')}, which ${auth.billing === 'separately_billed' ? 'is billed separately from your subscription' : 'Code Conductor cannot confirm as subscription billing'}. Sign in with your subscription first.`); return 1; }
   }
 
+  // Trust is recorded for the version that ran, so it must not change during the test.
+  const clientVersion = adapter.version();
   const root = mkdtempSync(join(tmpdir(), 'cc-smoke-')); const workspace = join(root, 'workspace');
   try {
     spawnSync('git', ['init', workspace], { stdio: 'ignore' });
@@ -202,7 +204,8 @@ async function harnessSmoke(args: string[]): Promise<number> {
       : outcome.exitCode === 0;
     const ok = processOk && parsed.status === 'completed' && writeOk;
     if (!ok) { console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} changed=${changed.join(',') || 'none'}`); return 1; }
-    workstation.record(harness, mode, adapter.version(), `Temporary ${mode} smoke passed on ${adapter.executionSurface} without storing credentials.`, adapter.executionSurface);
+    if (adapter.version() !== clientVersion) { console.error(`SMOKE FAIL ${harness}: the client changed during the smoke test (${printable(clientVersion ?? 'no version')} before, ${printable(adapter.version() ?? 'no version')} after); run it again.`); return 1; }
+    workstation.record(harness, mode, clientVersion, `Temporary ${mode} smoke passed on ${adapter.executionSurface} without storing credentials.`, adapter.executionSurface);
     console.log(`SMOKE PASS ${harness} ${adapter.executionSurface} ${mode}`); return 0;
   } finally { rmSync(root, { recursive: true, force: true }); }
 }

@@ -65,15 +65,15 @@ export class WorkstationStore {
   }
 
   /**
-   * Whether the harness passed the smoke test for this mode on this surface. With the
-   * installed client's version, also that the smoke test ran against that version: an
-   * upgrade can change the client's sandbox and permission behaviour, so trust does not
-   * carry over to it.
+   * Whether the harness passed the smoke test for this mode on this surface, against the
+   * installed client's version: an upgrade can change the client's sandbox and permission
+   * behaviour, so trust does not carry over to it. A client whose version is unknown is
+   * never trusted.
    */
-  isTrusted(harness: string, mode: HarnessTrustMode, surface = 'cli', clientVersion?: string): boolean {
+  isTrusted(harness: string, mode: HarnessTrustMode, surface: string, clientVersion: string | undefined): boolean {
     const record = this.load().harnesses[trustKey(harness, surface)];
     const validated = mode === 'read' ? Boolean(record?.readValidatedAt || record?.modifyValidatedAt) : Boolean(record?.modifyValidatedAt);
-    return validated && (clientVersion === undefined || record?.clientVersion === clientVersion);
+    return validated && Boolean(clientVersion) && record?.clientVersion === clientVersion;
   }
 
   record(harness: string, mode: HarnessTrustMode, clientVersion?: string, note?: string, surface = 'cli'): void {
@@ -81,8 +81,9 @@ export class WorkstationStore {
     const key = trustKey(harness, surface);
     const existing = state.harnesses[key] ?? {};
     const now = new Date().toISOString();
-    // A smoke test on another client version invalidates what was validated before it.
-    if (existing.clientVersion !== undefined && existing.clientVersion !== clientVersion) {
+    // A smoke test on another client version, or with none known, invalidates what was
+    // validated before it.
+    if (existing.clientVersion !== clientVersion) {
       delete existing.readValidatedAt;
       delete existing.modifyValidatedAt;
     }

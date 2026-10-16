@@ -7,7 +7,8 @@ const assignment: AgentAssignment = {
 };
 
 function outcome(stdout: string, exitCode = 0) {
-  return { harness: 'codex', surface: 'cli' as const, command: 'codex', args: [], exitCode, signal: null, stdout, stderr: '', startedAt: '', finishedAt: '', timedOut: false } as const;
+  // Codex's final agent message, as the adapter extracts it from `exec --json`.
+  return { harness: 'codex', surface: 'cli' as const, command: 'codex', args: [], exitCode, signal: null, stdout, message: stdout, stderr: '', startedAt: '', finishedAt: '', timedOut: false } as const;
 }
 
 describe('agent result parsing', () => {

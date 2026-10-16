@@ -1,11 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
-import { KILL_GRACE_MS, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
+import { KILL_GRACE_MS, resolveExecutable, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
 import { withoutGitLocalEnv } from '@code-conductor/git';
 import { officialAuthStatus, type ClientAuthStatus } from './client-status.js';
 
@@ -37,6 +37,9 @@ export interface HarnessExecutionOutcome {
   message?: string;
 }
 
+/** Harnesses whose documented machine-readable output carries a final message. */
+export function hasFinalMessage(harness: string): boolean { return harness === 'claude' || harness === 'codex'; }
+
 /**
  * The final message from a client's documented machine-readable output, so only what
  * the model said last is read for its result, never tool or command output:
@@ -47,6 +50,7 @@ export interface HarnessExecutionOutcome {
  * Undefined when the output does not have that shape.
  */
 export function finalMessage(harness: string, stdout: string): string | undefined {
+  if (!hasFinalMessage(harness)) return undefined;
   const parse = (text: string): unknown => { try { return JSON.parse(text) as unknown; } catch { return undefined; } };
   if (harness === 'claude') {
     const value = parse(stdout.trim()) as { result?: unknown } | undefined;
@@ -77,17 +81,24 @@ export interface HarnessAdapter {
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome>;
 }
 
-function commandExists(command: string): boolean {
-  const probe = process.platform === 'win32' ? 'where' : 'which';
-  return spawnSync(probe, [command], { stdio: 'ignore' }).status === 0;
+/**
+ * The one file a client command runs as: an absolute path as given, or a plain name found
+ * on absolute PATH entries only. The version probe, the sign-in probe and the launch all
+ * use it, so they cannot reach different programs: a relative entry such as
+ * `node_modules/.bin`, an empty entry, or (on Windows) the working directory would
+ * otherwise resolve against the repository a client runs in.
+ */
+function clientExecutable(command: string): string | undefined {
+  if (isAbsolute(command)) return existsSync(command) ? command : undefined;
+  return resolveExecutable(command).path;
 }
 
 // Like the sign-in status probe: no repository, so a repository's own client
 // configuration cannot change what the client reports.
-function commandVersion(command: string): string | undefined {
+function commandVersion(executable: string): string | undefined {
   const directory = mkdtempSync(join(tmpdir(), 'cc-probe-'));
   try {
-    const result = spawnSync(command, ['--version'], { cwd: directory, env: providerEnvironment(), encoding: 'utf8', shell: false, timeout: 15000, maxBuffer: 64 * 1024 });
+    const result = spawnSync(executable, ['--version'], { cwd: directory, env: providerEnvironment(), encoding: 'utf8', shell: false, timeout: 15000, maxBuffer: 64 * 1024, windowsHide: true });
     return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
@@ -151,9 +162,15 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
     case 'codex':
       return ['exec', '--json', '--ask-for-approval', 'never', '--sandbox', writeAllowed ? 'workspace-write' : 'read-only', '--cd', request.cwd, request.prompt];
     case 'claude':
+      // --setting-sources user: the repository's .claude/settings*.json and .mcp.json are
+      // not read. Under -p Claude Code would otherwise apply their env block, apiKeyHelper
+      // and hooks without a trust prompt, so a repository could switch a subscription run
+      // to its own credential or endpoint after the sign-in check, which sees only your
+      // user and managed settings (https://code.claude.com/docs/en/permissions, "What
+      // runs before you trust a folder"). CLAUDE.md and skills still load.
       return writeAllowed
-        ? ['-p', '--output-format', 'json', '--permission-mode', 'acceptEdits', '--max-turns', '40', request.prompt]
-        : ['-p', '--output-format', 'json', '--permission-mode', 'plan', '--max-turns', '20', request.prompt];
+        ? ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'acceptEdits', '--max-turns', '40', request.prompt]
+        : ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '20', request.prompt];
     default:
       return [request.prompt];
   }
@@ -162,15 +179,17 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
 class SubprocessAdapter implements HarnessAdapter {
   readonly executionSurface: HarnessExecutionSurface = 'cli';
   constructor(public readonly id: string, public readonly provider: string, public readonly command: string) {}
-  available(): boolean { return commandExists(this.command); }
-  version(): string | undefined { return this.available() ? commandVersion(this.command) : undefined; }
+  available(): boolean { return clientExecutable(this.command) !== undefined; }
+  version(): string | undefined { const executable = clientExecutable(this.command); return executable ? commandVersion(executable) : undefined; }
   invocation(request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: this.command, args: argsFor(this.id, request) }; }
-  authStatus(): Promise<ClientAuthStatus> { return officialAuthStatus(this.id, this.command, providerEnvironment()); }
+  authStatus(): Promise<ClientAuthStatus> { return officialAuthStatus(this.id, this.command, providerEnvironment(), clientExecutable(this.command)); }
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const args = argsFor(this.id, request);
     const startedAt = new Date().toISOString();
+    const executable = clientExecutable(this.command);
+    if (!executable) return Promise.reject(new Error(`${this.command} was not found on an absolute PATH entry.`));
     return new Promise((resolve, reject) => {
-      const child = spawnIsolated(this.command, args, { cwd: request.cwd, env: providerEnvironment(), stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+      const child = spawnIsolated(executable, args, { cwd: request.cwd, env: providerEnvironment(), stdio: ['ignore', 'pipe', 'pipe'], shell: false });
       let stdout = '';
       let stderr = '';
       let timedOut = false;
@@ -236,16 +255,18 @@ export class KiroAcpAdapter implements HarnessAdapter {
     this.command = options.command ?? 'kiro-cli';
     this.args = options.args ?? ['acp'];
     this.env = options.env ?? providerEnvironment();
-    if (this.command === 'kiro-cli') this.authStatus = () => officialAuthStatus('kiro', this.command, this.env);
+    if (this.command === 'kiro-cli') this.authStatus = () => officialAuthStatus('kiro', this.command, this.env, clientExecutable(this.command));
   }
 
-  available(): boolean { return commandExists(this.command); }
-  version(): string | undefined { return this.command === 'kiro-cli' && this.available() ? commandVersion(this.command) : undefined; }
+  available(): boolean { return clientExecutable(this.command) !== undefined; }
+  version(): string | undefined { const executable = this.command === 'kiro-cli' ? clientExecutable(this.command) : undefined; return executable ? commandVersion(executable) : undefined; }
   invocation(_request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: this.command, args: [...this.args] }; }
 
   async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const startedAt = new Date().toISOString();
-    const child = spawnIsolated(this.command, this.args, { cwd: request.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    const executable = clientExecutable(this.command);
+    if (!executable) throw new Error(`${this.command} was not found on an absolute PATH entry.`);
+    const child = spawnIsolated(executable, this.args, { cwd: request.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     const spawnFailure = new Promise<never>((_, reject) => child.once('error', reject));
     if (!child.stdin || !child.stdout || !child.stderr) {
       child.kill('SIGTERM');

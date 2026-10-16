@@ -281,7 +281,8 @@ describe('pre-action approval enforcement (#44)', () => {
           execFileSync('git', ['update-index', '--refresh'], { cwd: request.cwd, stdio: 'ignore' });
           rewriteKeepingTimes(file, (text) => text.replace('fixture', 'FIXTURE'));
           const payload = { status: 'completed', changes: ['README.md'], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: 'review' };
-          return { harness: this.id, surface: this.executionSurface, command: 'fake', args: [], exitCode: 0, signal: null, stdout: `CC_RESULT_JSON:${JSON.stringify(payload)}\n`, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
+          const message = `CC_RESULT_JSON:${JSON.stringify(payload)}\n`;
+          return { harness: this.id, surface: this.executionSurface, command: 'fake', args: [], exitCode: 0, signal: null, stdout: message, message, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
         }
         return super.execute(request);
       }

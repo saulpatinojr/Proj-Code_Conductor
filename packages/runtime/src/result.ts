@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { validateContract, type AgentAssignment, type AgentResult, type Evidence } from '@code-conductor/schemas';
-import type { HarnessExecutionOutcome } from '@code-conductor/adapters';
+import { hasFinalMessage, type HarnessExecutionOutcome } from '@code-conductor/adapters';
 
 const marker = 'CC_RESULT_JSON:';
 
@@ -33,12 +33,13 @@ function fallbackResult(assignment: AgentAssignment, outcome: HarnessExecutionOu
 }
 
 /**
- * The agent's result from the last `CC_RESULT_JSON:` line of its final message. When the
- * adapter extracted the client's final message from its machine-readable output, only
- * that message is read; tool and command output cannot supply a result.
+ * The agent's result from the last `CC_RESULT_JSON:` line of its final message. For a
+ * client whose machine-readable output carries a final message (Claude Code, Codex),
+ * only that message is read, and output without one has no result: tool and command
+ * output, which share stdout, can never supply it.
  */
 export function parseAgentResult(assignment: AgentAssignment, outcome: HarnessExecutionOutcome): AgentResult {
-  const text = outcome.message ?? outcome.stdout;
+  const text = outcome.message ?? (hasFinalMessage(outcome.harness) ? '' : outcome.stdout);
   const markerIndex = text.lastIndexOf(marker);
   if (markerIndex >= 0) {
     const raw = text.slice(markerIndex + marker.length).trim().split(/\r?\n/)[0] ?? '';

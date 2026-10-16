@@ -83,6 +83,17 @@ How the checks work:
   private temporary directory, so a repository's own client configuration cannot change
   the answer. They use the provider environment, so a variable Code Conductor removes
   does not count. They have a 15-second timeout and bounded output.
+- **The run sees what the probe saw.** Claude Code starts with `--setting-sources user`,
+  so a repository's `.claude/settings.json`, `.claude/settings.local.json` and
+  `.mcp.json` are not read. Under `claude -p` they would otherwise apply without a trust
+  prompt, including an `env` block, `apiKeyHelper` and hooks, which could switch a
+  subscription run to the repository's own credential or endpoint after the check
+  ([what runs before you trust a folder](https://code.claude.com/docs/en/permissions#what-runs-before-you-trust-a-folder)).
+  Your user and managed settings, `CLAUDE.md` and skills still apply.
+- **The same client file throughout.** The version probe, the sign-in probe and the
+  launch all run the one file the command resolves to on an absolute `PATH` entry. A
+  relative entry such as `node_modules/.bin`, an empty entry, or (on Windows) the working
+  directory could otherwise point the launch at a program in the repository.
 - **Only three things are kept:** the state, the billing class and the client's short
   name for the method. Email addresses, organisations and the masked key Codex prints
   are not.
@@ -99,13 +110,16 @@ How the checks work:
   that is not documented, a probe that fails or times out, and a version that cannot be
   read.
 - **Trust is bound to the client version.** After an upgrade, run the smoke tests
-  again. A smoke test on a new version also clears what an older version had passed.
+  again. A smoke test on a new version also clears what an older version had passed. A
+  client whose version cannot be read is never trusted. A smoke test is not recorded
+  when the version changes while it runs.
 
 Results are read the same way. A provider's result is read only from its client's final
 message in the documented machine-readable output: Claude Code's `result` field
 ([headless](https://code.claude.com/docs/en/headless)), and Codex's last `agent_message`
 event ([non-interactive mode](https://developers.openai.com/codex/non-interactive-mode)).
-Tool and command output can never supply one.
+Tool and command output can never supply one, and output without that final message
+has no result.
 
 Limits:
 
@@ -113,7 +127,18 @@ Limits:
   unrecognised and blocks until Code Conductor learns it.
 - **Codex methods that are not recognised as subscription billing:** access token,
   personal access token and workload identity.
-- **Kiro's JSON output is not documented**, so its plain output is read instead.
+- **Kiro's JSON output shape is not documented** (`whoami --format json` exists), so
+  its plain output is read instead. Exit 1 is a general failure, so only one that says
+  it is not logged in counts as signed out; any other is unrecognised.
+- **Your own Codex configuration can still choose billing.** In `~/.codex/config.toml`,
+  `model_provider`, a provider's `env_key` or an `auth` command make `codex exec` bill
+  another provider, while `codex login status` reports the stored sign-in only.
+  Repository configuration cannot set these keys
+  ([config reference](https://developers.openai.com/codex/config-reference)). Leave them
+  unset for subscription runs.
+- **Repository-supplied Claude Code project settings and MCP servers do not apply to
+  runs.** Put what a run needs in your user settings, or hand the assignment off and run
+  it in the client yourself.
 
 Potential billing-changing environment variables should trigger warnings, for example API-key variables for AI providers when repository policy is `subscription_first` and `allow_separately_billed_api: false`. Code Conductor also removes these credentials, and the variables that select a separately billed provider or endpoint (such as `CLAUDE_CODE_USE_BEDROCK` or `ANTHROPIC_BASE_URL`), from the environment of the provider clients it starts. The full list, and what it cannot cover (credentials a client reads from its own configuration), is in [`WORKTREES.md`](WORKTREES.md#provider-environment).
 
