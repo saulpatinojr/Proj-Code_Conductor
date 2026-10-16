@@ -60,9 +60,14 @@ already name its bundled runtime:
 node '<extension folder>/dist/cc.js' worktrees --remove-clean
 ```
 
-The extension folder is in VS Code's extensions directory (for example
-`~/.vscode/extensions/<publisher>.code-conductor-vscode-<version>`). Command lines shown
+The extension folder is in VS Code's extensions directory, for example
+`~/.vscode/extensions/<publisher>.code-conductor-vscode-<version>`. On a remote host (SSH,
+WSL, Dev Containers) it is under `~/.vscode-server/extensions` there. Command lines shown
 elsewhere in these docs as `cc <command>` mean the same thing.
+
+On Windows the extension formats copied commands for PowerShell. A command whose values
+PowerShell would not pass on exactly is not offered for copying; use the native surface
+the step names instead.
 
 ## Update
 
@@ -81,11 +86,16 @@ You can also uninstall from the Extensions view.
 Uninstalling removes the extension only. Code Conductor never uploads anything, and it
 leaves your data where it is:
 
-- `~/.code-conductor/` (or `$CODE_CONDUCTOR_HOME`):
+- `~/.code-conductor/`, or `$CODE_CONDUCTOR_HOME` if you set it:
   - `runs/`: manifests, events, approvals and handoff packets;
   - `worktrees/`: agent worktrees;
-  - `workstation.json`: smoke-test trust;
-  - `config.json`: your preferences.
+  - `workstation.json`: smoke-test trust (or the file `$CODE_CONDUCTOR_WORKSTATION_STATE`
+    names);
+  - `context-optimization-stats.json`: local context-preparation estimates.
+- `~/.code-conductor/config.json`: your preferences. It is always read from your home
+  folder, even when `$CODE_CONDUCTOR_HOME` is set.
+- `.code-conductor/config.json` in a repository: that workspace's preferences, if you
+  created any.
 - `cc/…` branches in your repositories, which hold any agent commits.
 - VS Code's per-workspace state for the extension: a non-secret discovery cache.
 
@@ -94,7 +104,8 @@ To remove everything, do this **before** uninstalling:
 1. Run `worktrees --remove-clean`. Review and remove any other worktrees with
    `git worktree remove`.
 2. Delete the `cc/…` branches you no longer need with `git branch -D`.
-3. Delete `~/.code-conductor/`.
+3. Delete `~/.code-conductor/`, and `$CODE_CONDUCTOR_HOME` or
+   `$CODE_CONDUCTOR_WORKSTATION_STATE` if you set them.
 
 Code Conductor stores no credentials. Sign-in state stays in each official client and is
 removed through that client (for example `claude auth logout`, `codex logout` or
@@ -105,9 +116,11 @@ removed through that client (for example `claude auth logout`, `codex logout` or
 CI's release preflight checks the package itself:
 
 1. It packages the `.vsix` and unpacks it outside the checkout, as VS Code installs it.
-2. It requires the package to hold exactly the files a release ships: the two bundles,
-   the defaults, the schema, the icon, the manifest, the README, the changelog and the
-   licence.
+   Packaging includes only the `files` that `apps/vscode/package.json` lists: the two
+   bundles, the defaults, the schema, the icon, the README, the changelog and the
+   licence (vsce adds the manifest).
+2. It requires the unpacked package to hold only regular files that match the release
+   allowlist, and every required file.
 3. It runs the bundled runtime from that copy against an unrelated empty folder, with a
    fresh home and no `node_modules`. The runtime must validate its packaged defaults,
    report the packaged version, and leave the folder untouched.

@@ -25,6 +25,8 @@ export interface NextAction {
 export interface NextActionOptions {
   /** Only worktrees under this directory are offered for native review (imported manifests may name arbitrary paths). */
   worktreeRoot?: string;
+  /** The shell commands will be pasted into; commands that cannot be pasted into it exactly are withheld. */
+  shell?: CommandShell;
 }
 
 /**
@@ -76,14 +78,32 @@ export function formatCommand(argv: readonly string[], shell: CommandShell = DEF
   }).join(' ');
 }
 
-/** Only commands whose every argument can be shown and quoted exactly are presented. */
-function presentable(commands: string[][]): string[][] | undefined {
-  return commands.every((argv) => argv.every((arg) => typeof arg === 'string' && !UNSAFE_DISPLAY.test(arg))) ? commands : undefined;
+// PowerShell's stop-parsing token. However it is quoted, PowerShell passes the rest of
+// the line on raw: re-split into new arguments and with %NAME% replaced by environment
+// values (about_Parsing). It is never a legitimate value here, on any platform.
+const STOP_PARSING = /^--%/;
+
+/**
+ * Whether an argument, once quoted by formatCommand, reaches the program as exactly that
+ * one argument when pasted into `shell`. Windows PowerShell 5.1 passes arguments to
+ * native programs by legacy rules that do not escape an embedded double quote, or the
+ * trailing backslash of an argument it wraps in quotes for containing a space, so either
+ * can split or merge arguments there.
+ */
+function copyable(arg: unknown, shell: CommandShell): boolean {
+  if (typeof arg !== 'string' || UNSAFE_DISPLAY.test(arg) || STOP_PARSING.test(arg)) return false;
+  return shell !== 'powershell' || !(arg.includes('"') || (/\s/.test(arg) && arg.endsWith('\\')));
+}
+
+/** Only commands whose every argument can be shown and pasted exactly are presented. */
+function present(action: NextAction, shell: CommandShell): NextAction {
+  if (!action.commands || action.commands.every((argv) => argv.every((arg) => copyable(arg, shell)))) return action;
+  const { commands: _withheld, ...rest } = action;
+  return { ...rest, detail: `${action.detail} (The command is not shown because a value from the run record cannot be shown or pasted exactly; use the native surface directly.)` };
 }
 
 function withCommands(action: Omit<NextAction, 'commands'>, commands: string[][]): NextAction {
-  const safe = presentable(commands);
-  return safe ? { ...action, commands: safe } : { ...action, detail: `${action.detail} (The command is not shown because a value from the run record contains control characters; use the native surface directly.)` };
+  return { ...action, commands };
 }
 
 const PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
@@ -246,5 +266,6 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
   } else if (manifest.mergeDecision?.decision === 'human_required' && !actions.some((action) => action.kind === 'approve_interactively' || action.kind === 'decide' || action.kind === 'manual_handoff' || action.kind === 'github_review' || action.kind === 'inspect_git_configuration')) {
     actions.push({ kind: 'decide', title: 'Human decision required', detail: manifest.mergeDecision.rationale, surface: 'github', evidenceIds: manifest.mergeDecision.evidenceIds });
   }
-  return actions;
+  const shell = options.shell ?? DEFAULT_SHELL;
+  return actions.map((action) => present(action, shell));
 }

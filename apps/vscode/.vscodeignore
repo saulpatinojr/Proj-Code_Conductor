@@ -1,9 +1,0 @@
-src/**
-tsconfig.json
-tsconfig.tsbuildinfo
-node_modules/**
-**/*.map
-# Only the two bundles run; per-file tsc output and declarations are build leftovers.
-dist/**
-!dist/extension.js
-!dist/cc.js

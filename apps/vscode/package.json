@@ -17,6 +17,17 @@
     "onCommand:codeConductor.doctor"
   ],
   "main": "./dist/extension.js",
+  "files": [
+    "dist/extension.js",
+    "dist/cc.js",
+    "defaults/*.yaml",
+    "defaults/manifest.json",
+    "schema/contracts.schema.json",
+    "media/conductor.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "extensionKind": [
     "workspace"
   ],

