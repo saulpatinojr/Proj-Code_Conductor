@@ -68,7 +68,8 @@ With `--create`, in an interactive terminal:
      other letter case) is fine;
    - the base commit is not on a branch of the remote as of your last fetch. The push
      would also publish it and any unpushed commits before it, which the preview does
-     not list or scan. Push them yourself first;
+     not list or scan. Push them yourself first. This reads your remote-tracking
+     branches, which anything that can write the repository's refs can also create;
    - any commit since the base touched a sensitive path, even one removed again;
    - any file version, or any file or directory name, in those commits adds a
      credential-looking string, or is past the credential-scan budget

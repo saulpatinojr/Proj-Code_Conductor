@@ -7,7 +7,7 @@ import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/ad
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -402,6 +402,10 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
                 // Shown files, the sensitive-path check and the bound tree come from one snapshot.
                 const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
                 assertSafeChangedPaths(files);
+                // A nested repository Git did not report as one (for example under paths the
+                // agent staged) would be recorded as a gitlink, which Git then enters.
+                const links = newGitlinks(handle.path, handle.baseSha, state.tree);
+                if (links.length) throw new Error(`the change adds nested Git repositories (${links.join(', ')}), which Code Conductor never commits. Inspect them yourself`);
                 const scan = scanForNewSecrets(handle.path, handle.baseSha, state.tree);
                 if (scan.findings.length) throw new Error(`possible credentials in changed files (${describeSecrets(scan.findings)}). Remove them, or commit yourself after review if they are not secrets`);
                 if (scan.unscanned.length) throw new Error(`${describeUnscanned(scan.unscanned)}. Review them and commit yourself`);

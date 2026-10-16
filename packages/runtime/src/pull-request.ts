@@ -109,8 +109,7 @@ function pullRequestBody(manifest: RunManifest, plan: Pick<PullRequestPlan, 'ass
   if (notVerified.length) lines.push('', `Not verified by the agents: ${notVerified.map(literal).join('; ')}`);
   const risks = [...new Set(manifest.results.flatMap((result) => result.risks))];
   if (risks.length) lines.push('', `Reported risks: ${risks.map(literal).join('; ')}`);
-  const body = lines.join('\n');
-  return body.length > MAX_BODY ? `${body.slice(0, MAX_BODY)}\n\n[Truncated; the full run evidence stays in the local Code Conductor run store.]` : body;
+  return lines.join('\n');
 }
 
 /**
@@ -150,7 +149,9 @@ export function planPullRequest(manifest: RunManifest, options: PullRequestOptio
   const title = redactSecrets(oneLine(options.title ?? `Code Conductor: ${manifest.task.objective}`).slice(0, MAX_TITLE) || `Code Conductor run ${manifest.runId}`);
   const base = options.base ?? 'main';
   const partial = { assignmentId: record.assignmentId, branch: record.branch, baseSha: record.baseSha, head, commits: history.commits, files };
-  const body = redactSecrets(pullRequestBody(manifest, partial));
+  // Redacted before it is shortened, so a credential cut in two cannot slip past the patterns.
+  const full = redactSecrets(pullRequestBody(manifest, partial));
+  const body = { ...full, text: full.text.length > MAX_BODY ? `${full.text.slice(0, MAX_BODY)}\n\n[Truncated; the full run evidence stays in the local Code Conductor run store.]` : full.text };
   return {
     runId: manifest.runId, taskId: manifest.task.id, ...partial, path: record.path,
     remote, fetchUrl: redactUrl(fetch), pushUrl: push.length === 1 ? redactUrl(push[0]!) : '', pushUrls: push.map(redactUrl), pushUrlDigest: sha256(push.join('\n')), repository, base,

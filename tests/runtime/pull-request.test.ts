@@ -268,6 +268,17 @@ describe('draft pull request destination and content (#35 review)', () => {
     expect(plan.body).toContain('` builder \\| injected (openai/codex) `');
   });
 
+  it('redacts before shortening a long body, so a credential cut in two is still removed', () => {
+    const setup = fixture();
+    setup.manifest.results[0]!.risks = ['MARKER'];
+    const offset = planPullRequest(setup.manifest).body.indexOf('MARKER');
+    setup.manifest.results[0]!.risks = [`${'x'.repeat(60_000 - offset - 11)} ${synthetic.github}`];
+    const plan = planPullRequest(setup.manifest);
+    expect(plan.body).toContain('[Truncated;');
+    expect(plan.body).not.toContain('ghp_');
+    expect(plan.redacted).toBe(1);
+  });
+
   it('refuses a credential-looking file name, without repeating it', async () => {
     const setup = fixture((worktree) => { writeFileSync(join(worktree, `${synthetic.github}.txt`), 'x\n'); git(worktree, 'add', '.'); commit(worktree, 'named'); });
     const refusals = planPullRequest(setup.manifest).refusals.join(' ');

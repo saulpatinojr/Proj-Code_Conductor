@@ -494,6 +494,30 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(seen.some((request) => request.action === 'commit')).toBe(false);
   });
 
+  it('never commits a nested repository Git did not report, for example one under paths the agent staged', async () => {
+    class Concealer extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          const nested = join(request.cwd, 'sub');
+          git(request.cwd, 'init', '-q', 'sub');
+          writeFileSync(join(nested, 'lib.txt'), 'lib\n');
+          git(nested, 'add', 'lib.txt');
+          git(nested, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'lib');
+          // An outer index entry under its directory hides it from `ls-files --others`.
+          const blob = git(request.cwd, 'hash-object', '-w', join(request.cwd, 'README.md'));
+          git(request.cwd, 'update-index', '--add', '--cacheinfo', `100644,${blob},sub/hidden.txt`);
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new Concealer('codex', 'openai') });
+    const builder = outcome.manifest.results[0];
+    expect(builder?.status).toBe('blocked');
+    expect(builder?.blockers.join(' ')).toContain('adds nested Git repositories (sub)');
+    expect(git(outcome.worktrees[0]!.path, 'rev-list', '--count', `${outcome.worktrees[0]!.baseSha}..HEAD`)).toBe('0');
+  });
+
   it('leads commit summaries with how many files can change what later runs', async () => {
     class ConfigFiles extends CountingAdapter {
       override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {

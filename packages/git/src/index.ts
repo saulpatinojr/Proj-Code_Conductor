@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { resolveExecutable } from '@code-conductor/core/processes';
+import { absolutePathEnvironment, resolveExecutable } from '@code-conductor/core/processes';
 
 export interface WorktreeHandle {
   repositoryRoot: string;
@@ -91,7 +91,8 @@ interface RunGitOptions { env?: NodeJS.ProcessEnv; input?: string; maxBuffer?: n
 function runGit(cwd: string, args: readonly string[], options: RunGitOptions & { encoding: 'utf8' }): SpawnSyncReturns<string>;
 function runGit(cwd: string, args: readonly string[], options?: RunGitOptions): SpawnSyncReturns<Buffer>;
 function runGit(cwd: string, args: readonly string[], options: RunGitOptions & { encoding?: 'utf8' } = {}): SpawnSyncReturns<string | Buffer> {
-  const env = options.env ?? withoutGitLocalEnv();
+  // Programs Git starts itself (ssh, filters, credential helpers) follow the same rule.
+  const env = absolutePathEnvironment(options.env ?? withoutGitLocalEnv());
   return spawnSync(gitExecutable(env), [...SAFE_GIT, ...args], { cwd, env, shell: false, windowsHide: true, maxBuffer: options.maxBuffer ?? MAX_GIT_OUTPUT, ...(options.input !== undefined ? { input: options.input } : {}), ...(options.encoding ? { encoding: options.encoding } : {}) });
 }
 
@@ -569,6 +570,14 @@ export function treeChangedFiles(path: string, from: string, toTree: string): st
   return git(path, ['diff-tree', '-r', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', from, toTree]).split('\0').filter(Boolean).sort();
 }
 
+/** Paths that are gitlinks (nested repositories) in `toTree` and were not, or pointed elsewhere, in `from`. */
+export function newGitlinks(path: string, from: string, toTree: string): string[] {
+  const fields = git(path, ['diff-tree', '-r', '-z', '--raw', '--no-abbrev', '--no-renames', '--ignore-submodules=none', from, toTree]).split('\0');
+  const links: string[] = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) if ((fields[index] ?? '').split(' ')[1] === '160000') links.push(fields[index + 1] ?? '');
+  return links.sort();
+}
+
 export interface CommitHistory { commits: string[]; files: string[] }
 
 /**
@@ -596,6 +605,9 @@ export function redactUrl(url: string): string {
   let text: string;
   try {
     const parsed = new URL(url);
+    // `user:secret@host:path` parses as an opaque URL with scheme `user:`; only a URL with
+    // an authority has user information that can be removed field by field.
+    if (!parsed.host) throw new Error('no authority');
     parsed.username = '';
     parsed.password = '';
     parsed.search = '';

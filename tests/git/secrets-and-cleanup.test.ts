@@ -244,6 +244,27 @@ describe('Git processes and pushes (#35 review)', () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it.skipIf(process.platform === 'win32')('gives programs Git starts itself the same absolute-only PATH', () => {
+    const { base, repo, handle } = setup();
+    const official = join(base, 'bin');
+    mkdirSync(official);
+    writeFileSync(join(official, 'cc-test-filter'), '#!/bin/sh\ncat\n');
+    chmodSync(join(official, 'cc-test-filter'), 0o755);
+    const marker = join(base, 'planted-helper-ran');
+    writeFileSync(join(handle.path, 'cc-test-filter'), `#!/bin/sh\ntouch '${marker}'\ncat\n`);
+    chmodSync(join(handle.path, 'cc-test-filter'), 0o755);
+    // The person's own filter, named without a path, as Git configuration commonly does.
+    git(repo, 'config', 'filter.t.clean', 'cc-test-filter');
+    writeFileSync(join(handle.path, '.gitattributes'), '*.txt filter=t\n');
+    writeFileSync(join(handle.path, 'note.txt'), 'note\n');
+    const saved = process.env.PATH;
+    try {
+      process.env.PATH = `.${delimiter}${official}${delimiter}${saved ?? ''}`;
+      workingTreeState(handle.path);
+    } finally { process.env.PATH = saved; }
+    expect(existsSync(marker)).toBe(false);
+  });
+
   it('pushes over HTTPS or SSH only, unless told otherwise', () => {
     const { base, handle } = setup();
     const remote = join(base, 'remote.git');
@@ -263,5 +284,7 @@ describe('Git processes and pushes (#35 review)', () => {
     expect(redactUrl(`${token}@github.com:octo/widgets.git`)).toBe('[redacted]@github.com:octo/widgets.git');
     expect(redactUrl(`/srv/${token}/widgets.git`)).toBe('/srv/[redacted GitHub token]/widgets.git');
     expect(redactUrl('git@github.com:octo/widgets.git')).toBe('[redacted]@github.com:octo/widgets.git');
+    // Parses as an opaque URL with scheme `user:`, so it has no user fields to clear.
+    expect(redactUrl('user:secret@github.com:octo/widgets.git')).toBe('[redacted]@github.com:octo/widgets.git');
   });
 });
