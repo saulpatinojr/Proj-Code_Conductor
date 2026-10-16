@@ -188,6 +188,28 @@ export function validateCapabilities(capabilities: CapabilityConfig): Validation
   return issues;
 }
 
+type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?: unknown; gates?: Array<{ id?: unknown; command?: unknown; args?: unknown; requires?: unknown }> }> };
+const TERRAFORM_FORBIDDEN = new Set(['apply', 'destroy', 'import', 'taint', 'untaint', 'state', 'force-unlock', 'workspace', 'login', 'logout']);
+
+/** Gates validate; they never change infrastructure, state or credentials. */
+export function validateGateCatalog(catalog: GateCatalog): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const names = new Set(Object.keys(catalog.profiles ?? {}));
+  for (const [name, profile] of Object.entries(catalog.profiles ?? {})) {
+    const path = `config/gates.yaml#profiles.${name}`;
+    if (profile.selection !== undefined && profile.selection !== 'detected' && profile.selection !== 'explicit') issues.push({ level: 'error', code: 'gates.selection', path, message: `Profile ${name} selection must be detected or explicit.` });
+    if (profile.replaces !== undefined && (!Array.isArray(profile.replaces) || profile.replaces.some((item) => typeof item !== 'string' || !names.has(item)))) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles.` });
+    for (const gate of profile.gates ?? []) {
+      const args = Array.isArray(gate.args) ? gate.args.filter((arg): arg is string => typeof arg === 'string') : [];
+      if (typeof gate.command !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(gate.command)) issues.push({ level: 'error', code: 'gates.command', path, message: `Gate ${String(gate.id)} must name a plain executable (no shell, no path).` });
+      const subcommand = args.find((arg) => !arg.startsWith('-'));
+      if ((gate.command === 'terraform' || gate.command === 'tofu') && subcommand && TERRAFORM_FORBIDDEN.has(subcommand)) issues.push({ level: 'error', code: 'gates.infrastructure_change', path, message: `Gate ${String(gate.id)} runs ${gate.command} ${subcommand}, which changes infrastructure or state; gates may only validate or plan.` });
+      if (args.some((arg) => /^-?-auto-approve(=|$)/.test(arg))) issues.push({ level: 'error', code: 'gates.auto_approve', path, message: `Gate ${String(gate.id)} must not pass an auto-approve flag.` });
+    }
+  }
+  return issues;
+}
+
 export function validateRepositoryConfig(root: string): ValidationReport {
   const issues: ValidationIssue[] = [];
 
@@ -217,6 +239,8 @@ export function validateRepositoryConfig(root: string): ValidationReport {
   }
 
   if (capabilities) issues.push(...validateCapabilities(capabilities));
+  const gates = readYaml<GateCatalog>(root, 'config/gates.yaml', issues);
+  if (gates) issues.push(...validateGateCatalog(gates));
 
   if (roles && risks) issues.push(...validatePolicyObjects(roles, risks));
 

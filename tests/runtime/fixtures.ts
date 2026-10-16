@@ -57,6 +57,12 @@ export function initRepository(path: string): string {
   // files the code-conductor profile detects on, so the validator still runs gates.
   cpSync(resolve('config'), join(path, 'config'), { recursive: true });
   for (const file of ['package.json', 'tsconfig.json']) cpSync(resolve(file), join(path, file));
+  // The code-conductor gate profile requires installed dependencies and a built CLI;
+  // gate commands are faked in these suites, so placeholders satisfy the prerequisites.
+  mkdirSync(join(path, 'node_modules'), { recursive: true });
+  writeFileSync(join(path, 'node_modules', '.placeholder'), '');
+  mkdirSync(join(path, 'packages', 'cli', 'dist'), { recursive: true });
+  writeFileSync(join(path, 'packages', 'cli', 'dist', 'index.js'), '');
   git(path, 'add', '.');
   git(path, '-c', 'user.name=Code Conductor Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'fixture');
   return path;

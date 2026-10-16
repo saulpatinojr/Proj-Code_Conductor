@@ -5,7 +5,7 @@ import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, Mer
 import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
-import { blockingGateFailure, executeGatePlan, planGates, type CommandExecutor, type GateExecution } from '@code-conductor/gates';
+import { blockingGateFailure, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
 import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
@@ -27,6 +27,8 @@ export interface ExecuteOptions {
    * Without one, every such action fails closed. Workstation trust is not approval.
    */
   approver?: Approver;
+  /** Gate profiles a person chose for this run; otherwise profiles are detected. */
+  gateProfiles?: string[];
   approvalTtlMs?: number;
   now?: () => number;
 }
@@ -160,22 +162,29 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
 
       if (assignment.harness === 'internal-validator') {
         const validationRoot = primaryBuilderWorktree?.path ?? root;
-        const gatePlan = planGates(validationRoot);
+        let gatePlan: PlannedGate[];
+        try { gatePlan = planGates(validationRoot, options.gateProfiles); }
+        catch (error) {
+          manifest.results.push({ ...externalAwaitingResult(assignment, `Gate selection failed: ${error instanceof Error ? error.message : String(error)}`), status: 'failed', recommendation: 'changes_required' });
+          save();
+          continue;
+        }
         stopped = controlChange(validationRoot, 'before running gate commands');
         if (stopped) {
           manifest.results.push(blockedResult(assignment, stopped));
           save();
           continue;
         }
-        if (gatePlan.length) {
+        const runnable = gatePlan.filter((item) => !item.missing.length);
+        if (runnable.length) {
           // Gate profiles run the target repository's own scripts, so they are local execution.
-          const commands = gatePlan.map((item) => [item.gate.command, ...(item.gate.args ?? [])].join(' '));
+          const commands = runnable.map((item) => [item.gate.command, ...(item.gate.args ?? [])].join(' '));
           const approval = await authorize(() => {
             const state = workingTreeState(validationRoot);
             return [{
               action: 'local_execution', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: validationRoot, revision: state.revision, recipient: 'local:deterministic-gates',
-              bindings: { tree: state.tree, commands: sha256(JSON.stringify(gatePlan.map((item) => [item.profile, item.gate.id, item.gate.command, item.gate.args ?? [], item.timeoutMs]))) },
-              summary: `Run ${gatePlan.length} deterministic gate command(s) in ${validationRoot}: ${commands.join('; ')}`,
+              bindings: { tree: state.tree, commands: sha256(JSON.stringify(gatePlan.map((item) => [item.profile, item.gate.id, item.gate.command, item.gate.args ?? [], item.timeoutMs, item.missing]))), selection: gatePlan.some((item) => item.explicit) ? 'explicit' : 'detected' },
+              summary: `Run ${runnable.length} deterministic gate command(s) from the target repository in ${validationRoot}: ${commands.join('; ')}${runnable.length < gatePlan.length ? ` (${gatePlan.length - runnable.length} gate(s) with missing prerequisites will not run and count as failed)` : ''}`,
             }];
           });
           if (!approval.approved) {
@@ -184,7 +193,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             continue;
           }
         }
-        const gateExecutions = executeGatePlan(validationRoot, gatePlan, options.gateExecutor);
+        const gateExecutions = await executeGatePlan(validationRoot, gatePlan, options.gateExecutor);
         executedGates.push(...gateExecutions);
         manifest.gates.push(...gateExecutions.map((item) => item.result));
         const failed = blockingGateFailure(gateExecutions);

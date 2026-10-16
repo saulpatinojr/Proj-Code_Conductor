@@ -2,8 +2,17 @@ version: 1
 
 default_timeout_ms: 600000
 
+# Profiles select deterministic validation commands for the target repository. They
+# are detected from repository markers unless `selection: explicit`; a person can also
+# choose profiles for a run (`cc run --gate-profiles a,b`). Every gate declares its
+# prerequisites: a missing tool or uninstalled dependencies is a blocking failure with
+# nothing executed, never a skipped success. Code Conductor never installs dependencies
+# or runs install scripts on its own. No profile may change infrastructure: Terraform
+# apply/destroy/import/state and auto-approve flags are rejected by policy validation.
+
 profiles:
   code-conductor:
+    replaces: [node]
     detect:
       package_name: "@code-conductor/root"
       all_files: [package.json, packages/cli/src/index.ts]
@@ -12,14 +21,20 @@ profiles:
         command: npm
         args: [run, typecheck]
         blocking: true
+        requires: { paths: [node_modules] }
+        remediation: Run `npm ci` in the repository yourself first.
       - id: unit-tests
         command: npm
         args: [test]
         blocking: true
+        requires: { paths: [node_modules] }
+        remediation: Run `npm ci` in the repository yourself first.
       - id: repository-policy
         command: node
         args: [packages/cli/dist/index.js, validate, .]
         blocking: true
+        requires: { paths: [packages/cli/dist/index.js] }
+        remediation: Build the repository (`npm run build`) first.
 
   node:
     detect:
@@ -29,6 +44,32 @@ profiles:
         command: npm
         args: [test]
         blocking: true
+        requires: { paths: [node_modules] }
+        remediation: Install dependencies yourself (for example `npm ci`); install scripts are repository code.
+
+  pnpm:
+    replaces: [node]
+    detect:
+      any_file: [pnpm-lock.yaml]
+    gates:
+      - id: pnpm-test
+        command: pnpm
+        args: [test]
+        blocking: true
+        requires: { paths: [node_modules] }
+        remediation: Install dependencies yourself (for example `pnpm install --frozen-lockfile`).
+
+  yarn:
+    replaces: [node]
+    detect:
+      any_file: [yarn.lock]
+    gates:
+      - id: yarn-test
+        command: yarn
+        args: [test]
+        blocking: true
+        requires: { any_paths: [node_modules, .pnp.cjs] }
+        remediation: Install dependencies yourself (for example `yarn install --immutable`).
 
   terraform:
     detect:
@@ -40,8 +81,23 @@ profiles:
         blocking: true
       - id: terraform-validate
         command: terraform
-        args: [validate]
+        args: [validate, -no-color]
         blocking: true
+        requires: { paths: [.terraform] }
+        remediation: Initialise the working directory yourself (for example `terraform init -backend=false`); validation never configures a backend or credentials.
+
+  # Plan review needs real provider credentials and backend state, so it is never
+  # detected automatically. It is advisory evidence for human review; applying the
+  # plan is a production action for a native pipeline with its own approval.
+  terraform-plan:
+    selection: explicit
+    gates:
+      - id: terraform-plan
+        command: terraform
+        args: [plan, -input=false, -lock=false, -no-color]
+        blocking: false
+        requires: { paths: [.terraform] }
+        remediation: Initialise the working directory with the intended backend yourself; a plan never applies changes.
 
   ansible:
     detect:
@@ -51,3 +107,4 @@ profiles:
         command: ansible-lint
         args: []
         blocking: true
+        remediation: Install ansible-lint yourself (for example `pipx install ansible-lint`).

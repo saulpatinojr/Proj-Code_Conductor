@@ -52,8 +52,9 @@ scaffold/config check used by CI. VS Code Validate uses workspace validation.
 
 ## Portable gates and optional tools
 
-A generic Node project gets the `npm test` gate; absence of a working test script is a
-failure, not a skipped success. The source-specific Code Conductor profile requires both
+A generic Node project gets the `npm test` gate (`pnpm`/`yarn` when their lockfile is
+present); absence of a working test script or of installed dependencies is a failure, not
+a skipped success ([`GATE-PROFILES.md`](GATE-PROFILES.md)). The source-specific Code Conductor profile requires both
 the exact `@code-conductor/root` package name and its CLI source marker, so a conventional
 `packages/cli` monorepo receives only the generic Node gate. When no profile applies, gate
 selection returns a blocking `no-applicable-gates` failure with zero commands executed. Terraform and Ansible

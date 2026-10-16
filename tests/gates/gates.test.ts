@@ -62,23 +62,23 @@ describe('deterministic gates', () => {
     })).toEqual([]);
   });
 
-  it('can execute gates through an injected deterministic executor', () => {
-    const executions = runGates(resolve('.'), ['code-conductor'], (_cwd, command, args) => ({ status: 0, stdout: `${command} ${args.join(' ')} ok`, stderr: '' }));
+  it('can execute gates through an injected deterministic executor', async () => {
+    const executions = await runGates(resolve('.'), ['code-conductor'], (_cwd, command, args) => ({ status: 0, stdout: `${command} ${args.join(' ')} ok`, stderr: '' }));
     expect(executions.length).toBeGreaterThan(0);
     expect(blockingGateFailure(executions)).toBe(false);
     expect(executions.every((item) => item.result.status === 'passed')).toBe(true);
   });
 
-  it('hashes the full untruncated gate output into evidence sha256', () => {
+  it('hashes the full untruncated gate output into evidence sha256', async () => {
     const longOutput = 'x'.repeat(9000);
-    const executions = runGates(resolve('.'), ['code-conductor'], () => ({ status: 0, stdout: longOutput, stderr: '' }));
+    const executions = await runGates(resolve('.'), ['code-conductor'], () => ({ status: 0, stdout: longOutput, stderr: '' }));
     const expected = createHash('sha256').update(longOutput).digest('hex');
     expect(executions[0]?.evidence.sha256).toBe(expected);
     expect(executions[0]?.evidence.summary.length).toBeLessThan(longOutput.length);
   });
 
-  it('blocks on a failed blocking gate', () => {
-    const executions = runGates(resolve('.'), ['code-conductor'], () => ({ status: 1, stdout: '', stderr: 'failed' }));
+  it('blocks on a failed blocking gate', async () => {
+    const executions = await runGates(resolve('.'), ['code-conductor'], () => ({ status: 1, stdout: '', stderr: 'failed' }));
     expect(blockingGateFailure(executions)).toBe(true);
   });
 
