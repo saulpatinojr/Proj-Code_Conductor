@@ -6,7 +6,7 @@ import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/ad
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, scanForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -75,10 +75,13 @@ function summarizeFiles(files: readonly string[]): string {
   const shown = others.slice(0, 20);
   return `${files.length} changed file(s), ${relevant.length} of them able to change what later runs (CI, hooks, scripts, dependencies, agent or editor configuration)${relevant.length ? `: ${relevant.join(', ')}` : ''}. ${others.length ? `Other files: ${shown.join(', ')}${others.length > shown.length ? `, … (${others.length - shown.length} more)` : ''}` : 'No other files'}`;
 }
-const MAX_SCANNED_COMMITS = 20;
 // Location and kind only, never the matched value.
 function describeSecrets(secrets: ReadonlyArray<{ path: string; line: number; kind: string }>): string {
   return `${secrets.slice(0, 10).map((item) => `${item.path}:${item.line} ${item.kind}`).join('; ')}${secrets.length > 10 ? `; and ${secrets.length - 10} more` : ''}`;
+}
+// Content Code Conductor did not scan is never committed by it.
+function describeUnscanned(files: readonly string[]): string {
+  return `${files.length} file(s) past the ${MAX_SCAN_BYTES / (1024 * 1024)} MiB credential-scan budget were not scanned: ${files.slice(0, 10).join(', ')}${files.length > 10 ? `, … (${files.length - 10} more)` : ''}`;
 }
 function shortList(shas: readonly string[], limit = 10): string {
   return `${shas.slice(0, limit).map((sha) => sha.slice(0, 12)).join(', ')}${shas.length > limit ? `, … (${shas.length - limit} more)` : ''}`;
@@ -213,11 +216,13 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         executedGates.push(...gateExecutions);
         manifest.gates.push(...gateExecutions.map((item) => item.result));
         const failed = blockingGateFailure(gateExecutions);
+        // Gate commands run the repository's own scripts, which can change Git configuration too.
+        stopped = controlChange(validationRoot, 'after running gate commands');
         manifest.results.push({
           taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance,
-          provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: 'local', status: failed ? 'failed' : 'completed', changes: [],
+          provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: 'local', status: stopped ? 'blocked' : failed ? 'failed' : 'completed', changes: [],
           tests: gateExecutions.map((item) => item.result), evidence: gateExecutions.map((item) => item.evidence), findings: [], risks: [],
-          blockers: failed ? ['Blocking deterministic gate failed.'] : [], recommendation: failed ? 'changes_required' : 'continue',
+          blockers: [...(failed ? ['Blocking deterministic gate failed.'] : []), ...(stopped ? [stopped] : [])], recommendation: stopped ? 'human_required' : failed ? 'changes_required' : 'continue',
         });
         store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'validation.completed', assignmentId: assignment.id, message: failed ? 'failed' : 'completed' });
         save();
@@ -274,11 +279,15 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       const approval = stopped ? { approved: false, blocker: `${stopped} The provider was not started.` } : await authorizeStart(0);
       if (!approval.approved) {
         if (assignmentWorktree) {
-          // Nothing ran in the fresh worktree; remove it and its branch rather than leave them behind.
+          // Nothing ran in the fresh worktree; remove it and its branch rather than leave them
+          // behind, unless Git configuration changed: removal would run Git under it.
           const unused = assignmentWorktree;
           let cleanup = '';
-          try { worktrees.remove(unused, true, false); }
-          catch (error) { cleanup = ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
+          if (stopped) cleanup = ` The unused worktree ${unused.path} and its branch ${unused.branch} were kept, because removing them would run Git under the changed configuration; remove them after checking it.`;
+          else {
+            try { worktrees.remove(unused, true, false); }
+            catch (error) { cleanup = ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
+          }
           if (!existsSync(unused.path)) {
             createdWorktrees.splice(createdWorktrees.indexOf(unused), 1);
             manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== unused.path);
@@ -343,12 +352,11 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${history.commits[0]}`, summary: `Agent-authored commits on ${handle.branch} since ${handle.baseSha.slice(0, 12)}: ${shortList(history.commits)}. Paths touched: ${history.files.join(', ')}` });
             const sensitive = history.files.filter(isSensitiveRepositoryPath);
             if (sensitive.length) throw new Error(`The agent's own commits on ${handle.branch} touch sensitive repository paths: ${sensitive.join(', ')}. Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
-            // Each commit is compared with the base, so a credential added and removed again
-            // is still found. Long histories are bounded to the branch head.
-            const scanned = history.commits.length <= MAX_SCANNED_COMMITS ? history.commits : history.commits.slice(0, 1);
-            if (scanned.length < history.commits.length) result.risks = [...result.risks, `Only the head of ${handle.branch} was scanned for credentials; its ${history.commits.length} agent commits exceed the ${MAX_SCANNED_COMMITS}-commit scan bound.`];
-            const secrets = [...new Map(scanned.flatMap((commit) => scanForNewSecrets(handle.path, handle.baseSha, commit, history.files)).map((item) => [`${item.path}:${item.line}:${item.kind}`, item])).values()];
-            if (secrets.length) throw new Error(`The agent's own commits on ${handle.branch} add credential-looking strings (${describeSecrets(secrets)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
+            // Every file version the commits introduced is scanned, so a credential added and
+            // removed again is still found; history past the scan budget fails closed.
+            const scan = scanHistoryForNewSecrets(handle.path, handle.baseSha);
+            if (scan.findings.length) throw new Error(`The agent's own commits on ${handle.branch} add credential-looking strings (${describeSecrets(scan.findings)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
+            if (scan.unscanned.length) throw new Error(`The agent's own commits on ${handle.branch} could not be fully scanned for credentials: ${describeUnscanned(scan.unscanned)}. Code Conductor committed nothing; review the branch before using it.`);
           }
           // An agent can also move its branch away from the base (for example reset to an
           // older commit); the net file list then includes undoing the base's own changes.
@@ -375,8 +383,9 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
                 // Shown files, the sensitive-path check and the bound tree come from one snapshot.
                 const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
                 assertSafeChangedPaths(files);
-                const secrets = scanForNewSecrets(handle.path, handle.baseSha, state.tree, files);
-                if (secrets.length) throw new Error(`possible credentials in changed files (${describeSecrets(secrets)}). Remove them, or commit yourself after review if they are not secrets`);
+                const scan = scanForNewSecrets(handle.path, handle.baseSha, state.tree);
+                if (scan.findings.length) throw new Error(`possible credentials in changed files (${describeSecrets(scan.findings)}). Remove them, or commit yourself after review if they are not secrets`);
+                if (scan.unscanned.length) throw new Error(`${describeUnscanned(scan.unscanned)}. Review them and commit yourself`);
                 expectedTree = state.tree;
                 expectedHead = state.revision;
                 return [{
@@ -425,18 +434,26 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     return { plan, manifest, manifestPath, pendingExternal, worktrees: createdWorktrees };
   } finally {
     // Keep modifying worktrees by default so agent changes and commits cannot be
-    // silently discarded. Cleanup is an explicit caller choice, removes only clean
-    // worktrees (branches and their commits stay), and never hides the run outcome.
+    // silently discarded. Cleanup is an explicit caller choice and applies the same rule
+    // as `cc worktrees --remove-clean`: only a content-clean worktree on its own agent
+    // branch is removed (branches and their commits stay). Removal runs Git in the
+    // worktree, so nothing is removed once Git configuration changed. It never hides or
+    // changes the run outcome.
     if (options.keepWorktrees === false) {
+      const note = (type: 'worktree.removed' | 'worktree.retained', message: string): void => {
+        try { store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type, message }); } catch { /* The outcome is still returned to the caller. */ }
+      };
       for (const handle of [...createdWorktrees]) {
-        try {
-          worktrees.remove(handle, false, false);
-          createdWorktrees.splice(createdWorktrees.indexOf(handle), 1);
-          manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== handle.path);
-          store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'worktree.removed', message: `${handle.path} (branch ${handle.branch} kept)` });
-        } catch (error) {
-          store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'worktree.retained', message: `${handle.path}: ${error instanceof Error ? error.message : String(error)}` });
+        const changed = stopped ?? controlChange(handle.path, 'before removing agent worktrees');
+        let kept = changed ? 'Git configuration or history files changed during the run; check them before removing it' : undefined;
+        if (!kept) {
+          try { removeCleanAgentWorktree(handle.path, worktrees.root, handle.branch); }
+          catch (error) { kept = error instanceof Error ? error.message : String(error); }
         }
+        if (existsSync(handle.path)) { note('worktree.retained', `${handle.path}: ${kept ?? 'still present after removal'}`); continue; }
+        createdWorktrees.splice(createdWorktrees.indexOf(handle), 1);
+        manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== handle.path);
+        note('worktree.removed', kept ? `${handle.path} was already gone (branch ${handle.branch} kept)` : `${handle.path} (branch ${handle.branch} kept)`);
       }
       try { store.saveManifest(manifest); } catch { /* The outcome is still returned to the caller. */ }
     }

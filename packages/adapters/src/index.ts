@@ -56,14 +56,29 @@ function commandVersion(command: string): string | undefined {
 // @code-conductor/core/processes for what this does and does not contain).
 export { spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
 
-// Subscription-first billing (D-019/D-056 policy): separately billed API credentials are
-// not passed to provider clients, so a stray key cannot silently switch a subscription
-// client to metered API billing. Git's repository-local variables are removed so an
-// inherited GIT_DIR/GIT_INDEX_FILE cannot point the client's own git at another repository.
-export const BILLING_CREDENTIAL_VARIABLES = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY', 'KIRO_API_KEY'] as const;
+// Subscription-first billing (D-019/D-056 policy): the environment variables that make a
+// provider client use separately billed API credentials instead of its subscription
+// sign-in are not passed to it. Claude Code ranks cloud-provider selection, bearer
+// tokens, API keys, named profiles and federation above /login
+// (code.claude.com/docs/en/authentication, /env-vars); Codex uses an API key when one
+// is set. Not removed: subscription credentials such as CLAUDE_CODE_OAUTH_TOKEN, and
+// KIRO_API_KEY, whose usage draws on the Kiro subscription's credits and which a
+// browser sign-in outranks (kiro.dev/docs/getting-started/authentication). Credentials
+// a client reads from its own configuration files are not affected by this.
+export const BILLING_CREDENTIAL_VARIABLES = [
+  'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_AWS_API_KEY', 'ANTHROPIC_FOUNDRY_API_KEY', 'ANTHROPIC_FOUNDRY_AUTH_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK',
+  'OPENAI_API_KEY', 'CODEX_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY',
+] as const;
+/** Variables that select a separately billed provider, endpoint or credential source. */
+export const BILLING_ROUTING_VARIABLES = [
+  'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_ANTHROPIC_AWS',
+  'ANTHROPIC_BASE_URL', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID', 'ANTHROPIC_ORGANIZATION_ID',
+] as const;
+// Git's repository-local variables are removed too, so an inherited GIT_DIR or
+// GIT_INDEX_FILE cannot point the client's own git at another repository.
 export function providerEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const scrubbed = withoutGitLocalEnv(env);
-  for (const name of BILLING_CREDENTIAL_VARIABLES) delete scrubbed[name];
+  for (const name of [...BILLING_CREDENTIAL_VARIABLES, ...BILLING_ROUTING_VARIABLES]) delete scrubbed[name];
   return scrubbed;
 }
 

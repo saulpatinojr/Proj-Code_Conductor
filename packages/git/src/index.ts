@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 export interface WorktreeHandle {
   repositoryRoot: string;
@@ -217,57 +217,206 @@ export function isSensitiveRepositoryPath(path: string): boolean {
 
 export interface SecretFinding { path: string; line: number; kind: string }
 
+export interface SecretScan {
+  findings: SecretFinding[];
+  /** Changed files whose content was not scanned because the scan budget ran out. */
+  unscanned: string[];
+}
+
 // High-confidence credential formats only; a match is reported by location and kind,
-// never by value. Matches already present in the base revision are not new and are
-// not reported here.
+// never by value. Matches already present in the base revision at the same path are
+// not new and are not reported.
 const SECRET_PATTERNS: Array<[string, RegExp]> = [
-  ['private key', /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----/g],
+  ['private key', /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----/g],
   ['AWS access key id', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
   ['GitHub token', /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b/g],
+  ['GitLab token', /\bglpat-[A-Za-z0-9_-]{20,}/g],
+  ['npm token', /\bnpm_[A-Za-z0-9]{36}\b/g],
   ['Slack token', /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g],
   ['Google API key', /\bAIza[0-9A-Za-z_-]{35}\b/g],
   ['Anthropic API key', /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g],
   ['OpenAI API key', /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}\b/g],
+  ['Perplexity API key', /\bpplx-[A-Za-z0-9]{32,}\b/g],
+  ['Hugging Face token', /\bhf_[A-Za-z0-9]{34,}\b/g],
   ['Stripe live key', /\b[rs]k_live_[0-9A-Za-z]{24,}\b/g],
   ['Azure storage account key', /AccountKey=[A-Za-z0-9+/]{40,}={0,2}/g],
 ];
-const MAX_SCAN_BYTES = 1048576;
+/** Content read by one scan, across all files and both sides of the comparison. */
+export const MAX_SCAN_BYTES = 64 * 1024 * 1024;
+const OBJECT_ID = /^[0-9a-f]{40,64}$/;
 
-function blobText(path: string, spec: string): string | undefined {
-  const result = spawnSync('git', [...SAFE_GIT, 'cat-file', 'blob', spec], { cwd: path, env: withoutGitLocalEnv(), maxBuffer: MAX_SCAN_BYTES + 1, shell: false });
-  if (result.status !== 0 || !result.stdout || result.stdout.length > MAX_SCAN_BYTES || result.stdout.includes(0)) return undefined;
-  return result.stdout.toString('utf8');
+interface ScanEntry { path: string; after: string; before?: string }
+interface ObjectInfo { id: string; type: string; size: number }
+
+// One `cat-file --batch-check` for all names; undefined where an object does not exist.
+function objectInfo(cwd: string, names: readonly string[]): Array<ObjectInfo | undefined> {
+  if (!names.length) return [];
+  const result = spawnSync('git', [...SAFE_GIT, 'cat-file', '--batch-check'], { cwd, env: withoutGitLocalEnv(), input: names.map((name) => `${name}\n`).join(''), encoding: 'utf8', maxBuffer: MAX_GIT_OUTPUT, shell: false });
+  if (result.error || result.status !== 0) throw new Error(`git cat-file --batch-check failed: ${result.stderr || result.error?.message || `exit ${String(result.status)}`}`);
+  const lines = result.stdout.split('\n');
+  // Found objects print "<id> <type> <size>"; others print the name followed by "missing".
+  return names.map((_, index) => {
+    const [id, type, size, ...rest] = (lines[index] ?? '').split(' ');
+    return id && type && size && !rest.length && OBJECT_ID.test(id) && /^\d+$/.test(size) ? { id, type, size: Number(size) } : undefined;
+  });
 }
 
-/** New credential-looking strings in files that differ between a commit and a tree (bounded; text files up to 1 MiB). */
-export function scanForNewSecrets(path: string, base: string, tree: string, files: readonly string[]): SecretFinding[] {
+// One `cat-file --batch` for all blobs; output is "<id> <type> <size>\n<content>\n" each.
+// Anything short of every object in full fails, so no content is mistaken for empty.
+function readObjects(cwd: string, objects: readonly ObjectInfo[]): Map<string, Buffer> {
+  const contents = new Map<string, Buffer>();
+  if (!objects.length) return contents;
+  const expected = objects.reduce((total, item) => total + item.size + 160, 0);
+  const result = spawnSync('git', [...SAFE_GIT, 'cat-file', '--batch'], { cwd, env: withoutGitLocalEnv(), input: objects.map((item) => `${item.id}\n`).join(''), maxBuffer: expected, shell: false });
+  if (result.error || result.status !== 0) throw new Error(`git cat-file --batch failed: ${result.stderr?.toString() || result.error?.message || `exit ${String(result.status)}`}`);
+  let offset = 0;
+  for (const item of objects) {
+    const newline = result.stdout.indexOf(0x0a, offset);
+    const [id, , size] = (newline < 0 ? '' : result.stdout.subarray(offset, newline).toString('latin1')).split(' ');
+    const length = Number(size);
+    if (id !== item.id || length !== item.size || newline + 1 + length > result.stdout.length) throw new Error(`git cat-file --batch did not return ${item.id} in full`);
+    contents.set(id, result.stdout.subarray(newline + 1, newline + 1 + length));
+    offset = newline + 1 + length + 1;
+  }
+  return contents;
+}
+
+// Credential formats are ASCII. Latin-1 maps every byte to one character, so they are
+// found in UTF-8, other ASCII-compatible encodings and binary content alike, and line
+// numbers count newline bytes. UTF-16 text with a byte-order mark is decoded first.
+function scannable(content: Buffer): string {
+  if (content[0] === 0xff && content[1] === 0xfe) return content.subarray(2).toString('utf16le');
+  if (content[0] === 0xfe && content[1] === 0xff) {
+    const body = Buffer.from(content.subarray(2, 2 + ((content.length - 2) & ~1)));
+    return body.swap16().toString('utf16le');
+  }
+  return content.toString('latin1');
+}
+
+function scanEntries(cwd: string, entries: readonly ScanEntry[], maxBytes: number): SecretScan {
+  const names = [...new Set(entries.flatMap((entry) => (entry.before ? [entry.after, entry.before] : [entry.after])))];
+  const infos = objectInfo(cwd, names);
+  const byName = new Map(names.map((name, index) => [name, infos[index]]));
+  const selected = new Map<string, ObjectInfo>();
+  const unscanned: string[] = [];
+  let budget = maxBytes;
+  const planned: Array<{ path: string; after: ObjectInfo; before?: ObjectInfo }> = [];
+  for (const entry of entries) {
+    const after = byName.get(entry.after);
+    // Not a file (for example a submodule pointer): there is no content to scan.
+    if (!after || after.type !== 'blob') continue;
+    const candidate = entry.before ? byName.get(entry.before) : undefined;
+    const before = candidate?.type === 'blob' ? candidate : undefined;
+    const fresh = new Map([after, before].filter((item): item is ObjectInfo => item !== undefined && !selected.has(item.id)).map((item) => [item.id, item]));
+    const cost = [...fresh.values()].reduce((total, item) => total + item.size, 0);
+    if (cost > budget) { unscanned.push(entry.path); continue; }
+    budget -= cost;
+    for (const item of [after, before]) if (item) selected.set(item.id, item);
+    planned.push({ path: entry.path, after, ...(before ? { before } : {}) });
+  }
+  const contents = readObjects(cwd, [...selected.values()]);
   const findings: SecretFinding[] = [];
-  for (const file of files) {
-    const after = blobText(path, `${tree}:${file}`);
-    if (after === undefined) continue;
-    const before = blobText(path, `${base}:${file}`) ?? '';
+  const seen = new Set<string>();
+  for (const item of planned) {
+    const text = scannable(contents.get(item.after.id)!);
+    const previous = item.before ? scannable(contents.get(item.before.id)!) : '';
     for (const [kind, pattern] of SECRET_PATTERNS) {
-      for (const match of after.matchAll(pattern)) {
-        if (before.includes(match[0])) continue;
-        findings.push({ path: file, line: after.slice(0, match.index).split('\n').length, kind });
+      for (const match of text.matchAll(pattern)) {
+        if (previous.includes(match[0])) continue;
+        const line = text.slice(0, match.index).split('\n').length;
+        const key = `${item.path}\0${line}\0${kind}`;
+        if (!seen.has(key)) { seen.add(key); findings.push({ path: item.path, line, kind }); }
       }
     }
   }
-  return findings;
+  return { findings, unscanned: [...new Set(unscanned)].sort() };
 }
 
-/** Remove a clean Code Conductor agent worktree (its branch, and so its commits, are kept). */
-export function removeCleanAgentWorktree(path: string, root: string): void {
-  const resolved = resolve(path);
-  const offset = relative(resolve(root), resolved);
-  if (!offset || offset.startsWith('..') || isAbsolute(offset)) throw new Error(`Refusing to remove ${path}: not under the Code Conductor worktree root.`);
-  const branch = git(resolved, ['symbolic-ref', '-q', '--short', 'HEAD'], true).trim();
-  if (!branch.startsWith('cc/')) throw new Error(`Refusing to remove ${path}: it does not have a Code Conductor agent branch checked out.`);
-  if (gitChangedFiles(resolved).length || workingTreeState(resolved).tree !== headTree(resolved)) throw new Error(`Refusing to remove ${path}: it has uncommitted changes.`);
-  const common = resolve(resolved, git(resolved, ['rev-parse', '--git-common-dir']).trim());
-  const repository = dirname(common);
-  git(repository, ['worktree', 'remove', resolved]);
-  git(repository, ['worktree', 'prune']);
+/**
+ * New credential-looking strings in the files that differ between a commit and a tree.
+ * Every changed file is read in full, text or binary, up to MAX_SCAN_BYTES for the
+ * whole scan; files past that budget are listed as `unscanned`, never silently skipped.
+ */
+export function scanForNewSecrets(path: string, base: string, tree: string, maxBytes = MAX_SCAN_BYTES): SecretScan {
+  // Raw output names both sides' blobs, so content is read by object id and file names
+  // that are not valid UTF-8 (or contain newlines) are still scanned.
+  const fields = git(path, ['diff-tree', '-r', '-z', '--raw', '--no-abbrev', '--no-renames', '--ignore-submodules=none', base, tree]).split('\0');
+  const entries: ScanEntry[] = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const [, , before, after] = (fields[index] ?? '').split(' ');
+    const file = fields[index + 1] ?? '';
+    if (!after || !OBJECT_ID.test(after) || /^0+$/.test(after)) continue;
+    entries.push({ path: file, after, ...(before && OBJECT_ID.test(before) && !/^0+$/.test(before) ? { before } : {}) });
+  }
+  return scanEntries(path, entries, maxBytes);
+}
+
+/**
+ * New credential-looking strings anywhere in the history from `base` to `head`: every
+ * file version any of those commits introduced, including ones a later commit removed
+ * again (their content stays in history). Each version is read once, under the same
+ * budget as `scanForNewSecrets`.
+ */
+export function scanHistoryForNewSecrets(path: string, base: string, head = 'HEAD', maxBytes = MAX_SCAN_BYTES): SecretScan {
+  // "<id> <path>" for every tree and blob reachable from head but not from base.
+  const entries: ScanEntry[] = [];
+  for (const line of git(path, ['rev-list', '--objects', `${base}..${head}`]).split('\n')) {
+    const match = /^([0-9a-f]{40,64}) (.+)$/.exec(line);
+    if (!match) continue;
+    const [, id, file] = match as unknown as [string, string, string];
+    entries.push({ path: file, after: id, ...(/[\r\n]/.test(file) ? {} : { before: `${base}:${file}` }) });
+  }
+  return scanEntries(path, entries, maxBytes);
+}
+
+interface WorktreeLayout { gitDir: string; commonDir: string; topLevel: string }
+
+function worktreeLayout(path: string): WorktreeLayout | undefined {
+  const paths = git(path, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel']).trim().split(/\r?\n/);
+  // Git older than 2.31 echoes the unknown --path-format flag back as an extra
+  // line, so anything but exactly three absolute paths fails closed.
+  if (paths.length !== 3 || !paths.every((item) => isAbsolute(item))) return undefined;
+  const [gitDir, commonDir, topLevel] = paths.map((item) => resolve(item)) as [string, string, string];
+  return { gitDir, commonDir, topLevel };
+}
+
+/**
+ * Why a recorded agent worktree must be kept, or undefined when removing it loses
+ * nothing: it is a linked worktree strictly under the Code Conductor root (after
+ * resolving symlinks), it has exactly its own `cc/` agent branch checked out, so every
+ * commit in it stays reachable from that branch, and its content matches that
+ * branch's head exactly (content-exact, not git status alone). Runs Git in the worktree.
+ */
+export function agentWorktreeRemovalProblem(path: string, root: string, branch: string): string | undefined {
+  let real: string;
+  let realRoot: string;
+  try { real = realpathSync(path); realRoot = realpathSync(root); } catch { return 'it does not exist'; }
+  const offset = relative(realRoot, real);
+  if (!offset || offset.startsWith('..') || isAbsolute(offset)) return 'it is not under the Code Conductor worktree root';
+  if (!branch.startsWith('cc/')) return `${branch} is not a Code Conductor agent branch`;
+  const layout = worktreeLayout(real);
+  if (!layout) return 'its Git worktree layout could not be determined (Git 2.31 or later is required)';
+  if (layout.gitDir === layout.commonDir) return 'it is a repository\'s primary working tree';
+  if (realpathSync(layout.topLevel) !== real) return 'it is not the top level of a Git worktree';
+  const head = git(real, ['symbolic-ref', '-q', 'HEAD'], true).trim();
+  if (head !== `refs/heads/${branch}`) return `it has ${head || 'a detached HEAD'} checked out, not ${branch}, so its commits may be on no branch`;
+  if (gitChangedFiles(real).length || workingTreeState(real).tree !== headTree(real)) return 'it has uncommitted changes';
+  return undefined;
+}
+
+/**
+ * Remove an agent worktree that `agentWorktreeRemovalProblem` finds nothing to keep in.
+ * Its branch, and so its commits, are kept. Ignored files in it (for example a local
+ * `.env` or build output) are deleted with it, as `git worktree remove` does. Other
+ * worktrees' registrations are never pruned.
+ */
+export function removeCleanAgentWorktree(path: string, root: string, branch: string): void {
+  const problem = agentWorktreeRemovalProblem(path, root, branch);
+  if (problem) throw new Error(`Refusing to remove ${path}: ${problem}.`);
+  const real = realpathSync(path);
+  // Run from the common Git directory, which also works for --separate-git-dir and
+  // bare repositories with linked worktrees.
+  git(worktreeLayout(real)!.commonDir, ['worktree', 'remove', real]);
 }
 
 export function assertSafeChangedPaths(files: string[]): void {
@@ -291,13 +440,9 @@ export function assertAgentWorktree(handle: WorktreeHandle): void {
   const refuse = (reason: string): never => {
     throw new Error(`Refusing to commit agent changes in ${handle.path}: ${reason}`);
   };
-  const paths = git(handle.path, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel']).trim().split(/\r?\n/);
-  // Git older than 2.31 echoes the unknown --path-format flag back as an extra
-  // line, so anything but exactly three absolute paths fails closed.
-  if (paths.length !== 3 || !paths.every((path) => isAbsolute(path))) {
-    refuse('could not determine its Git worktree layout (Git 2.31 or later is required).');
-  }
-  const [gitDir, commonDir, topLevel] = paths.map((path) => resolve(path));
+  const layout = worktreeLayout(handle.path);
+  if (!layout) refuse('could not determine its Git worktree layout (Git 2.31 or later is required).');
+  const { gitDir, commonDir, topLevel } = layout!;
   if (gitDir === commonDir) refuse('it is a repository\'s primary working tree, not a Code Conductor agent worktree.');
   if (!topLevel || realpathSync(topLevel) !== realpathSync(handle.path)) {
     refuse(`Git resolves its work tree to ${topLevel ?? 'nothing'}, not the agent worktree itself.`);
@@ -392,14 +537,16 @@ function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTre
 
 /** Where Code Conductor creates agent worktrees unless a caller chooses otherwise. */
 export function defaultWorktreeRoot(): string {
-  return join(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'worktrees');
+  // Absolute, so a relative CODE_CONDUCTOR_HOME cannot place worktrees inside the
+  // repository Git runs in.
+  return resolve(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'worktrees');
 }
 
 export class WorktreeManager {
   readonly root: string;
 
   constructor(root = defaultWorktreeRoot()) {
-    this.root = root;
+    this.root = resolve(root);
     ensurePrivateDirectory(root);
   }
 
@@ -424,8 +571,9 @@ export class WorktreeManager {
     if (!force && gitChangedFiles(handle.path).length) {
       throw new Error(`Refusing to remove dirty worktree: ${handle.path}`);
     }
+    // `worktree remove` deletes this worktree's own registration; a prune would also drop
+    // other worktrees whose directories are only temporarily missing.
     git(handle.repositoryRoot, ['worktree', 'remove', ...(force ? ['--force'] : []), handle.path]);
-    git(handle.repositoryRoot, ['worktree', 'prune']);
     if (deleteBranch) git(handle.repositoryRoot, ['branch', '-D', handle.branch]);
   }
 }

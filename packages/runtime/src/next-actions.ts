@@ -95,6 +95,20 @@ function within(root: string, path: string): boolean {
   } catch { return false; }
 }
 
+/**
+ * Worktree records that name a Code Conductor agent branch and base, and (with `root`)
+ * an existing directory under that root. Anything else in a record, which may have been
+ * imported or edited, is never handed to Git or offered for review.
+ */
+export function recordedAgentWorktrees(manifest: RunManifest, root?: string): WorktreeRecord[] {
+  return (manifest.worktrees ?? []).filter((record) => AGENT_BRANCH.test(record.branch) && SHA.test(record.baseSha) && (!root || within(root, record.path)));
+}
+
+/** Whether the run stopped because Git configuration or history files changed; then nothing may run Git in its worktrees. */
+export function stoppedForGitControl(manifest: RunManifest): boolean {
+  return (manifest.results ?? []).some((result) => (result.blockers ?? []).some((blocker) => blocker.includes(GIT_CONTROL_CHANGED)));
+}
+
 function label(assignment: AgentAssignment | undefined, result: AgentResult): string {
   return `${result.role} (${assignment?.harness ?? result.harness}${result.surface ? `@${result.surface}` : ''})`;
 }
@@ -135,8 +149,8 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
   const actions: NextAction[] = [];
   const assignments = new Map((manifest.assignments ?? []).map((assignment) => [assignment.id, assignment]));
   const approvals = manifest.approvals ?? [];
-  const worktrees: WorktreeRecord[] = (manifest.worktrees ?? []).filter((record) => AGENT_BRANCH.test(record.branch) && SHA.test(record.baseSha) && (!options.worktreeRoot || within(options.worktreeRoot, record.path)));
-  const gitStopped = (manifest.results ?? []).some((result) => (result.blockers ?? []).some((blocker) => blocker.includes(GIT_CONTROL_CHANGED)));
+  const worktrees = recordedAgentWorktrees(manifest, options.worktreeRoot);
+  const gitStopped = stoppedForGitControl(manifest);
 
   for (const result of manifest.results ?? []) {
     const assignment = assignments.get(result.assignmentId);
