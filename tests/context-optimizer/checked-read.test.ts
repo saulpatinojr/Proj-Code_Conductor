@@ -1,4 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -58,6 +59,21 @@ describe.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('readCheckedFile (descriptor-bound
     rmSync(join(workspace, 'docs'), { recursive: true });
     symlinkSync(join(outside, 'missing'), join(workspace, 'docs'));
     expect(() => readCheckedFile(join(workspace, 'docs', 'notes.md'), 'docs/notes.md', 1024)).toThrow(/^Context file changed while it was being opened, or could not be opened: docs\/notes\.md$/);
+  });
+
+  it('gives the same answer for a socket and for a file it may not read', async () => {
+    const { workspace } = layout();
+    const socket = join(workspace, 'socket.md');
+    const server = createServer();
+    await new Promise<void>((listening) => server.listen(socket, listening));
+    try {
+      expect(() => readCheckedFile(socket, 'socket.md', 1024)).toThrow(/^Context file changed while it was being opened, or could not be opened: socket\.md$/);
+    } finally { await new Promise((closed) => server.close(closed)); }
+    // Root reads any file regardless of its mode, so this part needs an ordinary user.
+    if (process.getuid?.() !== 0) {
+      writeFileSync(join(workspace, 'private.md'), 'x\n', { mode: 0o000 });
+      expect(() => readCheckedFile(join(workspace, 'private.md'), 'private.md', 1024)).toThrow(/^Context file changed while it was being opened, or could not be opened: private\.md$/);
+    }
   });
 
   it('refuses a final symlink with the same answer as any other change', () => {
