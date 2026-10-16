@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
+import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { createTask, executeTask, importRunManifest, planTask, parseAgentResult } from '@code-conductor/runtime';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
@@ -35,6 +36,11 @@ function validateWorkspace(root: string): number {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }
+}
+
+function isCodeConductorSource(root: string): boolean {
+  try { return (JSON.parse(readBoundedFile(join(root, 'package.json'), 1048576).toString('utf8')) as { name?: unknown }).name === '@code-conductor/root'; }
+  catch { return false; }
 }
 
 function vscodeExtensions(): Set<string> {
@@ -93,8 +99,9 @@ function doctor(root: string): number {
   if (inventory.unmanagedProjectPaths.length) console.log(`INFO native-inventory.unmanaged: ${inventory.unmanagedProjectPaths.length} project file(s) not recorded in apm.lock.yaml (informational; apm audit is authoritative): ${inventory.unmanagedProjectPaths.join(', ')}`);
   let configStatus = 0;
   try {
-    for (const name of ['roles', 'risk', 'capabilities', 'gates', 'mcp-catalog'] as const) loadConfiguration(root, name);
+    for (const name of ['roles', 'risk', 'capabilities', 'authorities', 'gates', 'mcp-catalog', 'references'] as const) loadConfiguration(root, name);
     console.log('OK packaged runtime configuration (not source-repository scaffold validation)');
+    if (isCodeConductorSource(root)) console.log('INFO source-repository: run `cc validate .` for the strict Code Conductor configuration/scaffold check.');
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); configStatus = 1; }
   return missingRequired || configStatus !== 0 ? 1 : 0;
 }

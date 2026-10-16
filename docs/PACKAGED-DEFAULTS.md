@@ -32,7 +32,10 @@ The version-1 schema deliberately supports only:
 Workspace preferences are intersected with user restrictions; disabled harnesses accumulate
 and cannot be re-enabled by a workspace. Unknown fields, roles/providers, duplicates, wrong
 types/versions, symlinks and files larger than 64 KiB fail closed. An empty eligible set does
-not silently fall back to an excluded provider. Caller options can disable workspace
+not silently fall back to an excluded provider. Workspace preferences are repository-authored:
+they may reorder providers within the user's allowed set, and at R1 that can place builder and
+reviewer on the same provider because packaged policy only requires different-provider
+challenge from R2 upward. Caller options can disable workspace
 preferences or explicitly choose/disable the user-root input for controlled environments.
 
 These preferences cannot modify risk classes, required roles, reviewer independence,
