@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, join, resolve, sep } from 'node:path';
-import { readCheckedFile } from './checked-read.js';
+import { readCheckedFile, requireDescriptorLocation } from './checked-read.js';
 
 export type OptimizationMode = 'lossless' | 'aggressive';
 
@@ -289,11 +289,13 @@ export class ContextOptimizer {
   }
 
   private resolveAllowedFile(filePath: string): string {
-    const resolved = resolve(filePath);
-    if (!existsSync(resolved)) throw new Error(`File not found: ${filePath}`);
-    const canonical = realpathSync(resolved);
-    if (!this.allowedRoots.some((root) => pathWithinRoot(canonical, root))) {
-      throw new Error(`Context file is outside the allowed workspace roots: ${filePath}`);
+    requireDescriptorLocation(filePath);
+    // One answer for a path that does not exist and for one outside the roots, so a caller
+    // (an MCP client, for example) cannot learn which paths exist elsewhere on the machine.
+    let canonical: string | undefined;
+    try { canonical = realpathSync(resolve(filePath)); } catch { canonical = undefined; }
+    if (!canonical || !this.allowedRoots.some((root) => pathWithinRoot(canonical, root))) {
+      throw new Error(`Context file does not exist or is outside the allowed workspace roots: ${filePath}`);
     }
     if (isSensitiveContextPath(canonical)) {
       throw new Error(`Sensitive context file is blocked by policy: ${filePath}`);

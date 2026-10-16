@@ -121,4 +121,12 @@ describe.runIf(!DESCRIPTOR_LOCATION_SUPPORTED)('readCheckedFile (no descriptor l
     const { workspace } = layout();
     expect(() => readCheckedFile(join(workspace, 'docs', 'notes.md'), 'docs/notes.md', 1024)).toThrow(/can be read only where the opened file's location can be verified/);
   });
+
+  it('refuses every context file read, whatever the path, before checking it', () => {
+    const { workspace } = layout();
+    const optimizer = new ContextOptimizer({ statsFile: join(workspace, '..', 'stats.json'), allowedRoots: [workspace] });
+    for (const path of [join(workspace, 'docs', 'notes.md'), join(workspace, 'missing.md'), join(workspace, '..', 'outside', 'notes.md')]) {
+      expect(() => optimizer.readCompressedFile(path)).toThrow(/can be read only where the opened file's location can be verified/);
+    }
+  });
 });

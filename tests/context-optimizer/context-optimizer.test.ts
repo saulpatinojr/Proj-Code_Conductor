@@ -144,7 +144,22 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('blocks reads outside configured workspace roots', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('answers a missing path and an outside path alike, so paths elsewhere cannot be probed', () => {
+      const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-probe-root-'));
+      const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-probe-outside-'));
+      writeFileSync(join(outside, 'exists.md'), 'x\n');
+      try {
+        const optimizer = new ContextOptimizer({ statsFile: join(root, 'stats.json'), allowedRoots: [root] });
+        const message = (path: string) => { try { optimizer.readCompressedFile(path); return ''; } catch (error) { return (error as Error).message.replace(path, '<path>'); } };
+        expect(message(join(outside, 'exists.md'))).toBe(message(join(outside, 'missing.md')));
+        expect(message(join(root, 'missing.md'))).toMatch(/does not exist or is outside the allowed workspace roots/);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('blocks reads outside configured workspace roots', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-root-'));
       const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-outside-'));
       const outsideFile = join(outside, 'outside.md');
@@ -158,7 +173,7 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('blocks sensitive files even when they are inside the workspace', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('blocks sensitive files even when they are inside the workspace', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-sensitive-'));
       const secret = join(root, '.env');
       writeFileSync(secret, 'TOKEN=secret\n');
@@ -170,7 +185,7 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('blocks files above the configured size limit', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('blocks files above the configured size limit', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-size-'));
       const large = join(root, 'large.txt');
       writeFileSync(large, 'x'.repeat(32));
@@ -208,8 +223,7 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('resolves symlinks before enforcing the workspace boundary', () => {
-      if (process.platform === 'win32') return;
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('resolves symlinks before enforcing the workspace boundary', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-symlink-root-'));
       const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-symlink-outside-'));
       const outsideFile = join(outside, 'outside.txt');

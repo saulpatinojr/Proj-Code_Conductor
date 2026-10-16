@@ -11,6 +11,13 @@ export const DESCRIPTOR_LOCATION_SUPPORTED = process.platform === 'linux';
 
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0) | (constants.O_NOCTTY ?? 0);
 
+/** Refuses, before the path is touched at all, where an opened file's location cannot be known. */
+export function requireDescriptorLocation(displayPath: string): void {
+  if (!DESCRIPTOR_LOCATION_SUPPORTED) {
+    throw new Error(`Context files can be read only where the opened file's location can be verified (Linux); on ${process.platform} a directory swapped for a symlink during the read could not be detected: ${displayPath}`);
+  }
+}
+
 /** The kernel's path for an open descriptor, as raw bytes, or undefined if unknown. */
 function descriptorLocation(descriptor: number): Buffer | undefined {
   if (!DESCRIPTOR_LOCATION_SUPPORTED) return undefined;
@@ -33,9 +40,7 @@ function descriptorLocation(descriptor: number): Buffer | undefined {
  * Where the descriptor's location cannot be known, nothing is opened.
  */
 export function readCheckedFile(canonical: string, displayPath: string, maxBytes: number): string {
-  if (!DESCRIPTOR_LOCATION_SUPPORTED) {
-    throw new Error(`Context files can be read only where the opened file's location can be verified (Linux); on ${process.platform} a directory swapped for a symlink during the read could not be detected: ${displayPath}`);
-  }
+  requireDescriptorLocation(displayPath);
   let descriptor: number;
   try { descriptor = openSync(canonical, OPEN_FLAGS); }
   catch (error) { throw new Error(`Context file cannot be opened: ${displayPath} (${(error as NodeJS.ErrnoException).code ?? 'error'})`); }
