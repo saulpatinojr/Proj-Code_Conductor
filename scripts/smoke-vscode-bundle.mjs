@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
@@ -43,8 +44,10 @@ try {
     assert.deepEqual(unexpected, [], `The package ships files no release should: ${unexpected.join(', ')}`);
     for (const file of REQUIRED) assert.ok(shipped.includes(file), `The package is missing ${file}`);
     // The defaults are exactly the files the packaged manifest names, no more and no fewer.
-    const defaults = Object.keys(JSON.parse(readFileSync(join(installed, 'defaults', 'manifest.json'), 'utf8')).files).map((name) => `defaults/${name}`).sort();
+    const listed = JSON.parse(readFileSync(join(installed, 'defaults', 'manifest.json'), 'utf8')).files;
+    const defaults = Object.keys(listed).map((name) => `defaults/${name}`).sort();
     assert.deepEqual(shipped.filter((file) => /^defaults\/.*\.yaml$/.test(file)).sort(), defaults, 'The packaged defaults differ from defaults/manifest.json');
+    for (const [name, digest] of Object.entries(listed)) assert.equal(createHash('sha256').update(readFileSync(join(installed, 'defaults', name))).digest('hex'), digest, `defaults/${name} does not match its digest in defaults/manifest.json`);
     // A copy outside this repository, as VS Code installs it under its extensions folder.
     cpSync(installed, extension, { recursive: true });
   } else {
