@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +10,10 @@ const manifest = JSON.stringify({ version: 1, files: Object.fromEntries(Object.e
 for (const target of ['packages/policy/defaults', 'apps/vscode/defaults']) {
   const destination = join(root, target);
   mkdirSync(destination, { recursive: true });
+  // Build output only: anything not generated now (a renamed default, a stray file) is
+  // removed, so packaging can never pick it up.
+  const expected = new Set([...Object.keys(files), 'manifest.json']);
+  for (const entry of readdirSync(destination)) if (!expected.has(entry)) rmSync(join(destination, entry), { recursive: true, force: true });
   for (const [name, bytes] of [...Object.entries(files), ['manifest.json', manifest]]) {
     const path = join(destination, name);
     let existing;

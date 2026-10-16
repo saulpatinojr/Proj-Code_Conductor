@@ -42,6 +42,9 @@ try {
     const unexpected = shipped.filter((file) => !SHIPPED.some((pattern) => pattern.test(file)));
     assert.deepEqual(unexpected, [], `The package ships files no release should: ${unexpected.join(', ')}`);
     for (const file of REQUIRED) assert.ok(shipped.includes(file), `The package is missing ${file}`);
+    // The defaults are exactly the files the packaged manifest names, no more and no fewer.
+    const defaults = Object.keys(JSON.parse(readFileSync(join(installed, 'defaults', 'manifest.json'), 'utf8')).files).map((name) => `defaults/${name}`).sort();
+    assert.deepEqual(shipped.filter((file) => /^defaults\/.*\.yaml$/.test(file)).sort(), defaults, 'The packaged defaults differ from defaults/manifest.json');
     // A copy outside this repository, as VS Code installs it under its extensions folder.
     cpSync(installed, extension, { recursive: true });
   } else {

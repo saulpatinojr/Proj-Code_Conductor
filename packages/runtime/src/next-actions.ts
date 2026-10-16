@@ -86,13 +86,13 @@ const STOP_PARSING = /^--%/;
 /**
  * Whether an argument, once quoted by formatCommand, reaches the program as exactly that
  * one argument when pasted into `shell`. Windows PowerShell 5.1 passes arguments to
- * native programs by legacy rules that do not escape an embedded double quote, or the
- * trailing backslash of an argument it wraps in quotes for containing a space, so either
- * can split or merge arguments there.
+ * native programs by legacy rules that drop an empty argument and do not escape an
+ * embedded double quote, or the trailing backslash of an argument it wraps in quotes for
+ * containing a space, so each can drop, split or merge arguments there.
  */
 function copyable(arg: unknown, shell: CommandShell): boolean {
   if (typeof arg !== 'string' || UNSAFE_DISPLAY.test(arg) || STOP_PARSING.test(arg)) return false;
-  return shell !== 'powershell' || !(arg.includes('"') || (/\s/.test(arg) && arg.endsWith('\\')));
+  return shell !== 'powershell' || !(arg === '' || arg.includes('"') || (/\s/.test(arg) && arg.endsWith('\\')));
 }
 
 /** Only commands whose every argument can be shown and pasted exactly are presented. */

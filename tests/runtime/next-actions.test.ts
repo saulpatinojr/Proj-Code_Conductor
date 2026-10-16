@@ -147,10 +147,12 @@ describe('next actions', () => {
 
   it('withholds from PowerShell only what its legacy argument passing would split', () => {
     const refused = (objective: string, shell: 'posix' | 'powershell') => nextActions(manifest({ task: { ...manifest().task, objective }, results: [result(builder, { status: 'blocked' })], approvals: [record({})] }), { shell })[0];
-    // An embedded double quote, or a trailing backslash on an argument wrapped for a space.
-    for (const objective of ['Fix the "flaky" test', 'Clean C:\\a b\\']) {
+    // An embedded double quote, a trailing backslash on an argument wrapped for a space, or
+    // an empty argument, which legacy passing drops so the next argument takes its place.
+    for (const objective of ['Fix the "flaky" test', 'Clean C:\\a b\\', '']) {
       expect(refused(objective, 'powershell')?.commands).toBeUndefined();
       expect(refused(objective, 'posix')?.commands?.[0]).toContain(objective);
+      expect(refused(objective, 'posix')?.commands?.[0]?.[7]).toBe(objective);
     }
     // Neither alone is a problem: a quote-free value, or a trailing backslash without a space.
     expect(refused('C:\\a\\b\\', 'powershell')?.commands?.[0]).toContain('C:\\a\\b\\');
