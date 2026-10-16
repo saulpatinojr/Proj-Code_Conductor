@@ -47,8 +47,10 @@ You can also use the Extensions view: open its `…` menu and choose **Install f
 VSIX…**. Then open any repository, trust it, and run **Code Conductor: Doctor**. Doctor
 shows each client's installed, signed-in, healthy and trusted state, and what to do next.
 
-The extension is not on the Marketplace yet. CI packages it under a validation-only
-publisher on every pull request.
+The extension is not on the Marketplace yet. Releases are attached to GitHub releases,
+with checksums, an SBOM and a provenance attestation to verify first
+([`RELEASE.md`](RELEASE.md#verify-a-package)). CI also packages it under a
+validation-only publisher on every pull request.
 
 ## Run `cc` commands yourself
 
