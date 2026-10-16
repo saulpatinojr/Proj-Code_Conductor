@@ -26,7 +26,7 @@ $CC_JS = "$env:USERPROFILE\.vscode\extensions\<publisher>.code-conductor-vscode-
 node $CC_JS <command>
 ```
 
-In a development checkout, `node packages/cli/dist/index.js <command>` after `npm run build` is the equivalent.
+In a remote workspace (WSL, SSH, Dev Containers) the extension runs on the remote host, so use `$HOME/.vscode-server/extensions/…` there instead of `$HOME/.vscode/extensions/…`. In a development checkout, `node packages/cli/dist/index.js <command>` after `npm run build` is the equivalent.
 
 ## 2. Validate native VS Code surfaces
 
@@ -226,7 +226,7 @@ Restart/reload VS Code and verify that normal startup:
 Use VS Code's own measurement. Do not time it by hand.
 
 1. Run **Developer: Show Running Extensions**. Record Code Conductor's activation time for a first run (new workspace), for a warm start (reload with nothing changed), and for a start after a configuration change.
-2. Right after a warm start, open **Developer: Open Process Explorer** and confirm that the extension host has no Claude, Codex, `kiro-cli`, MCP or APM child process. A name search with `pgrep` or `Get-Process` is not enough: it also finds the native extensions' and terminals' own processes.
+2. Right after a warm start, open **Developer: Open Process Explorer** and check every child process of the extension host. None may be a Claude, Codex, `kiro-cli`, MCP or APM process started by Code Conductor: its command line names `dist/cc.js` or one of those clients. The native Claude Code and Codex extensions share the extension host and may start their own processes, so a name alone does not decide it. If it is unclear, repeat the warm start with Code Conductor disabled and compare. A name search with `pgrep` or `Get-Process` is not enough: it also finds the native extensions' and terminals' own processes.
 3. Repeat the warm start while offline. The views should show cached state, and no error should block activation.
 
 **Initial budget, to be confirmed by this first baseline:**
