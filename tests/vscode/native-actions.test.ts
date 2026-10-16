@@ -25,6 +25,8 @@ describe('native operations for next actions', () => {
     expect(nativeOperation(action({ commands: [['ccon', 'handoff', '--run', 'CC-1', '--assignment', 'A-4']] }), ROOT)).toEqual({ type: 'run_cli', args: ['handoff', '--run', 'CC-1', '--assignment', 'A-4'] });
     expect(nativeOperation(action({ commands: [['ccon', 'run', '--objective', 'x', '--execute']] }), ROOT)).toMatchObject({ type: 'copy_command' });
     expect(nativeOperation(action({ commands: [['ccon', 'handoff', '--run', '$(evil)']] }), ROOT)).toMatchObject({ type: 'copy_command' });
+    // There is no `cc` alias: the old name is neither run nor pointed at the bundled runtime.
+    expect(nativeOperation(action({ commands: [['cc', 'next']] }), ROOT, '/x/dist/ccon.js')).toEqual({ type: 'copy_command', text: 'cc next' });
     expect(nativeOperation(action({ commands: [['git', 'push'], ['gh', 'pr', 'create']] }), ROOT)).toEqual({ type: 'copy_command', text: 'git push\ngh pr create' });
     expect(nativeOperation(action({ commands: [['ccon', 'run', '--objective', "it's"]] }), ROOT)).toEqual({ type: 'copy_command', text: formatCommand(['ccon', 'run', '--objective', "it's"]) });
     // From an installed extension, copied ccon commands run its bundled runtime: no ccon is on PATH.

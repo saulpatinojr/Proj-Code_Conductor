@@ -54,7 +54,7 @@ validation-only publisher on every pull request.
 
 ## Run `ccon` commands yourself
 
-The extension does not put `ccon` on your `PATH`; it changes nothing outside VS Code.
+The extension does not put `ccon` on your `PATH` or change your shell configuration.
 Commands the extension copies for you already name its bundled runtime:
 
 ```sh

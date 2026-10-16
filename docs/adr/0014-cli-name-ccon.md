@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-16
 - **Related issues:** #8 (thin VS Code extension and optional CLI), #33 (packaged extension and bundled runtime)
-- **Supersedes:** the CLI name `cc` used in D-056 to D-066; the decisions themselves stand
+- **Supersedes:** the CLI name `cc` used in D-048 and D-056 to D-066 (not the C compiler in D-066 or the `cc/` branches in D-062); the decisions themselves stand
 
 ## Context
 
@@ -38,8 +38,8 @@ first release it would also strand published commands, documentation and muscle 
    - the `cc/` namespace of agent branches. Worktree cleanup recognises existing worktrees by it
      (D-062), and it never runs as a command;
    - internal `cc-*` temporary-directory prefixes;
-   - accepted ADRs and the wording of earlier decisions. D-068 records that `cc` in D-056 to D-066
-     means `ccon`.
+   - accepted ADRs and the wording of earlier decisions. D-068 records that the CLI `cc` in D-048
+     and D-056 to D-066 means `ccon`.
 6. **No `cc` alias.** An alias would bring the clash back, and there are no users to migrate.
 
 ### Alternatives considered
@@ -62,8 +62,8 @@ first release it would also strand published commands, documentation and muscle 
   runs.
 - **Compatibility:** the extension and the runtime ship together in one `.vsix`, so they cannot
   disagree about the file name.
-- **Security:** no boundary changes. The extension still starts only the read-only `ccon next` and
-  `ccon handoff` (D-060) and still puts nothing on `PATH`.
+- **Security:** no boundary changes. From a next action, the extension still starts only the
+  read-only `ccon next` and `ccon handoff` (D-060), and it still puts nothing on `PATH`.
 - **Negative:** branch names (`cc/<task>/<role>`) and the command (`ccon`) no longer share a
   prefix. This is accepted to keep existing worktrees recognised.
 

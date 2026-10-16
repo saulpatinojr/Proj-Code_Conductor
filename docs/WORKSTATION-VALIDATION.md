@@ -10,7 +10,7 @@ Use an up-to-date VS Code installation, Git, Node 22+ (24 recommended), GitHub C
 
 Install Code Conductor from a release `.vsix` ([`INSTALL.md`](INSTALL.md)) after verifying it ([`RELEASE.md`](RELEASE.md#verify-a-package)). For a pull-request build, use the `vsix-preflight-<run>` artifact of the Release preflight workflow instead, which is packaged under a validation-only publisher. The installation must work in an ordinary repository without the Code Conductor source tree or a local `npm run build`. Validation that uses this repository's own build instead must say so in its evidence.
 
-**How commands are written here.** The extension does not put `ccon` on `PATH` ([`INSTALL.md`](INSTALL.md#run-cc-commands-yourself)). Set the path of its bundled runtime once, then run each command through `node`.
+**How commands are written here.** The extension does not put `ccon` on `PATH` ([`INSTALL.md`](INSTALL.md#run-ccon-commands-yourself)). Set the path of its bundled runtime once, then run each command through `node`.
 
 bash or zsh:
 
