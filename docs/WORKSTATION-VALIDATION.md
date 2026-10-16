@@ -232,6 +232,8 @@ Only after required surface-specific trust validation passes:
 cc run --repo . --risk R1 --objective "Implement the approved test task" --execute
 ```
 
+The run asks in the terminal before each consequential action: starting a provider, disclosing the prompt and repository to it, running gate commands, and committing. Each request is bound to the exact recipient, revision, content and diff ([`APPROVALS.md`](APPROVALS.md)). Validate on the workstation that the prompt appears in the integrated/task terminal, that only the literal `approve` proceeds, and that a denial leaves the run `human_required` with changes preserved.
+
 A modifying agent receives an isolated worktree. Review/validation remains independent, and GitHub PR/merge remains a separate gate.
 
 Then repeat/raise the scenario to R2 with a different-provider challenger and GitHub Gatekeeper review/re-review.

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 export interface WorktreeHandle {
@@ -54,8 +54,8 @@ export function withoutGitLocalEnv(env: NodeJS.ProcessEnv = process.env): NodeJS
   return scrubbed;
 }
 
-function git(cwd: string, args: string[], allowFailure = false): string {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', env: withoutGitLocalEnv(), shell: false });
+function git(cwd: string, args: string[], allowFailure = false, env: NodeJS.ProcessEnv = withoutGitLocalEnv()): string {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', env, shell: false });
   if (result.error) {
     throw new Error(`git ${args.join(' ')} failed to start: ${result.error.message}`);
   }
@@ -88,6 +88,29 @@ export function gitChangedFiles(cwd: string): string[] {
 
 export function gitHead(cwd: string): string {
   return git(cwd, ['rev-parse', 'HEAD']).trim();
+}
+
+export interface WorkingTreeState { revision: string; tree: string }
+
+/**
+ * Content identity of a working tree for approval binding: HEAD plus the Git
+ * tree of every tracked and untracked non-ignored file. A throwaway copy of the
+ * index is used, so the repository's own index and files are never modified
+ * (Git may add unreferenced blob objects, which it garbage-collects normally).
+ * Paths outside Git report `unversioned`; their content cannot be bound.
+ */
+export function workingTreeState(path: string): WorkingTreeState {
+  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return { revision: 'unversioned', tree: 'unversioned' };
+  const revision = git(path, ['rev-parse', '--verify', '-q', 'HEAD'], true).trim() || 'unborn';
+  const index = git(path, ['rev-parse', '--path-format=absolute', '--git-path', 'index']).trim();
+  const directory = mkdtempSync(join(tmpdir(), 'cc-tree-'));
+  try {
+    const temporaryIndex = join(directory, 'index');
+    if (isAbsolute(index) && existsSync(index)) copyFileSync(index, temporaryIndex);
+    const env = { ...withoutGitLocalEnv(), GIT_INDEX_FILE: temporaryIndex };
+    git(path, ['add', '--all'], false, env);
+    return { revision, tree: git(path, ['write-tree'], false, env).trim() };
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 export function isSensitiveRepositoryPath(path: string): boolean {
@@ -140,7 +163,12 @@ export function assertAgentWorktree(handle: WorktreeHandle): void {
   }
 }
 
-export function commitAgentChanges(handle: WorktreeHandle, message: string): AgentCommit | undefined {
+export interface CommitOptions {
+  /** When set, commit only if the staged tree is exactly this approved tree. */
+  expectedTree?: string;
+}
+
+export function commitAgentChanges(handle: WorktreeHandle, message: string, options: CommitOptions = {}): AgentCommit | undefined {
   assertAgentWorktree(handle);
   const files = worktreeChangedFiles(handle);
   if (!files.length) return undefined;
@@ -149,6 +177,13 @@ export function commitAgentChanges(handle: WorktreeHandle, message: string): Age
   let created = false;
   if (dirty.length) {
     git(handle.path, ['add', '--all']);
+    if (options.expectedTree !== undefined) {
+      const staged = git(handle.path, ['write-tree']).trim();
+      if (staged !== options.expectedTree) {
+        git(handle.path, ['reset', '-q'], true);
+        throw new Error(`Refusing to commit agent changes in ${handle.path}: the worktree changed after commit approval (approved tree ${options.expectedTree}, now ${staged}). Changes are preserved uncommitted.`);
+      }
+    }
     git(handle.path, ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', 'commit', '-m', message]);
     created = true;
   }

@@ -21,6 +21,8 @@ This directory contains the maintained design, operating, and validation documen
 - [`BOOTSTRAP.md`](BOOTSTRAP.md) — repository/workstation bootstrap sequence.
 - [`WORKSTATION-VALIDATION.md`](WORKSTATION-VALIDATION.md) — official-client authentication and harness smoke validation.
 - [`AUTHENTICATION.md`](AUTHENTICATION.md) — authentication, credential, and subscription/API billing boundaries.
+- [`APPROVALS.md`](APPROVALS.md) — pre-action approvals bound to the exact recipient, revision, content and diff.
+- [`PACKAGED-DEFAULTS.md`](PACKAGED-DEFAULTS.md) — packaged configuration defaults and bounded user/workspace preferences.
 - [`MCP-CATALOG.md`](MCP-CATALOG.md) — approved MCP/reference strategy and tool-plane rules.
 - [`REPOSITORY-GOVERNANCE.md`](REPOSITORY-GOVERNANCE.md) — branch, PR, required-check, and repository-setting baseline.
 
