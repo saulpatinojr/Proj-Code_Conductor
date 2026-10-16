@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,23 +18,29 @@ const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toL
  */
 function generatedDirectory(target) {
   const destination = join(root, target);
-  const refuse = () => { throw new Error(`Refusing to write generated files: ${target} is not a plain directory inside the repository (a symlink?). Remove it and build again.`); };
+  const refuse = () => { throw new Error(`Refusing to write generated files: ${target} is not a plain directory inside the repository (its parent is missing, or it or a parent is a symlink). Fix that and build again.`); };
   try { if (!same(realpathSync(dirname(destination)), join(realRoot, dirname(target)))) refuse(); } catch (error) { if (error.code) refuse(); throw error; }
   mkdirSync(destination, { recursive: true });
   // A symlink, or a symlinked folder above it, resolves somewhere else.
   if (!same(realpathSync(destination), join(realRoot, target))) refuse();
   return destination;
 }
-/** Writes a generated file, replacing (never writing through) a symlink or other non-file there. */
+/**
+ * Writes a generated file by replacing the directory entry (a temporary file renamed over
+ * it), so a symlink or a hard link there is replaced, never written through.
+ */
 function writeGenerated(path, bytes) {
   const entry = lstatSync(path, { throwIfNoEntry: false });
-  if (entry && !entry.isFile()) rmSync(path, { recursive: true, force: true });
-  else if (entry && readFileSync(path).equals(Buffer.from(bytes))) return;
-  writeFileSync(path, bytes);
+  if (entry?.isFile() && entry.nlink === 1 && readFileSync(path).equals(Buffer.from(bytes))) return;
+  if (entry?.isDirectory()) rmSync(path, { recursive: true, force: true });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, bytes, { flag: 'wx' });
+  renameSync(temporary, path);
 }
 
-for (const target of ['packages/policy/defaults', 'apps/vscode/defaults']) {
-  const destination = generatedDirectory(target);
+// Every generated folder is checked before any of them is changed.
+const [policyDefaults, extensionDefaults, schemaDirectory] = ['packages/policy/defaults', 'apps/vscode/defaults', 'apps/vscode/schema'].map(generatedDirectory);
+for (const destination of [policyDefaults, extensionDefaults]) {
   // Build output only: anything not generated now (a renamed default, a stray file) is
   // removed, so packaging can never pick it up. rmSync removes a symlink, not its target.
   const expected = new Set([...Object.keys(files), 'manifest.json']);
@@ -43,5 +49,4 @@ for (const target of ['packages/policy/defaults', 'apps/vscode/defaults']) {
 }
 
 // Contract validation reads this relative to its compiled module or the bundled CLI.
-const schemaDirectory = generatedDirectory('apps/vscode/schema');
 writeGenerated(join(schemaDirectory, 'contracts.schema.json'), readFileSync(join(root, 'packages/schemas/schema/contracts.schema.json')));

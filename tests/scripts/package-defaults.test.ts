@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -32,7 +32,17 @@ describe.skipIf(process.platform === 'win32')('scripts/package-defaults.mjs', ()
     writeFileSync(join(defaults, 'zz-stray.yaml'), 'stray: true\n');
     rmSync(join(defaults, 'roles.yaml'));
     symlinkSync(join(outside, 'sentinel.txt'), join(defaults, 'roles.yaml'));
+    // Stray links to a folder and to a file are removed, never followed.
+    mkdirSync(join(outside, 'folder'));
+    writeFileSync(join(outside, 'folder', 'inner.txt'), 'keep me too\n');
+    symlinkSync(join(outside, 'folder'), join(defaults, 'stray-folder'));
+    symlinkSync(join(outside, 'sentinel.txt'), join(defaults, 'stray-file.yaml'));
+    // A hard link to a file elsewhere is replaced, not written through.
+    rmSync(join(repo, 'packages/policy/defaults/risk.yaml'));
+    linkSync(join(outside, 'sentinel.txt'), join(repo, 'packages/policy/defaults/risk.yaml'));
     expect(run().status).toBe(0);
+    expect(readFileSync(join(outside, 'folder', 'inner.txt'), 'utf8')).toBe('keep me too\n');
+    expect(readFileSync(join(repo, 'packages/policy/defaults/risk.yaml'), 'utf8')).toBe(readFileSync(resolve('config/risk.yaml'), 'utf8'));
     expect(readdirSync(defaults).sort()).toEqual([...NAMES.map((name) => `${name}.yaml`), 'manifest.json'].sort());
     expect(lstatSync(join(defaults, 'roles.yaml')).isFile()).toBe(true);
     expect(readFileSync(join(defaults, 'roles.yaml'), 'utf8')).toBe(readFileSync(resolve('config/roles.yaml'), 'utf8'));
@@ -53,5 +63,7 @@ describe.skipIf(process.platform === 'win32')('scripts/package-defaults.mjs', ()
     expect(result.stderr).toMatch(/is not a plain directory inside the repository/);
     expect(readdirSync(outside)).toEqual(['sentinel.txt']);
     expect(existsSync(join(repo, 'config/roles.yaml'))).toBe(true);
+    // All folders are checked first: nothing was generated anywhere.
+    expect(existsSync(join(repo, 'packages/policy/defaults/manifest.json'))).toBe(false);
   });
 });
