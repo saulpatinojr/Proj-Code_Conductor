@@ -157,9 +157,9 @@ stored, only their digests and sizes. Each decision is also appended to the run'
 - No deployment connector exists yet. Any future deploy, PR-creation or other external
   side-effect path must call `ApprovalGate.authorize` before dispatch (#35, #32
   deployment boundary). Native environment protection rules remain authoritative.
-- Commits an agent makes itself are not approved here, only reported and checked for
-  sensitive paths (see above). Their content is not scanned for secrets yet; that is
-  tracked under #36.
+- Commits an agent makes itself are not approved here, only reported and checked (see
+  above and [`WORKTREES.md`](WORKTREES.md)). Histories longer than 20 commits are scanned
+  for credentials at the branch head only, and the result says so.
 - Gate commands run in the validation worktree as it is on disk. The approval binds
   tracked and untracked non-ignored content, but not ignored files the agent wrote,
   working trees of nested repositories or submodules (only their commit pointers),

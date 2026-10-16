@@ -30,6 +30,12 @@ repository hooks. Before asking, it refuses two kinds of change:
   worktree for you to review. If a finding is a false positive, commit it yourself after
   review.
 
+The same two checks cover commits the agent made itself. Every path any of them touched
+is checked, and each commit is scanned against the base, so a credential that a later
+commit removed is still found: its content stays in history. Such a branch is blocked,
+and Code Conductor commits nothing on top. Histories longer than 20 commits are scanned at
+the branch head only, and the result records that limit as a risk.
+
 GitHub push protection and your secret scanning service remain the native, authoritative
 checks. This local scan stops an agent's credential from being committed in the first
 place.

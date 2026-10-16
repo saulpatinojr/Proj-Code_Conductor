@@ -388,6 +388,29 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 
+  it('blocks when an agent commit added a credential, even one a later commit removed', async () => {
+    const token = `ghp_${'a'.repeat(36)}`;
+    class CredentialHistory extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          const commit = (message: string): void => { git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', message); };
+          writeFileSync(join(request.cwd, 'config.ts'), `export const token = '${token}';\n`);
+          git(request.cwd, 'add', 'config.ts'); commit('add token');
+          writeFileSync(join(request.cwd, 'config.ts'), 'export const token = process.env.TOKEN;\n');
+          git(request.cwd, 'add', 'config.ts'); commit('remove token');
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new CredentialHistory('codex', 'openai') });
+    const builder = outcome.manifest.results[0]!;
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+    expect(builder.status).toBe('blocked');
+    expect(builder.blockers.join(' ')).toContain('add credential-looking strings (config.ts:1 GitHub token)');
+    expect(builder.blockers.join(' ')).not.toContain(token);
+  });
+
   it('flags an agent branch that no longer descends from its base', async () => {
     class Resetter extends CountingAdapter {
       override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
