@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,18 +36,30 @@ function checkGeneratedDirectory(target) {
 }
 
 /**
- * Writes a generated file by replacing the directory entry (a temporary file renamed over
- * it), so a symlink or a hard link there is replaced, never written through.
+ * Writes a folder's generated files, each by replacing its directory entry: the file is
+ * staged in a private folder next to it and renamed over it, so a symlink or a hard link
+ * there is replaced, never written through. Files that are already current are left alone.
  */
-function writeGenerated(path, bytes) {
-  const entry = lstatSync(path, { throwIfNoEntry: false });
-  if (entry?.isFile() && entry.nlink === 1 && readFileSync(path).equals(Buffer.from(bytes))) return;
-  if (entry?.isDirectory()) rmSync(path, { recursive: true, force: true });
-  // Per process, so concurrent builds do not collide; stale ones are pruned with the rest,
-  // and 'wx' refuses one planted meanwhile.
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, bytes, { flag: 'wx' });
-  renameSync(temporary, path);
+function writeGenerated(destination, contents) {
+  const pending = Object.entries(contents).filter(([name, bytes]) => {
+    const entry = lstatSync(join(destination, name), { throwIfNoEntry: false });
+    return !(entry?.isFile() && entry.nlink === 1 && readFileSync(join(destination, name)).equals(Buffer.from(bytes)));
+  });
+  if (!pending.length) return;
+  // Outside the folder, so a concurrent build's prune cannot delete a file before it is
+  // renamed; mkdtemp makes it new and private, so nothing can be planted in it. A build
+  // killed mid-write can leave it behind (ignored by Git, never packaged).
+  const staging = mkdtempSync(join(dirname(destination), `.${basename(destination)}.staging-`));
+  try {
+    for (const [name, bytes] of pending) {
+      const path = join(destination, name);
+      if (lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) rmSync(path, { recursive: true, force: true });
+      writeFileSync(join(staging, name), bytes, { flag: 'wx' });
+      renameSync(join(staging, name), path);
+    }
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 // Every generated folder is checked before anything is created or changed.
@@ -57,7 +69,7 @@ Object.entries(generated).forEach(([target, contents], index) => {
   mkdirSync(destination, { recursive: true });
   if (!same(realpathSync(destination), join(realRoot, target))) refuse(target);
   // Build output only: anything not generated now (a renamed default, a stray or
-  // leftover temporary file) is removed. rmSync removes a symlink, not its target.
+  // leftover file) is removed. rmSync removes a symlink, not its target.
   for (const entry of readdirSync(destination)) if (!Object.hasOwn(contents, entry)) rmSync(join(destination, entry), { recursive: true, force: true });
-  for (const [name, bytes] of Object.entries(contents)) writeGenerated(join(destination, name), bytes);
+  writeGenerated(destination, contents);
 });

@@ -69,6 +69,38 @@ describe.skipIf(process.platform === 'win32')('scripts/package-defaults.mjs', ()
     expect(readFileSync(join(outside, 'sentinel.txt'), 'utf8')).toBe('keep me\n');
   });
 
+  it('finishes while another build runs between writing a file and renaming it into place', () => {
+    const { repo, run } = scratch();
+    // Starts from no output, and runs a whole second build at this build's first rename:
+    // its prune must not remove the file this build is about to rename.
+    const preload = join(repo, '..', 'interleave.cjs');
+    writeFileSync(preload, `
+      const fs = require('node:fs');
+      const { spawnSync } = require('node:child_process');
+      const { syncBuiltinESMExports } = require('node:module');
+      const rename = fs.renameSync;
+      let interleaved = false;
+      fs.renameSync = (from, to) => {
+        if (!interleaved) {
+          interleaved = true;
+          const other = spawnSync(process.execPath, [${JSON.stringify(join(repo, 'scripts/package-defaults.mjs'))}], { encoding: 'utf8' });
+          if (other.status !== 0) throw new Error('the other build failed: ' + other.stderr);
+        }
+        return rename(from, to);
+      };
+      syncBuiltinESMExports();
+    `);
+    const result = spawnSync(process.execPath, ['--require', preload, join(repo, 'scripts/package-defaults.mjs')], { encoding: 'utf8' });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    const defaults = join(repo, 'packages/policy/defaults');
+    expect(readdirSync(defaults).sort()).toEqual([...NAMES.map((name) => `${name}.yaml`), 'manifest.json'].sort());
+    expect(readFileSync(join(defaults, 'roles.yaml'), 'utf8')).toBe(readFileSync(resolve('config/roles.yaml'), 'utf8'));
+    // Neither build leaves a staging folder behind, and a third build changes nothing.
+    for (const parent of ['packages/policy', 'apps/vscode']) expect(readdirSync(join(repo, parent)).filter((name) => name.includes('.staging-'))).toEqual([]);
+    expect(run().status).toBe(0);
+  });
+
   it.each([
     ['a symlinked defaults folder', 'apps/vscode/defaults'],
     ['a symlinked policy defaults folder', 'packages/policy/defaults'],
