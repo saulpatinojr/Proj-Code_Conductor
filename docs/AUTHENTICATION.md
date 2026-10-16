@@ -95,12 +95,17 @@ How the checks work:
   instructions itself
   ([Claude Code features in the Agent SDK](https://code.claude.com/docs/en/agent-sdk/claude-code-features)).
 - **The probe and the run read the same configuration.** A relative `CLAUDE_CONFIG_DIR`,
-  `ANTHROPIC_CONFIG_DIR`, `CODEX_HOME`, `HOME` or `USERPROFILE` is made absolute against
-  the directory Code Conductor was started in, and an empty one is removed: Claude Code
-  reads an empty `CLAUDE_CONFIG_DIR` as the working directory, which for a run is the
-  repository. A relative XDG base directory (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
-  `XDG_STATE_HOME`, `XDG_CACHE_HOME`) is removed, as the XDG specification says to
-  ignore it.
+  `CODEX_HOME`, `HOME` or `USERPROFILE` is made absolute against the directory Code
+  Conductor was started in, and an empty one is removed: Claude Code reads an empty
+  `CLAUDE_CONFIG_DIR` as the working directory, which for a run is the repository. A
+  relative or empty `ANTHROPIC_CONFIG_DIR` or XDG base directory (`XDG_CONFIG_HOME`,
+  `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`) is removed, as Claude Code and the
+  XDG specification ignore one.
+- **No user configuration from the repository.** A provider is not started when its
+  explicit configuration directory (`CLAUDE_CONFIG_DIR` or `ANTHROPIC_CONFIG_DIR` for
+  Claude Code, `CODEX_HOME` for Codex) lies inside the repository being run, directly or
+  through a symlink. The sign-in probe cannot see the hooks, `env` block or credential
+  helper such "user" settings could carry.
 - **The same client file throughout.** The version probe, the sign-in probe and the
   launch all run the one file the command resolves to on an absolute `PATH` entry. A
   relative entry such as `node_modules/.bin`, an empty entry, or (on Windows) the working

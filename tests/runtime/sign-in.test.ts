@@ -54,6 +54,23 @@ describe('sign-in before a provider starts (#34)', () => {
     expect(outcome.manifest.mergeDecision?.decision).not.toBe('ready');
   });
 
+  it('starts nothing when the client would read its user configuration from the repository', async () => {
+    const saved = process.env.CLAUDE_CONFIG_DIR;
+    const savedCodex = process.env.CODEX_HOME;
+    process.env.CLAUDE_CONFIG_DIR = join(resolve('.'), '.claude-config');
+    process.env.CODEX_HOME = join(resolve('.'), 'codex-home');
+    try {
+      const { outcome, starts, asked } = await run(status({ state: 'authenticated', billing: 'subscription', method: 'ChatGPT' }));
+      expect(starts).toBe(0);
+      expect(asked).toEqual([]);
+      expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain('would read its user configuration from inside the repository');
+      expect(outcome.manifest.worktrees ?? []).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved;
+      if (savedCodex === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = savedCodex;
+    }
+  });
+
   it('runs normally with a subscription sign-in', async () => {
     const { outcome, starts } = await run(status({ state: 'authenticated', billing: 'subscription', method: 'ChatGPT' }));
     expect(starts).toBeGreaterThan(0);

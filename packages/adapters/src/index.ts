@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
@@ -134,10 +134,16 @@ export const BILLING_ROUTING_VARIABLES = [
 // relative value is made absolute against the directory Code Conductor started in (on
 // Windows this also gives a root-relative value its drive), and an empty one is removed:
 // Claude Code reads an empty CLAUDE_CONFIG_DIR as the working directory, not as unset.
-const CLIENT_CONFIG_DIRECTORIES = ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_CONFIG_DIR', 'CODEX_HOME', 'HOME', 'USERPROFILE'] as const;
-// XDG base directories must be absolute, and the specification says a relative value is
-// ignored, so one is removed and the client falls back to its default.
-const XDG_BASE_DIRECTORIES = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'] as const;
+const CLIENT_CONFIG_DIRECTORIES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'HOME', 'USERPROFILE'] as const;
+// Directories whose clients ignore a relative value: the XDG base directories (the
+// specification says so) and the Anthropic profile directory (Claude Code skips a
+// non-absolute one). A relative or empty value is removed, so the client falls back to
+// its default for the probe and the run alike.
+const ABSOLUTE_ONLY_DIRECTORIES = ['ANTHROPIC_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'] as const;
+/** Absolute in the strict sense: on Windows a root-relative path (`\cfg`) depends on the current drive. */
+function fullyAbsolute(value: string): boolean {
+  return isAbsolute(value) && (process.platform !== 'win32' || /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(value));
+}
 export function providerEnvironment(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): NodeJS.ProcessEnv {
   const scrubbed = withoutGitLocalEnv(env);
   for (const name of [...BILLING_CREDENTIAL_VARIABLES, ...BILLING_ROUTING_VARIABLES]) delete scrubbed[name];
@@ -146,8 +152,28 @@ export function providerEnvironment(env: NodeJS.ProcessEnv = process.env, cwd = 
     if (value === '') delete scrubbed[name];
     else if (value !== undefined) scrubbed[name] = resolve(cwd, value);
   }
-  for (const name of XDG_BASE_DIRECTORIES) if (scrubbed[name] !== undefined && !isAbsolute(scrubbed[name])) delete scrubbed[name];
+  for (const name of ABSOLUTE_ONLY_DIRECTORIES) if (scrubbed[name] !== undefined && !fullyAbsolute(scrubbed[name])) delete scrubbed[name];
   return scrubbed;
+}
+
+/** The configuration directories each client reads its user settings and sign-in from, when set explicitly. */
+const HARNESS_CONFIG_DIRECTORIES: Record<string, readonly string[]> = { claude: ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_CONFIG_DIR'], codex: ['CODEX_HOME'] };
+
+/**
+ * Explicit client configuration directories that lie inside `repository`, as `NAME (path)`.
+ * The sign-in probe cannot see a repository's hooks or `env` block, so "user" settings
+ * the repository supplies would apply to the run unchecked; such a provider is not started.
+ */
+export function configurationInsideRepository(harness: string, repository: string, env: NodeJS.ProcessEnv = providerEnvironment()): string[] {
+  const canonical = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
+  const fold = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
+  const root = fold(canonical(repository));
+  return (HARNESS_CONFIG_DIRECTORIES[harness] ?? []).filter((name) => {
+    const value = env[name];
+    if (!value) return false;
+    const directory = fold(canonical(value));
+    return directory === root || directory.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+  }).map((name) => `${name} (${env[name]})`);
 }
 
 function appendTail(current: string, next: string, limit = 256 * 1024): string {

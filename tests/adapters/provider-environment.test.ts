@@ -1,8 +1,8 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, createBuiltinAdapters, KiroAcpAdapter, providerEnvironment, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
+import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, KiroAcpAdapter, providerEnvironment, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
 
 const temps: string[] = [];
 const saved = { ...process.env };
@@ -38,14 +38,37 @@ describe('provider client environment', () => {
   });
 
   it('makes relative client configuration directories absolute, so the probe and the run read the same one', () => {
-    const env = providerEnvironment({ PATH: '/usr/bin', HOME: '/home/me', CLAUDE_CONFIG_DIR: 'cfg', ANTHROPIC_CONFIG_DIR: 'profiles', CODEX_HOME: './codex', XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' }, '/work/start');
-    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/me', CLAUDE_CONFIG_DIR: join('/work/start', 'cfg'), ANTHROPIC_CONFIG_DIR: join('/work/start', 'profiles'), CODEX_HOME: join('/work/start', 'codex'), XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' });
+    const env = providerEnvironment({ PATH: '/usr/bin', HOME: 'home', USERPROFILE: './profile', CLAUDE_CONFIG_DIR: 'cfg', ANTHROPIC_CONFIG_DIR: '/home/me/.anthropic', CODEX_HOME: './codex', XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' }, '/work/start');
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: join('/work/start', 'home'), USERPROFILE: join('/work/start', 'profile'), CLAUDE_CONFIG_DIR: join('/work/start', 'cfg'), ANTHROPIC_CONFIG_DIR: '/home/me/.anthropic', CODEX_HOME: join('/work/start', 'codex'), XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' });
+  });
+
+  it('reports a client configuration directory inside the repository, for that client only', () => {
+    const repository = mkdtempSync(join(tmpdir(), 'cc-config-inside-'));
+    temps.push(repository);
+    const env = { CLAUDE_CONFIG_DIR: join(repository, '.claude-config'), CODEX_HOME: join(repository, '..', 'elsewhere') };
+    expect(configurationInsideRepository('claude', repository, env)).toEqual([`CLAUDE_CONFIG_DIR (${env.CLAUDE_CONFIG_DIR})`]);
+    expect(configurationInsideRepository('codex', repository, env)).toEqual([]);
+    expect(configurationInsideRepository('codex', repository, { CODEX_HOME: repository })).toEqual([`CODEX_HOME (${repository})`]);
+    // A sibling sharing the repository's name as a prefix is outside it.
+    expect(configurationInsideRepository('claude', repository, { CLAUDE_CONFIG_DIR: `${repository}-cfg` })).toEqual([]);
+    expect(configurationInsideRepository('kiro', repository, env)).toEqual([]);
+    // A directory outside the repository that is a symlink into it counts as inside.
+    if (process.platform !== 'win32') {
+      const elsewhere = mkdtempSync(join(tmpdir(), 'cc-config-link-'));
+      temps.push(elsewhere);
+      mkdirSync(join(repository, 'cfg'));
+      symlinkSync(join(repository, 'cfg'), join(elsewhere, 'claude'));
+      expect(configurationInsideRepository('claude', repository, { CLAUDE_CONFIG_DIR: join(elsewhere, 'claude') })).toHaveLength(1);
+    }
+    // A relative value, as the provider environment resolves it when Code Conductor starts in the repository.
+    expect(configurationInsideRepository('claude', repository, providerEnvironment({ CLAUDE_CONFIG_DIR: '.' }, repository))).toEqual([`CLAUDE_CONFIG_DIR (${repository})`]);
   });
 
   it('removes an empty configuration directory and a relative XDG base directory', () => {
     // Claude Code reads an empty CLAUDE_CONFIG_DIR as its working directory: the
     // repository during a run. The XDG specification says a relative value is ignored.
-    const env = providerEnvironment({ PATH: '/usr/bin', CLAUDE_CONFIG_DIR: '', ANTHROPIC_CONFIG_DIR: '', CODEX_HOME: '', HOME: '', XDG_CONFIG_HOME: 'cfg', XDG_DATA_HOME: './data', XDG_STATE_HOME: '', XDG_CACHE_HOME: 'cache' }, '/work/start');
+    // Claude Code also skips a relative Anthropic profile directory.
+    const env = providerEnvironment({ PATH: '/usr/bin', CLAUDE_CONFIG_DIR: '', ANTHROPIC_CONFIG_DIR: 'profiles', CODEX_HOME: '', HOME: '', USERPROFILE: '', XDG_CONFIG_HOME: 'cfg', XDG_DATA_HOME: './data', XDG_STATE_HOME: '', XDG_CACHE_HOME: 'cache' }, '/work/start');
     expect(env).toEqual({ PATH: '/usr/bin' });
   });
 
