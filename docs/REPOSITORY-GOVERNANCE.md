@@ -58,6 +58,10 @@ the analysis inside the job instead.
 | `dependency-review` | Dependency review |
 | `Analyze javascript-typescript`, `Analyze actions` | CodeQL |
 
+Dependency review and CodeQL run for pull requests into `main` only. A stacked pull
+request that is retargeted to `main` gets them on its next push. Requiring branches to be
+up to date usually forces that push anyway.
+
 ## Owner setup (requires repository administration)
 
 Code Conductor cannot apply these settings itself. The owner applies them, then reads them
@@ -70,22 +74,31 @@ back so this document can be checked against the live state (#3).
      independent review comes from the agents and Copilot under `AGENTS.md`;
    - require conversation resolution;
    - require the status checks above, and require branches to be up to date;
-   - optionally, request Copilot code review automatically.
-2. **Settings → Rules → New tag ruleset** for `v*`: restrict creation, updates and
-   deletion to maintainers ([`RELEASE.md`](RELEASE.md)).
+   - optionally, request Copilot code review automatically. It needs a Copilot plan
+     that includes code review, and it skips draft pull requests (which `cc pr --create`
+     opens) unless **Review draft pull requests** is on.
+2. **Settings → Rules → New tag ruleset** for **all tags**: restrict creation, updates
+   and deletion, and add **Repository admin** to the bypass list, so that you can still
+   push and delete release tags. All tags, not only `v*`, because a tag can carry another
+   ref's name, such as `origin/main` ([`RELEASE.md`](RELEASE.md#prerequisites-repository-settings)).
 3. **Settings → General:**
    - turn on automatic deletion of head branches;
    - turn on the suggestion to update pull request branches;
    - choose the merge methods to allow.
-4. **Settings → Code security:** enable private vulnerability reporting, secret scanning
-   and push protection.
+4. **Settings → Advanced Security** (in the *Security and quality* section): keep private
+   vulnerability reporting, secret scanning and push protection on. They are on today.
 5. **Settings → Actions → General → Workflow permissions:** read repository contents only,
    and do not allow GitHub Actions to create or approve pull requests.
 6. **Read the settings back** and attach the output to #3:
 
    ```sh
-   gh api repos/saulpatinojr/Proj-Code_Conductor/rulesets
-   gh api repos/saulpatinojr/Proj-Code_Conductor/rules/branches/main
+   R=repos/saulpatinojr/Proj-Code_Conductor
+   gh api $R/rulesets --jq '.[] | {id, name, target, enforcement}'
+   gh api $R/rulesets/<id>                     # each ruleset's rules and bypass list
+   gh api $R/rules/branches/main
+   gh api $R --jq '{delete_branch_on_merge, allow_update_branch, security_and_analysis}'
+   gh api $R/private-vulnerability-reporting
+   gh api $R/actions/permissions/workflow
    ```
 
 ## Branch cleanup
