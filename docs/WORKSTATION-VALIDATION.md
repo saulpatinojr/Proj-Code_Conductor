@@ -243,7 +243,7 @@ Activate the minimum profile required for the repository. Confirm:
 - authenticated MCPs retain their official IAM/RBAC boundary;
 - write-capable tools are not granted globally by default;
 - Code Conductor first-party MCP adapters require explicit catalog approval;
-- the context optimizer is used through `cc compress`; its experimental MCP transport is not in the catalog (W-006);
+- the context optimizer is used through `cc compress`; its experimental MCP transport is not in the catalog (W-006). On Linux and WSL, `cc compress <file>` reads a workspace file; on Windows and macOS it refuses with the reason, because the opened file's location cannot be verified there (ADR 0007);
 - Perplexity automated MCP/API stays off unless you list it with `--allow-api` and configure your own key ([`AUTHENTICATION.md`](AUTHENTICATION.md)).
 
 ## 12. First real dry run and dogfood
