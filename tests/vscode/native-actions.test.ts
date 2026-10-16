@@ -1,14 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import { nativeOperation, signInHint } from '../../apps/vscode/src/native-actions.js';
-import type { NextAction } from '../../packages/runtime/src/next-actions.js';
+import { formatCommand, type NextAction } from '../../packages/runtime/src/next-actions.js';
 
-const ROOT = '/home/me/.code-conductor/worktrees';
+const BASE = realpathSync(mkdtempSync(join(tmpdir(), 'cc-native-actions-')));
+const ROOT = join(BASE, 'worktrees');
+mkdirSync(join(ROOT, 'r', 'T', 'a'), { recursive: true });
+mkdirSync(join(BASE, 'outside'), { recursive: true });
+symlinkSync(join(BASE, 'outside'), join(ROOT, 'r', 'link'));
+afterAll(() => rmSync(BASE, { recursive: true, force: true }));
 const action = (overrides: Partial<NextAction>): NextAction => ({ kind: 'retry_or_revise', title: 'Title', detail: 'Detail', surface: 'terminal', evidenceIds: [], ...overrides });
 
 describe('native operations for next actions', () => {
   it('opens native Source Control only for worktrees under the Code Conductor root', () => {
     expect(nativeOperation(action({ kind: 'review_changes', path: `${ROOT}/r/T/a` }), ROOT)).toEqual({ type: 'open_source_control', path: `${ROOT}/r/T/a` });
-    for (const path of ['/etc', `${ROOT}/../outside`, ROOT, 'relative/path']) {
+    for (const path of ['/etc', `${ROOT}/../outside`, ROOT, 'relative/path', `${ROOT}/r/link`, `${ROOT}/r/missing`]) {
       expect(nativeOperation(action({ kind: 'review_changes', path, commands: [['git', '-C', path, 'status']] }), ROOT).type).toBe('copy_command');
     }
   });
@@ -18,7 +26,9 @@ describe('native operations for next actions', () => {
     expect(nativeOperation(action({ commands: [['cc', 'run', '--objective', 'x', '--execute']] }), ROOT)).toMatchObject({ type: 'copy_command' });
     expect(nativeOperation(action({ commands: [['cc', 'handoff', '--run', '$(evil)']] }), ROOT)).toMatchObject({ type: 'copy_command' });
     expect(nativeOperation(action({ commands: [['git', 'push'], ['gh', 'pr', 'create']] }), ROOT)).toEqual({ type: 'copy_command', text: 'git push\ngh pr create' });
+    expect(nativeOperation(action({ commands: [['cc', 'run', '--objective', "it's"]] }), ROOT)).toEqual({ type: 'copy_command', text: formatCommand(['cc', 'run', '--objective', "it's"]) });
     expect(nativeOperation(action({}), ROOT)).toEqual({ type: 'show', text: 'Title\nDetail' });
+    expect(nativeOperation(action({ title: 'T\x1b[2J', detail: 'line\nforged' }), ROOT)).toEqual({ type: 'show', text: 'T?[2J\nline?forged' });
   });
 });
 

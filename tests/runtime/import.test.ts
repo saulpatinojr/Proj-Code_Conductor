@@ -39,6 +39,11 @@ describe('external run manifest import', () => {
     expect(() => importRunManifest(writeManifest(manifest({ approvals })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/approval records/);
   });
 
+  it('rejects manifests that carry worktree records (D-060)', () => {
+    const worktrees = [{ assignmentId: 'A-1', path: '/etc', branch: 'cc/T-1/builder', baseSha: 'a'.repeat(40) }];
+    expect(() => importRunManifest(writeManifest(manifest({ worktrees })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/worktree records/);
+  });
+
   it('rejects manifests that fail the RunManifest contract', () => {
     expect(() => importRunManifest(writeManifest(manifest({ gates: 'none' })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/schema validation/);
   });

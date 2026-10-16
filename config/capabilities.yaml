@@ -48,8 +48,8 @@ harnesses:
     provider: anthropic
     auth_boundary: claude-code
     sign_in:
-      command: [claude]
-      instructions: Run claude; the first launch opens Anthropic's browser sign-in (use /login inside Claude Code to switch accounts). Use your Claude subscription, not an API key, for subscription-first billing.
+      command: [claude, auth, login]
+      instructions: Sign in with your Claude subscription (claude auth status shows the result). Do not use --console or an API key, which bill API usage separately.
       docs: https://code.claude.com/docs/en/authentication
     subscription: claude-max
     command_candidates: [claude]

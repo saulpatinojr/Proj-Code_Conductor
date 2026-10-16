@@ -10,6 +10,7 @@ import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commit
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
+import { GIT_CONTROL_CHANGED } from './next-actions.js';
 
 export interface ExecuteOptions {
   execute?: boolean;
@@ -135,7 +136,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         else if (baseline !== digest) changed = 'changed since Code Conductor first read them in this run';
       }
     } catch { changed = 'could not be read'; }
-    return changed && `Git configuration or history files (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates) for ${cwd} ${changed} (checked ${when}). Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\` and the repository's .git directory before running again. Agent changes are preserved uncommitted.`;
+    return changed && `${GIT_CONTROL_CHANGED} (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates) for ${cwd} ${changed} (checked ${when}). Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\` and the repository's .git directory before running again. Agent changes are preserved uncommitted.`;
   };
   const save = (): string => store.saveManifest(manifest);
   store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'run.planned', message: `Planned ${plan.assignments.length} assignment(s).` });
@@ -394,6 +395,9 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     // silently discarded. Cleanup must be an explicit caller choice.
     if (options.keepWorktrees === false) {
       for (const handle of createdWorktrees) worktrees.remove(handle, false, false);
+      // Removed worktrees are no longer offered for review.
+      manifest.worktrees = (manifest.worktrees ?? []).filter((record) => existsSync(record.path));
+      save();
     }
   }
 }

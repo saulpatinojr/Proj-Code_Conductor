@@ -32,6 +32,8 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Standalone bundle smoke test that runs the distributed CLI with only its packaged defaults/schema in an empty unrelated directory.
 - ADR 0011 (Accepted) locking the Code Workflow sibling boundary and shared result contract, and ADR 0012 (Proposed) for provider-local subagent evidence hooks.
 
+- Next actions treat run records as untrusted: `cc next`, `cc handoff` and the VS Code views show each value on one line with control and format characters replaced. Commands are quoted for the shell you paste into (POSIX or PowerShell), and a command is left out when a value cannot be shown exactly. A refused commit points to native review of the kept changes. A run stopped for a Git configuration change offers only a configuration check. Worktree paths are resolved through symlinks before review, and `cc import` rejects worktree records. The extension shows a command before copying it.
+
 ### Changed
 
 - Gate selection fails closed: an unrelated workspace with no applicable profile yields a blocking `no-applicable-gates` result instead of an empty (vacuously passing) gate set; the source-specific gate profile requires the exact `@code-conductor/root` package name.

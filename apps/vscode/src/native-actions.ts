@@ -1,5 +1,6 @@
-import { isAbsolute, relative, resolve } from 'node:path';
-import { formatCommand, type NextAction } from '@code-conductor/runtime/next-actions';
+import { realpathSync } from 'node:fs';
+import { isAbsolute, relative } from 'node:path';
+import { formatCommand, printable, type NextAction } from '@code-conductor/runtime/next-actions';
 
 /**
  * What the extension may do for a next action. Every operation either hands
@@ -8,7 +9,6 @@ import { formatCommand, type NextAction } from '@code-conductor/runtime/next-act
  */
 export type NativeOperation =
   | { type: 'open_source_control'; path: string }
-  | { type: 'open_documentation'; url: string }
   | { type: 'copy_command'; text: string }
   | { type: 'run_cli'; args: string[] }
   | { type: 'show'; text: string };
@@ -19,9 +19,13 @@ const PLAIN_ARGUMENT = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 /** A plain value or flag such as `--run`; never shell syntax, spaces or substitutions. */
 const PLAIN_CLI_ARGUMENT = /^(--?)?[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
 
+/** True when `path` is an existing directory strictly inside `root` after resolving symlinks. */
 function within(root: string, path: string): boolean {
-  const offset = relative(resolve(root), resolve(path));
-  return offset !== '' && !offset.startsWith('..') && !isAbsolute(offset);
+  if (!isAbsolute(path)) return false;
+  try {
+    const offset = relative(realpathSync(root), realpathSync(path));
+    return offset !== '' && !offset.startsWith('..') && !isAbsolute(offset);
+  } catch { return false; }
 }
 
 export function nativeOperation(action: NextAction, worktreeRoot: string): NativeOperation {
@@ -32,8 +36,9 @@ export function nativeOperation(action: NextAction, worktreeRoot: string): Nativ
   if (action.commands?.length === 1 && first?.[0] === 'cc' && READ_ONLY_CLI.has(first[1] ?? '') && first.slice(1).every((arg) => PLAIN_CLI_ARGUMENT.test(arg))) {
     return { type: 'run_cli', args: first.slice(1) };
   }
-  if (action.commands?.length) return { type: 'copy_command', text: action.commands.map(formatCommand).join('\n') };
-  return { type: 'show', text: `${action.title}\n${action.detail}` };
+  if (action.commands?.length) return { type: 'copy_command', text: action.commands.map((argv) => formatCommand(argv)).join('\n') };
+  // Run-record text is untrusted: one line each, with control and format characters replaced.
+  return { type: 'show', text: `${printable(action.title)}\n${printable(action.detail, 2000)}` };
 }
 
 export interface SignInHint { instructions: string; command?: string; docs?: string }

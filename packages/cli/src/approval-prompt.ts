@@ -3,26 +3,16 @@ import { createInterface } from 'node:readline/promises';
 import type { Readable, Writable } from 'node:stream';
 import type { ApprovalDecision, Approver } from '@code-conductor/policy';
 import { approvalDigest } from '@code-conductor/policy';
+import { printable } from '@code-conductor/runtime';
 import type { ApprovalRequest } from '@code-conductor/schemas';
 
 type TerminalInput = Readable & { isTTY?: boolean };
 type TerminalOutput = Writable & { isTTY?: boolean };
 
-/**
- * Single-line rendering so bound values cannot rewrite the terminal or reorder
- * what is displayed: control characters, Unicode format characters (including
- * bidirectional overrides and zero-width characters) and line/paragraph
- * separators are replaced.
- */
-const MAX_DISPLAY = 600;
+// Bound values are untrusted: each is kept on one line with control, format and
+// line-separator characters replaced and non-ASCII escaped.
 const MAX_SUMMARY = 2000;
-function printable(value: string, limit = MAX_DISPLAY): string {
-  const safe = value
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '?')
-    // Escape remaining non-ASCII so look-alike characters cannot disguise a path or recipient.
-    .replace(/[^\x20-\x7E]/gu, (char) => `\\u{${(char.codePointAt(0) ?? 0).toString(16)}}`);
-  return safe.length > limit ? `${safe.slice(0, limit)}… [${safe.length - limit} more characters not shown; the full value is bound by the digest]` : safe;
-}
+const shown = (value: string, limit = 600): string => printable(value, limit, true, '; the full value is bound by the digest');
 
 /**
  * A short code derived from the exact requests shown. It cannot be known before
@@ -36,15 +26,15 @@ export function confirmationCode(requests: readonly ApprovalRequest[]): string {
 export function describeApprovalRequests(requests: readonly ApprovalRequest[]): string {
   const lines = ['', 'Code Conductor pre-action approval required:'];
   for (const request of requests) {
-    lines.push(`  • ${request.action}${request.recipient ? ` → ${printable(request.recipient)}` : ''}`);
+    lines.push(`  • ${request.action}${request.recipient ? ` → ${shown(request.recipient)}` : ''}`);
     // Summaries lead with counts (for example how many changed files can affect later
     // execution), so even a truncated summary says how much is behind the cut.
-    lines.push(`    ${printable(request.summary, MAX_SUMMARY)}`);
-    lines.push(`    repository: ${printable(request.repository)}  revision: ${printable(request.revision)}`);
-    for (const [key, value] of Object.entries(request.bindings)) lines.push(`    ${printable(key)}: ${printable(value)}`);
+    lines.push(`    ${shown(request.summary, MAX_SUMMARY)}`);
+    lines.push(`    repository: ${shown(request.repository)}  revision: ${shown(request.revision)}`);
+    for (const [key, value] of Object.entries(request.bindings)) lines.push(`    ${shown(key)}: ${shown(value)}`);
     lines.push(`    approval digest: ${approvalDigest(request)}`);
   }
-  lines.push(`Approving: ${requests.map((request) => `${request.action}${request.recipient ? ` → ${printable(request.recipient, 120)}` : ''}`).join('; ')}`);
+  lines.push(`Approving: ${requests.map((request) => `${request.action}${request.recipient ? ` → ${shown(request.recipient, 120)}` : ''}`).join('; ')}`);
   lines.push('This approves only the action(s) above, once, for this exact context. Workstation trust is not approval.');
   return `${lines.join('\n')}\n`;
 }

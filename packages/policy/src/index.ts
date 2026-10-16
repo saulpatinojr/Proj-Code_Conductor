@@ -130,7 +130,7 @@ export function validatePolicyObjects(roles: RolesConfig, risks: RiskConfig): Va
   return issues;
 }
 
-function validateCapabilities(capabilities: CapabilityConfig): ValidationIssue[] {
+export function validateCapabilities(capabilities: CapabilityConfig): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (capabilities.version !== 2) {
     issues.push({ level: 'error', code: 'capabilities.version', path: 'config/capabilities.yaml', message: 'Surface-aware capability configuration must use version 2.' });

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { RunManifest } from '@code-conductor/schemas';
@@ -74,8 +74,13 @@ export class RunStore {
     let latest: { name: string; mtime: number } | undefined;
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
+      // Same rule as readManifest: only a regular file (not a symlink) counts as a run.
       let mtime: number;
-      try { mtime = statSync(join(this.root, entry.name, 'manifest.json')).mtimeMs; } catch { continue; }
+      try {
+        const stat = lstatSync(join(this.root, entry.name, 'manifest.json'));
+        if (!stat.isFile()) continue;
+        mtime = stat.mtimeMs;
+      } catch { continue; }
       if (!latest || mtime > latest.mtime) latest = { name: entry.name, mtime };
     }
     return latest?.name;
@@ -98,7 +103,16 @@ export class RunStore {
       const stat = fstatSync(descriptor);
       if (!stat.isFile()) throw new Error(`Run manifest for ${runId} is not a regular file.`);
       if (stat.size > maxBytes) throw new Error(`Run manifest for ${runId} exceeds ${maxBytes} bytes.`);
-      return JSON.parse(readFileSync(descriptor, 'utf8')) as unknown;
+      // Read at most one byte more than fstat reported, so a file that grows meanwhile is
+      // refused rather than read without bound.
+      const buffer = Buffer.alloc(stat.size + 1);
+      let length = 0;
+      for (let read = -1; read !== 0 && length < buffer.length;) {
+        read = readSync(descriptor, buffer, length, buffer.length - length, null);
+        length += read;
+      }
+      if (length > stat.size) throw new Error(`Run manifest for ${runId} changed while it was read.`);
+      return JSON.parse(buffer.subarray(0, length).toString('utf8')) as unknown;
     } finally { closeSync(descriptor); }
   }
 

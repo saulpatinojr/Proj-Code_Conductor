@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { assignmentPrompt, createTask, executeTask, formatCommand, importRunManifest, nextActions, planTask, parseAgentResult, type NextAction } from '@code-conductor/runtime';
+import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, printable, importRunManifest, nextActions, planTask, parseAgentResult, type NextAction } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
 import { defaultWorktreeRoot } from '@code-conductor/git';
 import { assertContract, type RunManifest } from '@code-conductor/schemas';
@@ -192,8 +192,9 @@ function agentsList(args: string[]): number {
   if (inventory.truncated) console.log('WARN native-inventory.truncated: file budget reached; results are partial.');
   return 0;
 }
+// JSON keeps the exact argv (for tools that quote per platform) next to this platform's display form.
 function presentAction(action: NextAction): Record<string, unknown> {
-  return { ...action, ...(action.commands ? { commands: action.commands.map(formatCommand) } : {}) };
+  return { ...action, ...(action.commands ? { argv: action.commands, commands: action.commands.map((argv) => formatCommand(argv)) } : {}) };
 }
 
 function storedManifest(store: RunStore, runId: string): RunManifest {
@@ -210,12 +211,17 @@ function nextCommand(args: string[]): number {
     const manifest = storedManifest(store, runId);
     const actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() });
     if (args.includes('--json')) { console.log(JSON.stringify({ runId: manifest.runId, mergeDecision: manifest.mergeDecision, nextActions: actions.map(presentAction) }, null, 2)); return 0; }
-    console.log(`Run ${manifest.runId}: ${manifest.mergeDecision ? `${manifest.mergeDecision.decision} — ${manifest.mergeDecision.rationale}` : 'planned (not executed)'}`);
-    if (!actions.length) console.log('No next action recorded. Dry-run plans execute nothing; use `cc run --execute` from an interactive terminal.');
+    // Everything taken from the run record is untrusted (runs can be imported): each
+    // value is printed on one line, so it can neither rewrite the terminal nor forge a
+    // step or a command line. Only Code Conductor starts a `$` line, with argv it built
+    // and quoted for this platform's shell (nextActions drops commands it cannot show exactly).
+    console.log(`Run ${printable(manifest.runId)}: ${manifest.mergeDecision ? `${printable(manifest.mergeDecision.decision)} — ${printable(manifest.mergeDecision.rationale)}` : 'planned (not executed)'}`);
+    if (!actions.length) console.log(manifest.mergeDecision ? 'No further step is needed from you for this run.' : 'No next action recorded. Dry-run plans execute nothing; use `cc run --execute` from an interactive terminal.');
+    const prompt = DEFAULT_SHELL === 'powershell' ? 'PS>' : '$';
     for (const [index, action] of actions.entries()) {
-      console.log(`\n${index + 1}. ${action.title} [${action.surface}]\n   ${action.detail}`);
-      if (action.path) console.log(`   path: ${action.path}`);
-      for (const command of action.commands ?? []) console.log(`   $ ${formatCommand(command)}`);
+      console.log(`\n${index + 1}. ${printable(action.title)} [${action.surface}]\n   ${printable(action.detail, 2000)}`);
+      if (action.path) console.log(`   path: ${printable(action.path)}`);
+      for (const command of action.commands ?? []) console.log(`   ${prompt} ${printable(formatCommand(command), 4000, false)}`);
     }
     return 0;
   } catch (error) { console.error(`ERROR next.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
@@ -229,8 +235,15 @@ function handoff(args: string[]): number {
     const assignment = manifest.assignments.find((item) => item.id === assignmentId);
     if (!assignment) { console.error(`ERROR handoff.unknown_assignment: ${assignmentId} is not part of ${runId}.`); return 1; }
     // stderr carries guidance; stdout is only the prompt so it can be piped or copied exactly.
-    console.error(`Manual handoff for ${assignment.role} (${assignment.harness}@${assignment.surface ?? 'manual'}). Paste the prompt below into the official client yourself; this disclosure is your decision. Keep the client's result with run ${runId}.`);
-    console.log(assignmentPrompt(manifest.task, assignment));
+    console.error(`Manual handoff for ${printable(assignment.role)} (${printable(assignment.harness)}@${printable(assignment.surface ?? 'manual')}). Paste the prompt below into the official client yourself; this disclosure is your decision. Keep the client's result with run ${printable(runId)}.`);
+    const text = assignmentPrompt(manifest.task, assignment);
+    if (!process.stdout.isTTY) { process.stdout.write(`${text}\n`); return 0; }
+    // On a terminal, untrusted task text must not drive it: each line is shown with
+    // control and format characters replaced. Redirect stdout for the exact bytes.
+    const lines = text.split('\n');
+    const shown = lines.map((line) => printable(line, Number.MAX_SAFE_INTEGER, false));
+    console.log(shown.join('\n'));
+    if (shown.some((line, index) => line !== lines[index])) console.error('Some characters were replaced with "?" for display. Redirect the output (cc handoff … > prompt.txt) to get the exact prompt.');
     return 0;
   } catch (error) { console.error(`ERROR handoff.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
 }

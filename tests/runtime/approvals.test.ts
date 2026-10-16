@@ -244,9 +244,16 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.results.at(-1)).toMatchObject({ role: 'validator', status: 'blocked' });
   });
 
+  it('records each agent worktree in the manifest for native review (C03)', async () => {
+    const { outcome } = await run(approveAll);
+    expect(outcome.manifest.worktrees).toEqual([expect.objectContaining({ assignmentId: expect.any(String), path: outcome.worktrees[0]!.path, branch: outcome.worktrees[0]!.branch, baseSha: outcome.worktrees[0]!.baseSha })]);
+    expect(() => assertContract('RunManifest', outcome.manifest)).not.toThrow();
+  });
+
   it('removes the unused worktree and its branch when a start is refused', async () => {
     const { outcome, sandbox } = await run(undefined);
     expect(outcome.worktrees).toHaveLength(0);
+    expect(outcome.manifest.worktrees ?? []).toEqual([]);
     expect(git(sandbox, 'branch', '--list', 'cc/*')).toBe('');
     expect(git(sandbox, 'worktree', 'list', '--porcelain')).not.toContain('sandbox-worktrees');
   });
