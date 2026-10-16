@@ -393,13 +393,13 @@ Kiro should be exercised through the approved ACP/native boundary if selected fo
 A clean workstation must be able to:
 
 - install Code Conductor through the release extension/VSIX path without cloning this repository;
-- open an ordinary repository and complete first-run discovery/bootstrap;
+- open an ordinary repository and complete first-run discovery, creating no files in it unless the person opts in (C01);
 - restart VS Code with fast lazy warm-start behavior and no unnecessary provider/MCP/APM launches;
-- install/verify required APM targets;
+- verify APM targets for repositories that package agent packs (APM is optional for basic provider handoffs, I07);
 - authenticate supported official clients through their native boundaries;
 - run `cc doctor` with surface-aware/provider/tool status;
 - safely prepare bounded context;
-- bootstrap another repo;
+- repeat that in a second, unrelated repository that has no Code Conductor files;
 - execute an R1/R2 task using independent roles and the approved provider surfaces;
 - isolate changes;
 - run deterministic checks;

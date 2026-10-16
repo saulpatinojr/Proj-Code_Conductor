@@ -66,7 +66,7 @@ Parallel work continues under #13 for the actual legacy corpus migration and #14
 
 - #7 remains the durable roadmap umbrella; future substantive approved ideas should be captured in GitHub before implementation or deferral.
 - #8 thin VS Code + optional `cc` client/no standalone app: **implementation foundation landed; clean-machine/customer validation remains**.
-- #9 first-run/warm-start/lazy activation: **implementation foundation landed; target-workstation behavior remains to validate**.
+- #9 first-run/warm-start/lazy activation: **implementation foundation landed; target-workstation behavior remains to validate** with the measurement method and initial budget in `docs/WORKSTATION-VALIDATION.md` §10.
 - #10 surface-aware harness adapters/provider-native capabilities: **implemented in the runtime/configuration baseline**.
 - #11 Kiro ACP-first + AWS/spec specialization: **guarded ACP implementation landed; live subscription-policy/read-modify authority remains fail-closed pending workstation validation**.
 - #12 explicit provider role/capability routing matrix: **implemented with representative routing tests**.
