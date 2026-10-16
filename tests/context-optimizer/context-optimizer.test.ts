@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { linkSync, mkdtempSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ContextOptimizer,
@@ -216,8 +216,12 @@ describe('Context Optimizer', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-fifo-'));
       execFileSync('mkfifo', [join(root, 'pipe.md')]);
       try {
-        const optimizer = new ContextOptimizer({ statsFile: join(root, 'stats.json'), allowedRoots: [root] });
-        expect(() => optimizer.readCompressedFile(join(root, 'pipe.md'))).toThrow(/not a regular file/i);
+        // Through the built CLI in a child process, so an open that blocks (no writer ever
+        // comes) fails this test by timeout instead of hanging the test runner.
+        const child = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'compress', join(root, 'pipe.md'), '--root', root], { encoding: 'utf8', timeout: 10_000, env: { ...process.env, CODE_CONDUCTOR_HOME: join(root, 'home') } });
+        expect(child.error).toBeUndefined();
+        expect(child.status).toBe(1);
+        expect(child.stderr).toMatch(/not a regular file/i);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

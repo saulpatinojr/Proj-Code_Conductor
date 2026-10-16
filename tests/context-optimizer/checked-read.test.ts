@@ -57,13 +57,13 @@ describe.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('readCheckedFile (descriptor-bound
     // As a concurrent writer leaves it: the checked folder now points at a missing place.
     rmSync(join(workspace, 'docs'), { recursive: true });
     symlinkSync(join(outside, 'missing'), join(workspace, 'docs'));
-    expect(() => readCheckedFile(join(workspace, 'docs', 'notes.md'), 'docs/notes.md', 1024)).toThrow(/^Context file changed while it was being opened: docs\/notes\.md$/);
+    expect(() => readCheckedFile(join(workspace, 'docs', 'notes.md'), 'docs/notes.md', 1024)).toThrow(/^Context file changed while it was being opened, or could not be opened: docs\/notes\.md$/);
   });
 
-  it('refuses to open a final symlink at all', () => {
+  it('refuses a final symlink with the same answer as any other change', () => {
     const { workspace, outside } = layout();
     symlinkSync(join(outside, 'notes.md'), join(workspace, 'link.md'));
-    expect(() => readCheckedFile(join(workspace, 'link.md'), 'link.md', 1024)).toThrow(/cannot be opened: link\.md \(ELOOP\)/);
+    expect(() => readCheckedFile(join(workspace, 'link.md'), 'link.md', 1024)).toThrow(/^Context file changed while it was being opened, or could not be opened: link\.md$/);
   });
 
   it('refuses a file over the limit on the descriptor itself', () => {

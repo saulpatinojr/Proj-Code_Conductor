@@ -30,7 +30,8 @@ function descriptorLocation(descriptor: number): Buffer | undefined {
  * open descriptor, so what is read is what was checked:
  *
  * - the final component is opened without following a symlink, without blocking on a
- *   FIFO and without taking a controlling terminal;
+ *   FIFO and without taking a controlling terminal; any failure to open is reported like
+ *   a change, with no error code;
  * - the kernel's path for the descriptor must be exactly `canonical`, so an intermediate
  *   directory swapped for a symlink, or a file renamed or deleted, is refused;
  * - it must be a regular file with a single link (a hard link can make a file from
@@ -42,18 +43,14 @@ function descriptorLocation(descriptor: number): Buffer | undefined {
 export function readCheckedFile(canonical: string, displayPath: string, maxBytes: number): string {
   requireDescriptorLocation(displayPath);
   let descriptor: number;
-  try { descriptor = openSync(canonical, OPEN_FLAGS); }
-  catch (error) {
-    // The path resolved a moment ago, so a missing file or folder now means it changed.
-    // The same answer as a redirected open, so a concurrent writer cannot use it to learn
-    // whether a path outside the workspace exists.
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') throw new Error(`Context file changed while it was being opened: ${displayPath}`);
-    throw new Error(`Context file cannot be opened: ${displayPath} (${code ?? 'error'})`);
-  }
+  // One answer for every failed open and for a redirected one: the path resolved a moment
+  // ago, so any difference (a missing entry, a symlink, a socket, no permission) would let
+  // a concurrent writer learn what lies outside the workspace.
+  const changed = () => new Error(`Context file changed while it was being opened, or could not be opened: ${displayPath}`);
+  try { descriptor = openSync(canonical, OPEN_FLAGS); } catch { throw changed(); }
   try {
     const location = descriptorLocation(descriptor);
-    if (!location || !location.equals(Buffer.from(canonical))) throw new Error(`Context file changed while it was being opened: ${displayPath}`);
+    if (!location || !location.equals(Buffer.from(canonical))) throw changed();
     const opened = fstatSync(descriptor);
     if (!opened.isFile()) throw new Error(`Context path is not a regular file: ${displayPath}`);
     if (opened.nlink > 1) throw new Error(`Context file has more than one hard link, so its location cannot be verified: ${displayPath}`);
