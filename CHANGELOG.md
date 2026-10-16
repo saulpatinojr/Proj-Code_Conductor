@@ -6,6 +6,7 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Added
 
+- Repository governance (#3): APM audit and npm lockfile validation now report on every pull request, so they can be required checks; their checkouts no longer keep credentials. `docs/REPOSITORY-GOVERNANCE.md` lists the exact required check names and the owner's ruleset, tag-ruleset, security and Actions settings, with a read-back command.
 - Release engineering (#14; D-067): a Release workflow builds a draft GitHub release from a version tag on `main`. It uses three least-privilege jobs. The first tests and packages the `.vsix`, smoke-tests it installed, and writes a CycloneDX SBOM (checked against the bundled packages) and `SHA256SUMS`, without signing access. The second signs build provenance. The third verifies the attestation against the Release workflow, tag and commit (`gh attestation verify --cert-identity --source-ref --source-digest`), and confirms the tag has not moved before drafting the release. `docs/RELEASE.md` covers cutting, verifying, versioning, rollback, deprecation and the owner's Marketplace setup. `@types/vscode` now matches `engines.vscode` (1.105), and vsce's check for that runs again; workspace packages are private.
 - VS Code-centered Code Conductor architecture and repository constitution.
 - Vendor-neutral task, assignment, evidence, finding, gate, review, merge, and run-manifest contracts.
