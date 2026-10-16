@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,8 @@ import type { Approver } from '../../packages/policy/src/index.js';
 import { assertContract, type ApprovalRequest } from '../../packages/schemas/src/index.js';
 import { createTask, executeTask } from '../../packages/runtime/src/index.js';
 import { git, SandboxWorktrees, WritingAdapter } from './fixtures.js';
+
+const approveAll: Approver = { decide: async () => ({ approved: true, approver: 'test' }) };
 
 class CountingAdapter extends WritingAdapter {
   calls = 0;
@@ -20,19 +22,39 @@ class CountingAdapter extends WritingAdapter {
 const temps: string[] = [];
 afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
 
-async function run(approver: Approver | undefined, gateCalls = { count: 0 }) {
+async function run(approver: Approver | undefined, gateCalls = { count: 0 }, setup: { codex?: CountingAdapter; sandbox?: (repository: string) => void } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'cc-approval-test-'));
   temps.push(temp);
-  const codex = new CountingAdapter('codex', 'openai');
+  const codex = setup.codex ?? new CountingAdapter('codex', 'openai');
   const claude = new CountingAdapter('claude', 'anthropic');
   const adapters = new Map<string, HarnessAdapter>([['codex', codex], ['claude', claude]]);
+  const worktrees = new SandboxWorktrees(temp);
+  setup.sandbox?.(worktrees.sandboxRepository);
   const outcome = await executeTask(resolve('.'), createTask('approval-gated R1 run', 'R1', resolve('.')), {
-    execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp),
+    execute: true, adapters, store: new RunStore(temp), worktrees,
     gateExecutor: () => { gateCalls.count += 1; return { status: 0, stdout: 'ok', stderr: '' }; },
     isHarnessTrusted: () => true,
     ...(approver ? { approver } : {}),
   });
-  return { outcome, codex, claude, gateCalls };
+  return { outcome, codex, claude, gateCalls, sandbox: worktrees.sandboxRepository };
+}
+
+// The builder's first start writes a file and fails without a result; the retry completes.
+class FlakyBuilder extends CountingAdapter {
+  override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+    if (request.assignment.role === 'builder' && this.calls === 0) {
+      this.calls += 1;
+      writeFileSync(join(request.cwd, 'attempt1.txt'), 'partial\n');
+      return { harness: this.id, surface: this.executionSurface, command: 'fake', args: [], exitCode: 1, signal: null, stdout: '', stderr: 'crashed', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
+    }
+    return super.execute(request);
+  }
+}
+
+function hook(repository: string, name: string, body: string, directory = join(repository, '.git', 'hooks')): void {
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, name), `#!/bin/sh\n${body}\n`);
+  chmodSync(join(directory, name), 0o755);
 }
 
 const decideWith = (rule: (request: ApprovalRequest) => boolean, seen: ApprovalRequest[] = []): Approver => ({
@@ -73,19 +95,13 @@ describe('pre-action approval enforcement (#44)', () => {
 
   it('requires a distinct disclosure approval per provider', async () => {
     const { outcome, codex, claude } = await run(decideWith((request) => !request.recipient?.startsWith('anthropic/')));
-    const builder = outcome.manifest.results[0]!;
-    const reviewer = outcome.manifest.results[1]!;
-    const builderAdapter = builder.harness === 'codex' ? codex : claude;
-    const reviewerAdapter = reviewer.harness === 'codex' ? codex : claude;
-    if (builder.provider === 'anthropic') {
-      expect(builderAdapter.calls).toBe(0);
-      expect(builder.status).toBe('blocked');
-    } else {
-      expect(builderAdapter.calls).toBe(1);
-      expect(reviewer.provider).toBe('anthropic');
-      expect(reviewerAdapter.calls).toBe(0);
-      expect(reviewer.blockers[0]).toContain('denied');
-    }
+    const [builder, reviewer] = outcome.manifest.results;
+    // Routing is asserted so this test cannot silently become vacuous.
+    expect(builder).toMatchObject({ provider: 'openai', harness: 'codex', status: 'completed' });
+    expect(reviewer).toMatchObject({ provider: 'anthropic', harness: 'claude', status: 'blocked' });
+    expect(codex.calls).toBe(1);
+    expect(claude.calls).toBe(0);
+    expect(reviewer?.blockers[0]).toContain('denied');
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 
@@ -143,5 +159,101 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(codex.calls + claude.calls).toBe(0);
     expect(outcome.manifest.approvals?.[0]?.status).toBe('expired');
     expect(outcome.manifest.results[0]?.blockers[0]).toContain('expired');
+  });
+
+  it('asks again before a retry and binds the retry to the changed working tree', async () => {
+    const seen: ApprovalRequest[] = [];
+    const codex = new FlakyBuilder('codex', 'openai');
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex });
+    expect(codex.calls).toBe(2);
+    const starts = seen.filter((request) => request.action === 'local_execution' && request.recipient === 'openai/codex@cli');
+    expect(starts.map((request) => request.bindings.attempt)).toEqual(['1', '2']);
+    expect(starts[1]?.bindings.tree).not.toBe(starts[0]?.bindings.tree);
+    expect(starts[1]?.summary).toContain('Retry attempt 2');
+    expect(outcome.manifest.results[0]?.status).toBe('completed');
+  });
+
+  it('does not retry when the retry is not approved', async () => {
+    const codex = new FlakyBuilder('codex', 'openai');
+    const { outcome } = await run(decideWith((request) => request.bindings.attempt !== '2'), { count: 0 }, { codex });
+    expect(codex.calls).toBe(1);
+    expect(outcome.manifest.results[0]?.status).toBe('failed');
+    expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain('automatic retry was not started');
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it('never runs repository hooks, so a hook cannot restage an approved commit or execute unapproved scripts', async () => {
+    const seen: ApprovalRequest[] = [];
+    const { outcome, sandbox } = await run(decideWith(() => true, seen), { count: 0 }, {
+      sandbox: (repository) => {
+        hook(repository, 'pre-commit', `echo injected > injected.txt && git add injected.txt; touch "${repository}/pre-commit-ran"`);
+        hook(repository, 'post-checkout', `touch "${repository}/post-checkout-ran"`);
+        hook(repository, 'post-commit', `touch "${repository}/post-commit-ran"`);
+      },
+    });
+    const builder = outcome.manifest.results[0]!;
+    expect(builder.status).toBe('completed');
+    expect(builder.changes).toEqual(['agent-output.txt']);
+    const worktree = outcome.worktrees[0]!;
+    const approvedTree = seen.find((request) => request.action === 'commit')?.bindings.tree;
+    expect(git(worktree.path, 'rev-parse', 'HEAD^{tree}')).toBe(approvedTree);
+    for (const marker of ['pre-commit-ran', 'post-checkout-ran', 'post-commit-ran']) expect(existsSync(join(sandbox, marker))).toBe(false);
+  });
+
+  it('ignores a husky-style relative hooks path that the agent could edit', async () => {
+    const { outcome, sandbox } = await run(approveAll, { count: 0 }, {
+      sandbox: (repository) => {
+        // Committed, so the agent's own worktree checks out (and could edit) the hook.
+        hook(repository, 'pre-commit', `touch "${repository}/husky-ran"`, join(repository, '.husky'));
+        git(repository, 'add', '.husky');
+        git(repository, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'husky');
+        git(repository, 'config', 'core.hooksPath', '.husky');
+      },
+    });
+    expect(outcome.manifest.results[0]?.status).toBe('completed');
+    expect(existsSync(join(sandbox, 'husky-ran'))).toBe(false);
+  });
+
+  it('rejects a provider start whose working tree changes while approval is pending', async () => {
+    const tampering: Approver = {
+      decide: async (requests) => {
+        const start = requests.find((request) => request.action === 'local_execution' && request.recipient?.startsWith('openai/'));
+        if (start) writeFileSync(join(start.repository, 'sneaked-in.txt'), 'x\n');
+        return { approved: true, approver: 'test' };
+      },
+    };
+    const { outcome, codex } = await run(tampering);
+    expect(codex.calls).toBe(0);
+    expect(outcome.manifest.approvals?.slice(0, 2).map((record) => record.status)).toEqual(['changed', 'changed']);
+    expect(outcome.manifest.results[0]?.blockers[0]).toContain('changed after approval was requested');
+  });
+
+  it('rejects gate commands when the validation tree changes while approval is pending', async () => {
+    const gateCalls = { count: 0 };
+    const tampering: Approver = {
+      decide: async (requests) => {
+        const gates = requests.find((request) => request.recipient === 'local:deterministic-gates');
+        if (gates) writeFileSync(join(gates.repository, 'late.txt'), 'x\n');
+        return { approved: true, approver: 'test' };
+      },
+    };
+    const { outcome } = await run(tampering, gateCalls);
+    expect(gateCalls.count).toBe(0);
+    expect(outcome.manifest.approvals?.at(-1)).toMatchObject({ recipient: 'local:deterministic-gates', status: 'changed' });
+    expect(outcome.manifest.results.at(-1)).toMatchObject({ role: 'validator', status: 'blocked' });
+  });
+
+  it('removes the unused worktree and its branch when a start is refused', async () => {
+    const { outcome, sandbox } = await run(undefined);
+    expect(outcome.worktrees).toHaveLength(0);
+    expect(git(sandbox, 'branch', '--list', 'cc/*')).toBe('');
+    expect(git(sandbox, 'worktree', 'list', '--porcelain')).not.toContain('sandbox-worktrees');
+  });
+
+  it('fails closed without crashing when the approver throws', async () => {
+    const { outcome, codex, claude } = await run({ decide: async () => { throw new Error('approver unavailable'); } });
+    expect(codex.calls + claude.calls).toBe(0);
+    expect(outcome.manifest.approvals?.[0]?.status).toBe('missing');
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 });

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -54,8 +54,15 @@ export function withoutGitLocalEnv(env: NodeJS.ProcessEnv = process.env): NodeJS
   return scrubbed;
 }
 
+// Repository hooks (pre-commit, post-checkout, ...) and a configured fsmonitor are
+// repository-controlled programs. Code Conductor's own Git operations must neither
+// execute them without approval nor let a pre-commit hook restage an approved tree,
+// so every invocation points core.hooksPath at a per-process path that never exists.
+const NO_HOOKS = join(tmpdir(), `code-conductor-no-hooks-${randomUUID()}`);
+const SAFE_GIT = ['-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false'] as const;
+
 function git(cwd: string, args: string[], allowFailure = false, env: NodeJS.ProcessEnv = withoutGitLocalEnv()): string {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', env, shell: false });
+  const result = spawnSync('git', [...SAFE_GIT, ...args], { cwd, encoding: 'utf8', env, shell: false });
   if (result.error) {
     throw new Error(`git ${args.join(' ')} failed to start: ${result.error.message}`);
   }
@@ -96,9 +103,9 @@ export interface WorkingTreeState { revision: string; tree: string }
 // matches. With core.checkStat=minimal / core.trustctime=false (common in containers)
 // or a repository-configured fsmonitor/untracked cache, an edit that preserves size
 // and mtime can go unseen. Content binding therefore hashes into a fresh index; the
-// real-index staging of an approved commit compares full stat data, never consults a
-// repository-configured fsmonitor hook, and is then checked against the approved tree.
-const CONTENT_EXACT = ['-c', 'core.checkStat=default', '-c', 'core.trustctime=true', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'] as const;
+// real-index staging of an approved commit compares full stat data and is then checked
+// against the approved tree (fsmonitor is disabled for every Code Conductor git call).
+const CONTENT_EXACT = ['-c', 'core.checkStat=default', '-c', 'core.trustctime=true', '-c', 'core.untrackedCache=false'] as const;
 
 /**
  * Content identity of a working tree for approval binding: HEAD plus the Git
@@ -197,6 +204,15 @@ export function commitAgentChanges(handle: WorktreeHandle, message: string, opti
     }
     git(handle.path, ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', 'commit', '-m', message]);
     created = true;
+    if (options.expectedTree !== undefined) {
+      const committed = git(handle.path, ['rev-parse', 'HEAD^{tree}']).trim();
+      if (committed !== options.expectedTree) {
+        // Defense in depth: hooks are disabled, but never keep a commit whose tree was not approved.
+        git(handle.path, ['reset', '-q', '--soft', 'HEAD~1'], true);
+        git(handle.path, ['reset', '-q'], true);
+        throw new Error(`Refusing agent commit in ${handle.path}: committed tree ${committed} differs from approved tree ${options.expectedTree}. The commit was undone; changes are preserved uncommitted.`);
+      }
+    }
   }
   return { sha: gitHead(handle.path), files: worktreeChangedFiles(handle), created };
 }

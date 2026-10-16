@@ -34,6 +34,8 @@ export interface HarnessAdapter {
   command: string | null;
   available(): boolean;
   version(): string | undefined;
+  /** The exact process invocation execute() would use, so pre-action approval can bind it. */
+  invocation?(request: HarnessExecutionRequest): { command: string; args: string[] };
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome>;
 }
 
@@ -87,6 +89,7 @@ class SubprocessAdapter implements HarnessAdapter {
   constructor(public readonly id: string, public readonly provider: string, public readonly command: string) {}
   available(): boolean { return commandExists(this.command); }
   version(): string | undefined { return this.available() ? commandVersion(this.command) : undefined; }
+  invocation(request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: this.command, args: argsFor(this.id, request) }; }
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const args = argsFor(this.id, request);
     const startedAt = new Date().toISOString();
@@ -138,6 +141,7 @@ export class KiroAcpAdapter implements HarnessAdapter {
 
   available(): boolean { return commandExists(this.command); }
   version(): string | undefined { return this.command === 'kiro-cli' && this.available() ? commandVersion(this.command) : undefined; }
+  invocation(_request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: this.command, args: [...this.args] }; }
 
   async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const startedAt = new Date().toISOString();

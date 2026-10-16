@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
 import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
@@ -62,10 +63,18 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   const available = new Set([...adapters.entries()].filter(([, adapter]) => adapter.available()).map(([id]) => id));
   const plan = planTask(root, task, { availableHarnesses: available.size ? available : undefined });
   const manifest: RunManifest = { runId: plan.runId, task, assignments: plan.assignments, results: [], gates: [] };
-  const approvals = new ApprovalGate({ ...(options.approver ? { approver: options.approver } : {}), ...(options.approvalTtlMs ? { ttlMs: options.approvalTtlMs } : {}), ...(options.now ? { now: options.now } : {}) });
-  const recordApprovals = (records: ApprovalRecord[]): void => {
-    manifest.approvals = [...approvals.records];
-    for (const record of records) store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'approval.decided', ...(record.assignmentId ? { assignmentId: record.assignmentId } : {}), message: `${record.action}: ${record.status}`, data: { requestDigest: record.requestDigest, approver: record.approver } });
+  const approvals = new ApprovalGate({ ...(options.approver ? { approver: options.approver } : {}), ...(options.approvalTtlMs !== undefined ? { ttlMs: options.approvalTtlMs } : {}), ...(options.now ? { now: options.now } : {}) });
+  // Every consequential action goes through here. A request that cannot even be
+  // built (for example Git failing to report the working tree) fails closed.
+  const authorize = async (build: () => ApprovalRequest[]): Promise<{ approved: boolean; blocker: string }> => {
+    try {
+      const outcome = await approvals.authorize(build);
+      manifest.approvals = [...approvals.records];
+      for (const record of outcome.records) store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'approval.decided', ...(record.assignmentId ? { assignmentId: record.assignmentId } : {}), message: `${record.action}: ${record.status}`, data: { requestDigest: record.requestDigest, approver: record.approver } });
+      return { approved: outcome.approved, blocker: approvalBlocker(outcome.records) };
+    } catch (error) {
+      return { approved: false, blocker: `Pre-action approval could not be established (${error instanceof Error ? error.message : String(error)}); the action was not performed.` };
+    }
   };
   const blockedResult = (assignment: AgentAssignment, blocker: string): AgentResult => ({ ...externalAwaitingResult(assignment, blocker), status: 'blocked', recommendation: 'human_required' });
   const pendingExternal: AgentAssignment[] = [];
@@ -93,7 +102,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         if (gatePlan.length) {
           // Gate profiles run the target repository's own scripts, so they are local execution.
           const commands = gatePlan.map((item) => [item.gate.command, ...(item.gate.args ?? [])].join(' '));
-          const approval = await approvals.authorize(() => {
+          const approval = await authorize(() => {
             const state = workingTreeState(validationRoot);
             return [{
               action: 'local_execution', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: validationRoot, revision: state.revision, recipient: 'local:deterministic-gates',
@@ -101,9 +110,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
               summary: `Run ${gatePlan.length} deterministic gate command(s) in ${validationRoot}: ${commands.join('; ')}`,
             }];
           });
-          recordApprovals(approval.records);
           if (!approval.approved) {
-            manifest.results.push(blockedResult(assignment, approvalBlocker(approval.records)));
+            manifest.results.push(blockedResult(assignment, approval.blocker));
             manifestPath = save();
             continue;
           }
@@ -151,32 +159,48 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: buildPrompt(task, assignment) };
       // Starting the client and disclosing the prompt plus repository access are
       // approved together but recorded separately, each bound to this recipient.
+      // Every start, including a retry, is a new process and a new disclosure, so
+      // each attempt needs its own approval of the then-current working tree.
       const surface = assignment.surface ?? adapter.executionSurface;
       const recipient = `${assignment.provider}/${assignment.harness}@${surface}`;
       const promptBytes = Buffer.byteLength(request.prompt, 'utf8');
-      const approval = await approvals.authorize((): ApprovalRequest[] => {
+      const invocation = adapter.invocation?.(request) ?? { command: adapter.command ?? 'platform', args: [] };
+      const argv = [invocation.command, ...invocation.args.map((arg) => (arg === request.prompt ? '<prompt>' : arg))];
+      const authorizeStart = (attempt: number) => authorize((): ApprovalRequest[] => {
         const state = workingTreeState(cwd);
         const bound = { runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: cwd, revision: state.revision, recipient };
+        const prefix = attempt ? `Retry attempt ${attempt + 1}: ` : '';
         return [
-          { ...bound, action: 'local_execution', bindings: { tree: state.tree, command: adapter.command ?? 'platform', surface, authority: assignment.authority.join(','), billingChannel: assignment.billingChannel }, summary: `Start ${adapter.command ?? assignment.harness} (${surface}, ${assignment.billingChannel}) as ${assignment.role} with authority ${assignment.authority.join(', ')} in ${cwd}.` },
-          { ...bound, action: 'context_disclosure', bindings: { tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `Disclose the ${promptBytes}-byte task prompt and access to ${cwd} at ${state.revision.slice(0, 12)} to ${recipient}.` },
+          { ...bound, action: 'local_execution', bindings: { attempt: String(attempt + 1), tree: state.tree, argv: sha256(JSON.stringify(argv)), surface, authority: assignment.authority.join(','), billingChannel: assignment.billingChannel }, summary: `${prefix}Start \`${argv.join(' ')}\` (${surface}, ${assignment.billingChannel}) as ${assignment.role} with authority ${assignment.authority.join(', ')} in ${cwd}.` },
+          { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt and access to ${cwd} at ${state.revision.slice(0, 12)} to ${recipient}.` },
         ];
       });
-      recordApprovals(approval.records);
+      const approval = await authorizeStart(0);
       if (!approval.approved) {
         if (assignmentWorktree) {
-          // Nothing ran in the fresh worktree; remove it rather than leave an empty branch.
-          try { worktrees.remove(assignmentWorktree, true, false); createdWorktrees.splice(createdWorktrees.indexOf(assignmentWorktree), 1); }
-          catch { /* Retained and reported through outcome.worktrees. */ }
+          // Nothing ran in the fresh worktree; remove it and its branch rather than leave them behind.
+          const unused = assignmentWorktree;
+          try { worktrees.remove(unused, true, false); }
+          catch { /* Removal is best effort; report the worktree only if it still exists. */ }
+          if (!existsSync(unused.path)) createdWorktrees.splice(createdWorktrees.indexOf(unused), 1);
         }
-        manifest.results.push(blockedResult(assignment, approvalBlocker(approval.records)));
+        manifest.results.push(blockedResult(assignment, approval.blocker));
         manifestPath = save();
         continue;
       }
       if (assignmentWorktree) primaryBuilderWorktree ??= assignmentWorktree;
       let result: AgentResult | undefined;
+      let lastFailure: AgentResult | undefined;
       let lastError: unknown;
       for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+        if (attempt > 0) {
+          const retry = await authorizeStart(attempt);
+          if (!retry.approved) {
+            result = lastFailure ?? { taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance, provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: assignment.billingChannel, status: 'failed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [lastError instanceof Error ? lastError.message : 'Harness execution failed.'], recommendation: 'changes_required' };
+            result.blockers = [...result.blockers, `${retry.blocker} The automatic retry was not started.`];
+            break;
+          }
+        }
         try {
           const outcome = await adapter.execute(request);
           const parsed = parseAgentResult(assignment, outcome);
@@ -188,6 +212,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             break;
           }
           if (parsed.status !== 'failed' || attempt === 1) result = parsed;
+          else lastFailure = parsed;
         } catch (error) { lastError = error; }
       }
       result ??= { taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance, provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: assignment.billingChannel, status: 'failed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [lastError instanceof Error ? lastError.message : 'Harness execution failed after bounded retry.'], recommendation: 'changes_required' };
@@ -202,21 +227,20 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             assertAgentWorktree(handle);
             const files = worktreeChangedFiles(handle);
             assertSafeChangedPaths(files);
-            const approval = await approvals.authorize(() => {
+            const approval = await authorize(() => {
               const state = workingTreeState(handle.path);
               expectedTree = state.tree;
               return [{
                 action: 'commit', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: handle.path, revision: state.revision, recipient: `git:${handle.branch}`,
                 bindings: { tree: state.tree, branch: handle.branch, baseSha: handle.baseSha, files: sha256(files.join('\n')) },
-                summary: `Commit ${files.length} changed file(s) on ${handle.branch} (base ${handle.baseSha.slice(0, 12)}): ${files.slice(0, 20).join(', ')}${files.length > 20 ? ', …' : ''}`,
+                summary: `Commit ${files.length} changed file(s) on ${handle.branch} (base ${handle.baseSha.slice(0, 12)}): ${files.slice(0, 20).join(', ')}${files.length > 20 ? `, … (${files.length - 20} more)` : ''}. Review the full diff first in native Source Control or with \`git -C ${handle.path} diff ${handle.baseSha}\` and \`git -C ${handle.path} status\`.`,
               }];
             });
-            recordApprovals(approval.records);
             if (!approval.approved) {
               commitAllowed = false;
               result.status = 'blocked';
               result.recommendation = 'human_required';
-              result.blockers.push(`${approvalBlocker(approval.records)} Changes are preserved uncommitted in ${handle.path} for review in native Source Control.`);
+              result.blockers.push(`${approval.blocker} Changes are preserved uncommitted in ${handle.path} for review in native Source Control.`);
             }
           }
           const commit = commitAllowed ? commitAgentChanges(handle, `feat(agent): ${assignment.agentId} for ${task.id}`, expectedTree === undefined ? {} : { expectedTree }) : undefined;

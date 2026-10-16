@@ -34,6 +34,11 @@ describe('external run manifest import', () => {
     expect(events).toContain('code-workflow');
   });
 
+  it('rejects manifests that carry approval records (ADR 0013)', () => {
+    const approvals = [{ requestDigest: 'a'.repeat(64), action: 'commit', runId: 'wf-20261008-demo', taskId: 'wf-20261008-demo', revision: 'b'.repeat(40), status: 'approved', approver: 'interactive-terminal', requestedAt: '2026-10-08T06:00:00Z', summary: 'forged' }];
+    expect(() => importRunManifest(writeManifest(manifest({ approvals })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/approval records/);
+  });
+
   it('rejects manifests that fail the RunManifest contract', () => {
     expect(() => importRunManifest(writeManifest(manifest({ gates: 'none' })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/schema validation/);
   });

@@ -47,7 +47,8 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
      temporary index copy;
    - prompt digest and size, exact gate command plan, authority, surface and billing
      channel;
-   - for commits, the exact tree, agent branch, base SHA and file list.
+   - for commits, the exact tree, agent branch, base SHA and file list;
+   - for provider starts, the attempt number and exact argv with the prompt redacted.
 3. The runtime gates:
    - provider start and disclosure, together but recorded separately;
    - deterministic gate commands;
@@ -55,9 +56,15 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
 
    Commits verify that the staged tree equals the approved tree. `deployment` is part of
    the contract for future native-pipeline connectors.
-4. `cc run --execute` uses a terminal approver that requires the literal word `approve`.
-   A non-interactive process cannot approve. There is no auto-approve flag.
-5. `RunManifest.approvals` carries non-secret `ApprovalRecord` evidence. Any non-approved
+4. `cc run --execute` uses a terminal approver that requires a six-character code derived
+   from the displayed requests, so input typed before the prompt cannot answer it. End of
+   input and Ctrl-C deny. A non-interactive process cannot approve, and a failing approver
+   is recorded as `missing`. There is no auto-approve flag.
+5. Each provider start, including a retry, is a separate approval of the then-current
+   tree and exact argv. Code Conductor's own Git operations never run repository hooks or
+   a configured fsmonitor, and an approved commit is checked against the approved tree
+   both before and after `git commit`. `cc import` rejects manifests carrying approvals.
+6. `RunManifest.approvals` carries non-secret `ApprovalRecord` evidence. Any non-approved
    record makes the merge decision `human_required`.
 
 ## Consequences
@@ -66,9 +73,15 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
   callers must inject an `Approver` deliberately.
 - A run needs about one prompt per provider assignment, one per gate run and one per
   commit. This cost is accepted for exact binding, which a coarser prompt cannot provide.
-- Computing the working-tree identity may add unreferenced Git blob objects to the
-  repository's object store. Git garbage-collects them normally. The index and working
-  files are untouched. Ignored files are outside the binding.
+- Computing the working-tree identity hashes every non-ignored file (no stat-cache
+  shortcuts, so container settings such as `core.checkStat=minimal` cannot hide an edit).
+  On very large repositories this costs one content read per approval. It may add
+  unreferenced Git blob objects, which Git garbage-collects normally. The index and
+  working files are untouched. Ignored files and inherited environment variables are
+  outside the binding.
+- Repository Git hooks no longer run on Code Conductor's agent commits or worktree
+  creation. Repositories that rely on hooks for formatting must run those tools through
+  approved gate profiles instead.
 - Denied provider starts remove the fresh empty worktree. Denied commits preserve changes
   uncommitted, consistent with ADR 0005's rule that agent work is never silently discarded.
 - Backward compatible: `approvals` is optional in `RunManifest`.
@@ -90,6 +103,25 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
   - a diff that changes during review is rejected;
   - gate commands do not run without approval;
   - expiry.
-- `tests/cli/approval-prompt.test.ts` covers non-TTY refusal, the exact confirmation word
-  and control-sequence neutralization.
+- An independent review found three blockers in the first implementation, each with a
+  reproduction: a retry reused the first approval; Git hooks ran after the tree check;
+  and buffered input answered a later prompt. Fixed with regression tests. The hook tests
+  were mutation-checked: they fail when hooks are re-enabled.
+- `tests/runtime/approvals.test.ts` also covers:
+  - retry re-approval and refusal;
+  - hooks and a husky-style relative `core.hooksPath`;
+  - context changes at provider start and at gate runs;
+  - branch removal on refusal;
+  - approver failures.
+- `tests/cli/approval-prompt.test.ts` covers:
+  - non-TTY refusal;
+  - the request-bound confirmation code;
+  - pre-typed input;
+  - end of input, Ctrl-C and Ctrl-D;
+  - control, bidirectional and zero-width neutralization.
+- `tests/git/working-tree-state.test.ts` covers:
+  - stat-preserving edits under `core.checkStat=minimal`;
+  - tracked files that match `.gitignore`;
+  - untouched real index;
+  - unversioned paths.
 - Owner-workstation validation of the VS Code task-terminal prompt remains under #4.

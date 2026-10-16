@@ -74,11 +74,15 @@ export class ApprovalGate {
     for (const request of requests) assertRequest(request);
     const requestedAt = this.#now();
     const digests = requests.map(approvalDigest);
-    const decision = this.#approver ? await this.#approver.decide(requests) : undefined;
+    let decision: ApprovalDecision | undefined;
+    try { decision = this.#approver ? await this.#approver.decide(requests) : undefined; }
+    catch { decision = undefined; }
+    // Only an explicit boolean true approves; any other shape is treated as no decision.
+    if (decision && (typeof decision !== 'object' || typeof decision.approved !== 'boolean' || typeof decision.approver !== 'string' || !decision.approver)) decision = undefined;
     const decidedAt = this.#now();
     let status: ApprovalStatus;
     if (!decision) status = 'missing';
-    else if (!decision.approved) status = 'denied';
+    else if (decision.approved !== true) status = 'denied';
     else if (decidedAt - requestedAt > this.#ttlMs) status = 'expired';
     else {
       const current = await build();

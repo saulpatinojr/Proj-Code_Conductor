@@ -50,6 +50,17 @@ describe('ApprovalGate', () => {
     expect(outcome.records[0]?.status).toBe('missing');
   });
 
+  it('refuses as missing when the approver fails or returns a malformed decision', async () => {
+    const failing: Approver = { decide: async () => { throw new Error('terminal closed'); } };
+    expect((await new ApprovalGate({ approver: failing }).authorize(() => [request()])).records[0]?.status).toBe('missing');
+    for (const decision of [{ approved: 'true', approver: 'x' }, { approved: 1, approver: 'x' }, { approved: true }, { approved: true, approver: '' }, 'yes']) {
+      const malformed = { decide: async () => decision } as unknown as Approver;
+      const outcome = await new ApprovalGate({ approver: malformed }).authorize(() => [request()]);
+      expect(outcome.approved).toBe(false);
+      expect(outcome.records[0]?.status).toBe('missing');
+    }
+  });
+
   it('refuses a denial', async () => {
     const outcome = await new ApprovalGate({ approver: deny }).authorize(() => [request()]);
     expect(outcome.approved).toBe(false);
