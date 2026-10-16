@@ -1,27 +1,17 @@
-import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { HarnessAdapter, HarnessExecutionRequest, HarnessExecutionOutcome, HarnessExecutionSurface } from '../../packages/adapters/src/index.js';
+import type { HarnessAdapter, HarnessExecutionRequest, HarnessExecutionOutcome } from '../../packages/adapters/src/index.js';
 import { RunStore } from '../../packages/evidence/src/index.js';
 import { executeTask, createTask } from '../../packages/runtime/src/index.js';
-import { WorktreeManager, type WorktreeHandle } from '../../packages/git/src/index.js';
+import type { WorktreeHandle, WorktreeManager } from '../../packages/git/src/index.js';
+import type { Approver } from '../../packages/policy/src/index.js';
+import { FakeAdapter, git, initRepository, SandboxWorktrees, WritingAdapter } from './fixtures.js';
 
-class FakeAdapter implements HarnessAdapter {
-  constructor(
-    public id: string,
-    public provider: string,
-    public command: string | null = `fake-${id}`,
-    public executionSurface: HarnessExecutionSurface = 'cli',
-  ) {}
-  available(): boolean { return true; }
-  version(): string { return 'fake-1.0.0'; }
-  async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
-    const payload = { status: 'completed', changes: request.assignment.role === 'builder' ? ['fake.txt'] : [], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: request.assignment.role === 'reviewer' ? 'ready' : 'review' };
-    return { harness: this.id, surface: this.executionSurface, command: this.command ?? 'fake', args: [], exitCode: 0, signal: null, stdout: `CC_RESULT_JSON:${JSON.stringify(payload)}\n`, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
-  }
-}
+// Execution now requires a pre-action approval (#44); these suites exercise the
+// paths after a person approved. Denial/missing/stale paths: tests/runtime/approvals.test.ts.
+const approveAll: Approver = { decide: async () => ({ approved: true, approver: 'test' }) };
 
 class TimeoutAdapter extends FakeAdapter {
   calls = 0;
@@ -43,47 +33,6 @@ class TimeoutAdapter extends FakeAdapter {
   }
 }
 
-// The builder writes a file into its assigned worktree, so completed runs exercise
-// the real commit path rather than an empty worktree.
-class WritingAdapter extends FakeAdapter {
-  override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
-    if (request.assignment.role === 'builder') writeFileSync(join(request.cwd, 'agent-output.txt'), 'agent change\n');
-    return super.execute(request);
-  }
-}
-
-const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
-
-function initRepository(path: string): string {
-  mkdirSync(path, { recursive: true });
-  git(path, 'init', '-q');
-  writeFileSync(join(path, 'README.md'), '# fixture\n');
-  // The validator detects gate profiles in the builder's worktree, which in real runs
-  // is a checkout of the repository under work. Carry over the gate config and the
-  // files the code-conductor profile detects on, so the validator still runs gates.
-  cpSync(resolve('config'), join(path, 'config'), { recursive: true });
-  for (const file of ['package.json', 'tsconfig.json']) cpSync(resolve(file), join(path, file));
-  git(path, 'add', '.');
-  git(path, '-c', 'user.name=Code Conductor Test', '-c', 'user.email=test@example.invalid', 'commit', '-q', '-m', 'fixture');
-  return path;
-}
-
-// Real linked worktrees from WorktreeManager, but of a throwaway repository rather
-// than the checkout running the suite. The planner still reads config from the real
-// repository root. An earlier double returned the repository root itself as the
-// worktree, so a completed builder run committed the contributor's uncommitted work
-// onto their branch (issue #48).
-class SandboxWorktrees extends WorktreeManager {
-  readonly sandboxRepository: string;
-  constructor(base: string) {
-    super(join(base, 'sandbox-worktrees'));
-    this.sandboxRepository = initRepository(join(base, 'sandbox-repo'));
-  }
-  override create(_repositoryRoot: string, taskId: string, agentId: string, baseRef = 'HEAD'): WorktreeHandle {
-    return super.create(this.sandboxRepository, taskId, agentId, baseRef);
-  }
-}
-
 describe('run execution', () => {
   it('executes an R1 run with fake paid-client adapters and deterministic gates after explicit trust', async () => {
     const temp = mkdtempSync(join(tmpdir(), 'cc-run-test-'));
@@ -91,7 +40,7 @@ describe('run execution', () => {
       const adapters = new Map<string, HarnessAdapter>([['codex', new FakeAdapter('codex', 'openai')], ['claude', new FakeAdapter('claude', 'anthropic')]]);
       const outcome = await executeTask(resolve('.'), createTask('fake R1 run', 'R1', resolve('.')), {
         execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp),
-        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true,
+        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true, approver: approveAll,
       });
       expect(outcome.manifest.results.map((r) => r.role)).toEqual(['builder', 'reviewer', 'validator']);
       expect(outcome.manifest.results[0]?.surface).toBe('cli');
@@ -138,6 +87,7 @@ describe('run execution', () => {
         worktrees: new SandboxWorktrees(temp),
         gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }),
         isHarnessTrusted: () => true,
+        approver: approveAll,
       });
       expect(outcome.manifest.results[0]?.status).toBe('blocked');
       expect(outcome.manifest.results[0]?.blockers[0]).toContain('configured for cli');
@@ -156,6 +106,7 @@ describe('run execution', () => {
         worktrees: new SandboxWorktrees(temp),
         gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }),
         isHarnessTrusted: () => true,
+        approver: approveAll,
       });
       expect(timedOut.calls).toBe(1);
       expect(outcome.manifest.results[0]?.status).toBe('failed');
@@ -170,7 +121,7 @@ describe('run execution', () => {
       const adapters = new Map<string, HarnessAdapter>([['codex', new WritingAdapter('codex', 'openai')], ['claude', new WritingAdapter('claude', 'anthropic')]]);
       const outcome = await executeTask(resolve('.'), createTask('isolated R1 run', 'R1', resolve('.')), {
         execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp),
-        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true,
+        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true, approver: approveAll,
       });
       expect(outcome.manifest.results[0]?.status).toBe('completed');
       expect(outcome.manifest.results[0]?.changes).toEqual(['agent-output.txt']);
@@ -205,7 +156,7 @@ describe('run execution', () => {
       const adapters = new Map<string, HarnessAdapter>([['codex', new WritingAdapter('codex', 'openai')], ['claude', new WritingAdapter('claude', 'anthropic')]]);
       const outcome = await executeTask(resolve('.'), createTask('foreign tree R1 run', 'R1', resolve('.')), {
         execute: true, adapters, store: new RunStore(temp), worktrees: foreignTree,
-        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true,
+        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true, approver: approveAll,
       });
       expect(outcome.manifest.results[0]?.status).toBe('blocked');
       expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain(reason);

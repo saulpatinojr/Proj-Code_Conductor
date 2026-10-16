@@ -58,9 +58,13 @@
       "type": "object", "additionalProperties": false, "required": ["decision", "rationale", "evidenceIds"],
       "properties": { "decision": { "type": "string", "enum": ["ready", "changes_required", "human_required", "blocked"] }, "rationale": { "type": "string" }, "evidenceIds": { "type": "array", "items": { "type": "string" } } }
     },
+    "ApprovalRecord": {
+      "type": "object", "additionalProperties": false, "required": ["requestDigest", "action", "runId", "taskId", "revision", "status", "approver", "requestedAt", "summary"],
+      "properties": { "requestDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "action": { "type": "string", "enum": ["local_execution", "context_disclosure", "commit", "deployment"] }, "runId": { "type": "string", "minLength": 1 }, "taskId": { "type": "string", "minLength": 1 }, "assignmentId": { "type": "string", "minLength": 1 }, "recipient": { "type": "string", "minLength": 1 }, "revision": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["approved", "denied", "missing", "expired", "changed"] }, "approver": { "type": "string", "minLength": 1 }, "requestedAt": { "type": "string", "format": "date-time" }, "decidedAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" }, "summary": { "type": "string" } }
+    },
     "RunManifest": {
       "type": "object", "additionalProperties": false, "required": ["runId", "task", "assignments", "results", "gates"],
-      "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
+      "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
     }
   }
 }

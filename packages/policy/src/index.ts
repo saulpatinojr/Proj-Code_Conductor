@@ -214,4 +214,5 @@ export function validateRepositoryConfig(root: string): ValidationReport {
 }
 
 export { loadConfiguration, packagedConfigurationFingerprint } from './defaults.js';
+export { ApprovalGate, approvalBlocker, approvalDigest, DEFAULT_APPROVAL_TTL_MS, type ApprovalDecision, type ApprovalGateOptions, type ApprovalOutcome, type Approver } from './approvals.js';
 export type { ConfigurationName, ConfigurationSource, ConfigurationOptions } from './defaults.js';

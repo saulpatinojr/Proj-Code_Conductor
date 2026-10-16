@@ -128,36 +128,46 @@ export function detectGateProfiles(root: string, config = loadGateConfig(root)):
   return selected.includes('code-conductor') ? selected.filter((name) => name !== 'node') : selected;
 }
 
-export function runGates(root: string, profiles?: string[], executor: CommandExecutor = defaultExecutor): GateExecution[] {
-  const config = loadGateConfig(root);
+export interface PlannedGate { profile: string; gate: GateDefinition; timeoutMs: number }
+
+/** The exact commands runGates would execute, without executing them (used to bind pre-action approval). */
+export function planGates(root: string, profiles?: string[], config = loadGateConfig(root)): PlannedGate[] {
   const selected = profiles?.length ? profiles : detectGateProfiles(root, config);
-  const executions: GateExecution[] = [];
-  for (const profileName of selected) {
+  return selected.flatMap((profileName) => {
     const profile = config.profiles[profileName];
     if (!profile) throw new Error(`Unknown gate profile: ${profileName}`);
-    for (const gate of profile.gates) {
-      const timeout = gate.timeout_ms ?? config.default_timeout_ms ?? 600000;
-      const outcome = executor(root, gate.command, gate.args ?? [], timeout);
-      const passed = outcome.status === 0 && !outcome.timedOut;
-      const evidenceId = `E-${randomUUID()}`;
-      const combined = [outcome.stdout.trim(), outcome.stderr.trim()].filter(Boolean).join('\n');
-      const summary = passed
-        ? `${gate.command} ${(gate.args ?? []).join(' ')} passed.`
-        : `${gate.command} ${(gate.args ?? []).join(' ')} failed${outcome.timedOut ? ' (timeout)' : ` (exit ${String(outcome.status)})`}.`;
-      const evidence: Evidence = {
-        id: evidenceId,
-        kind: 'test',
-        source: `${gate.command} ${(gate.args ?? []).join(' ')}`.trim(),
-        summary: combined ? `${summary}\n${combined.slice(0, 8000)}` : summary,
-        sha256: createHash('sha256').update(combined).digest('hex'),
-      };
-      executions.push({
-        profile: profileName,
-        blocking: gate.blocking !== false,
-        evidence,
-        result: { gate: gate.id, status: passed ? 'passed' : 'failed', evidenceIds: [evidenceId], summary },
-      });
-    }
+    return profile.gates.map((gate) => ({ profile: profileName, gate, timeoutMs: gate.timeout_ms ?? config.default_timeout_ms ?? 600000 }));
+  });
+}
+
+export function runGates(root: string, profiles?: string[], executor: CommandExecutor = defaultExecutor): GateExecution[] {
+  return executeGatePlan(root, planGates(root, profiles), executor);
+}
+
+/** Execute exactly the planned commands, so an approval bound to a plan covers what runs. */
+export function executeGatePlan(root: string, plan: readonly PlannedGate[], executor: CommandExecutor = defaultExecutor): GateExecution[] {
+  const executions: GateExecution[] = [];
+  for (const { profile, gate, timeoutMs } of plan) {
+    const outcome = executor(root, gate.command, gate.args ?? [], timeoutMs);
+    const passed = outcome.status === 0 && !outcome.timedOut;
+    const evidenceId = `E-${randomUUID()}`;
+    const combined = [outcome.stdout.trim(), outcome.stderr.trim()].filter(Boolean).join('\n');
+    const summary = passed
+      ? `${gate.command} ${(gate.args ?? []).join(' ')} passed.`
+      : `${gate.command} ${(gate.args ?? []).join(' ')} failed${outcome.timedOut ? ' (timeout)' : ` (exit ${String(outcome.status)})`}.`;
+    const evidence: Evidence = {
+      id: evidenceId,
+      kind: 'test',
+      source: `${gate.command} ${(gate.args ?? []).join(' ')}`.trim(),
+      summary: combined ? `${summary}\n${combined.slice(0, 8000)}` : summary,
+      sha256: createHash('sha256').update(combined).digest('hex'),
+    };
+    executions.push({
+      profile,
+      blocking: gate.blocking !== false,
+      evidence,
+      result: { gate: gate.id, status: passed ? 'passed' : 'failed', evidenceIds: [evidenceId], summary },
+    });
   }
   if (!executions.length) {
     const id = `E-${randomUUID()}`;

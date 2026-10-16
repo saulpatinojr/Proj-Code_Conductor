@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 export interface WorktreeHandle {
@@ -54,8 +54,26 @@ export function withoutGitLocalEnv(env: NodeJS.ProcessEnv = process.env): NodeJS
   return scrubbed;
 }
 
-function git(cwd: string, args: string[], allowFailure = false): string {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', env: withoutGitLocalEnv(), shell: false });
+// Repository hooks (pre-commit, post-checkout, ...) and a configured fsmonitor are
+// repository-controlled programs. Code Conductor's own Git operations must neither
+// execute them without approval nor let a hook restage an approved tree. The hooks
+// path must be one nobody can populate: a path name in a shared temporary directory
+// is visible in every git child's argv and could be created by another process or
+// user. It is therefore an existing non-directory, under which no hook file can ever
+// exist: /dev/null on POSIX, and the running executable itself on Windows.
+const NO_HOOKS = process.platform === 'win32' ? process.execPath : '/dev/null';
+/** The hooks path every Code Conductor git invocation uses (exported for tests). */
+export const DISABLED_HOOKS_PATH = NO_HOOKS;
+// Replace refs (refs/replace/*) make Git read a substitute for any object, so without
+// --no-replace-objects a listing of a tree could show different files from the tree
+// that `commit-tree` records. Every Code Conductor git call therefore sees the real
+// objects only.
+const SAFE_GIT = ['--no-replace-objects', '-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false'] as const;
+// Large repositories list more than spawnSync's 1 MiB default; output past this fails closed.
+const MAX_GIT_OUTPUT = 256 * 1024 * 1024;
+
+function git(cwd: string, args: string[], allowFailure = false, env: NodeJS.ProcessEnv = withoutGitLocalEnv()): string {
+  const result = spawnSync('git', [...SAFE_GIT, ...args], { cwd, encoding: 'utf8', env, shell: false, maxBuffer: MAX_GIT_OUTPUT });
   if (result.error) {
     throw new Error(`git ${args.join(' ')} failed to start: ${result.error.message}`);
   }
@@ -88,6 +106,101 @@ export function gitChangedFiles(cwd: string): string[] {
 
 export function gitHead(cwd: string): string {
   return git(cwd, ['rev-parse', 'HEAD']).trim();
+}
+
+export interface WorkingTreeState { revision: string; tree: string }
+
+// Stat-cache shortcuts let Git skip re-reading a file whose cached stat data still
+// matches. With core.checkStat=minimal / core.trustctime=false (common in containers)
+// or a repository-configured fsmonitor/untracked cache, an edit that preserves size
+// and mtime can go unseen. Content binding therefore hashes into a fresh index; the
+// real-index staging of an approved commit compares full stat data and is then checked
+// against the approved tree (fsmonitor is disabled for every Code Conductor git call).
+const CONTENT_EXACT = ['-c', 'core.checkStat=default', '-c', 'core.trustctime=true', '-c', 'core.untrackedCache=false'] as const;
+
+/**
+ * Content identity of a working tree for approval binding: HEAD plus the Git
+ * tree of every tracked file and every untracked non-ignored file. A temporary
+ * index seeded from HEAD without stat data is used, so every file is hashed (no
+ * stat-cache shortcut can hide an edit) and the repository's own index and files
+ * are never modified.
+ * Git may add unreferenced blob objects, which it garbage-collects normally.
+ * Paths outside Git report `unversioned`; their content cannot be bound.
+ */
+export function workingTreeState(path: string): WorkingTreeState {
+  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return { revision: 'unversioned', tree: 'unversioned' };
+  // The tree always covers the whole work tree, so work from its top level: path
+  // listings below are then relative to the same directory `update-index` resolves.
+  const top = git(path, ['rev-parse', '--show-toplevel']).trim();
+  const revision = git(top, ['rev-parse', '--verify', '-q', 'HEAD'], true).trim() || 'unborn';
+  const directory = mkdtempSync(join(tmpdir(), 'cc-tree-'));
+  try {
+    const temporaryIndex = join(directory, 'index');
+    const env = { ...withoutGitLocalEnv(), GIT_INDEX_FILE: temporaryIndex };
+    // Seed with HEAD so tracked files that match .gitignore stay tracked, as they do
+    // in the real index. read-tree records no stat data, so `add` re-hashes every file.
+    if (revision !== 'unborn') git(top, ['read-tree', 'HEAD'], false, env);
+    // Sparse checkouts leave skip-worktree paths off disk; keep those at their HEAD
+    // content so they are not mistaken for deletions (which an approved commit would
+    // then record). Only absent files qualify: a file present on disk is hashed like
+    // any other, so setting the index bit cannot hide an edit from the binding.
+    const skipped = git(top, ['ls-files', '-t', '-z']).split('\0').filter((entry) => entry.startsWith('S ')).map((entry) => entry.slice(2));
+    const atHead = new Set(skipped.length ? git(top, ['ls-files', '-z'], false, env).split('\0') : []);
+    const absent = skipped.filter((file) => atHead.has(file) && !presentOnDisk(join(top, file)));
+    if (absent.length) {
+      const update = spawnSync('git', [...SAFE_GIT, 'update-index', '-z', '--skip-worktree', '--stdin'], { cwd: top, env, input: `${absent.join('\0')}\0`, encoding: 'utf8', shell: false });
+      if (update.status !== 0) throw new Error(`git update-index --skip-worktree failed: ${update.stderr || update.error?.message || 'unknown error'}`);
+    }
+    git(top, [...CONTENT_EXACT, 'add', '--all'], false, env);
+    return { revision, tree: git(top, ['write-tree'], false, env).trim() };
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}
+
+function presentOnDisk(path: string): boolean {
+  try { lstatSync(path); return true; } catch { return false; }
+}
+
+export interface GitControlState {
+  /** The repository's common Git directory, shared by all of its worktrees. */
+  commonDir: string;
+  /** Digest of everything shared by all worktrees of the repository. */
+  shared: string;
+  /** Digest of this worktree's own configuration (`extensions.worktreeConfig`). */
+  worktree: string;
+}
+
+/**
+ * Digests of what, outside the work tree, decides which programs Code Conductor's own
+ * Git operations run and which history they see: the effective configuration of every
+ * scope with includes followed (it defines the clean, smudge and process filters that
+ * `git add` runs), plus the grafts, shallow, alternates and info/attributes files. A
+ * provider that rewrote them could make Code Conductor run its programs outside the
+ * provider's own sandbox, or hide commits from the history check. Worktree-scope
+ * configuration is digested separately because it legitimately differs between
+ * worktrees (for example a sparse checkout). Only digests are kept, never the
+ * configuration, which can hold credentials. Undefined outside Git.
+ */
+export function gitControlState(path: string): GitControlState | undefined {
+  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return undefined;
+  const shared = createHash('sha256');
+  const worktree = createHash('sha256');
+  const top = git(path, ['rev-parse', '--show-toplevel']).trim();
+  // -z prints scope, origin and "key\nvalue" as three NUL-terminated fields per entry.
+  // Origins of the main worktree's own files are relative (file:.git/config); make them
+  // absolute so every worktree of the repository reports the same shared state.
+  const fields = git(top, ['config', '--list', '--show-scope', '--show-origin', '-z']).split('\0');
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const origin = fields[index + 1] ?? '';
+    const file = origin.startsWith('file:') ? origin.slice(5) : undefined;
+    const absolute = file !== undefined && !isAbsolute(file) ? `file:${resolve(top, file)}` : origin;
+    (fields[index] === 'worktree' ? worktree : shared).update(`${fields[index]}\0${absolute}\0${fields[index + 2]}\0`);
+  }
+  const [commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
+  for (const file of files) {
+    shared.update(`\0${file}\0`);
+    try { shared.update(readFileSync(file)); } catch (error) { shared.update(`unreadable:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`); }
+  }
+  return { commonDir: resolve(commonDir), shared: shared.digest('hex'), worktree: worktree.digest('hex') };
 }
 
 export function isSensitiveRepositoryPath(path: string): boolean {
@@ -140,19 +253,86 @@ export function assertAgentWorktree(handle: WorktreeHandle): void {
   }
 }
 
-export function commitAgentChanges(handle: WorktreeHandle, message: string): AgentCommit | undefined {
+export interface CommitOptions {
+  /**
+   * The approved tree. Code Conductor commits only this tree: the working tree must
+   * still hash to it, and the commit object is created from the tree itself
+   * (git commit-tree), so no staging step, stat cache or hook can change what is
+   * committed. There is deliberately no unapproved commit path.
+   */
+  expectedTree: string;
+  /** The HEAD the approval was bound to; refuse if the branch moved since. */
+  expectedHead?: string;
+}
+
+/** Tree of HEAD, used to tell whether a working tree differs from its last commit. */
+export function headTree(path: string): string {
+  return git(path, ['rev-parse', 'HEAD^{tree}']).trim();
+}
+
+/**
+ * Paths that differ between a commit and a tree object (both already in the object store).
+ * Submodule pointer changes are always listed, whatever `.gitmodules` says to ignore.
+ */
+export function treeChangedFiles(path: string, from: string, toTree: string): string[] {
+  return git(path, ['diff-tree', '-r', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', from, toTree]).split('\0').filter(Boolean).sort();
+}
+
+export interface CommitHistory { commits: string[]; files: string[] }
+
+/**
+ * Commits on HEAD since `base`, newest first, and every path any of them touched,
+ * including paths a later commit removed again (their content stays in history).
+ */
+export function commitsSince(path: string, base: string): CommitHistory {
+  const commits = git(path, ['rev-list', `${base}..HEAD`]).split('\n').filter(Boolean);
+  if (!commits.length) return { commits, files: [] };
+  const files = git(path, ['log', '-z', '--format=', '--name-only', '--no-renames', '-m', '--ignore-submodules=none', '--no-show-signature', `${base}..HEAD`]).split('\0').filter(Boolean);
+  return { commits, files: [...new Set(files)].sort() };
+}
+
+/** Whether `ancestor` is reachable from `descendant` (for example base from an agent's HEAD). */
+export function isAncestor(path: string, ancestor: string, descendant = 'HEAD'): boolean {
+  const result = spawnSync('git', [...SAFE_GIT, 'merge-base', '--is-ancestor', ancestor, descendant], { cwd: path, env: withoutGitLocalEnv(), encoding: 'utf8', shell: false });
+  if (result.status === 0 || result.status === 1) return result.status === 0;
+  throw new Error(`git merge-base --is-ancestor failed: ${result.stderr || result.error?.message || `exit ${String(result.status)}`}`);
+}
+
+// Inherited identity variables override -c user.name/user.email, so a commit could
+// otherwise carry the person's own name and email instead of Code Conductor's.
+const IDENTITY_ENV_VARS = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_DATE'] as const;
+
+export function commitAgentChanges(handle: WorktreeHandle, message: string, options: CommitOptions): AgentCommit | undefined {
+  if (!options || typeof options.expectedTree !== 'string' || !/^[a-f0-9]{40,64}$/.test(options.expectedTree)) {
+    throw new Error('Refusing to commit agent changes without an approved tree.');
+  }
   assertAgentWorktree(handle);
-  const files = worktreeChangedFiles(handle);
+  return commitApprovedTree(handle, message, options.expectedTree, options.expectedHead);
+}
+
+function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTree: string, expectedHead?: string): AgentCommit | undefined {
+  const files = treeChangedFiles(handle.path, handle.baseSha, expectedTree);
   if (!files.length) return undefined;
   assertSafeChangedPaths(files);
-  const dirty = gitChangedFiles(handle.path);
-  let created = false;
-  if (dirty.length) {
-    git(handle.path, ['add', '--all']);
-    git(handle.path, ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', 'commit', '-m', message]);
-    created = true;
+  const current = workingTreeState(handle.path);
+  if (current.tree !== expectedTree) {
+    throw new Error(`Refusing to commit agent changes in ${handle.path}: the worktree changed after commit approval (approved tree ${expectedTree}, now ${current.tree}). Changes are preserved uncommitted.`);
   }
-  return { sha: gitHead(handle.path), files: worktreeChangedFiles(handle), created };
+  const head = gitHead(handle.path);
+  if (expectedHead !== undefined && head !== expectedHead) {
+    throw new Error(`Refusing to commit agent changes in ${handle.path}: ${handle.branch} moved from the approved ${expectedHead} to ${head}. Changes are preserved uncommitted.`);
+  }
+  if (headTree(handle.path) === expectedTree) return { sha: head, files, created: false };
+  // Code Conductor's own identity; never sign with the person's key on their behalf.
+  const identity = ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', '-c', 'commit.gpgSign=false'];
+  const env = withoutGitLocalEnv();
+  for (const name of IDENTITY_ENV_VARS) delete env[name];
+  const sha = git(handle.path, [...identity, 'commit-tree', expectedTree, '-p', head, '-m', message], false, env).trim();
+  // Compare-and-swap: refuse if the branch moved since it was read.
+  git(handle.path, ['update-ref', '-m', 'code-conductor: approved agent commit', `refs/heads/${handle.branch}`, sha, head]);
+  // Bring the index in line with the new commit; the working tree already matches it.
+  git(handle.path, ['reset', '-q'], true);
+  return { sha, files, created: true };
 }
 
 export class WorktreeManager {
