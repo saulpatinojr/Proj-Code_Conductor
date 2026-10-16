@@ -23,6 +23,7 @@ This directory contains the maintained design, operating, and validation documen
 - [`AUTHENTICATION.md`](AUTHENTICATION.md) — authentication, credential, and subscription/API billing boundaries.
 - [`APPROVALS.md`](APPROVALS.md) — pre-action approvals bound to the exact recipient, revision, content and diff.
 - [`NATIVE-INTERFACES.md`](NATIVE-INTERFACES.md) — next actions, native Source Control/GitHub/sign-in hand-offs and manual fallback.
+- [`GITHUB.md`](GITHUB.md) — read-only pull-request gate (`cc github-gate`) and approval-gated draft pull requests (`cc pr`).
 - [`HANDOFFS.md`](HANDOFFS.md) — versioned handoff packets between assignments and local evidence retention.
 - [`WORKTREES.md`](WORKTREES.md) — agent worktree isolation, commit safeguards, retention/cleanup and provider environment.
 - [`GATE-PROFILES.md`](GATE-PROFILES.md) — deterministic gate profiles, prerequisites, bounded execution and the validate/plan/apply boundary.

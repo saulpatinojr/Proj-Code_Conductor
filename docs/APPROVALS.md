@@ -154,9 +154,11 @@ stored, only their digests and sizes. Each decision is also appended to the run'
 
 ## Not covered here
 
-- No deployment connector exists yet. Any future deploy, PR-creation or other external
-  side-effect path must call `ApprovalGate.authorize` before dispatch (#35, #32
-  deployment boundary). Native environment protection rules remain authoritative.
+- No deployment connector exists yet. Any future deploy or other external side-effect
+  path must call `ApprovalGate.authorize` before dispatch (#32 deployment boundary).
+  Native environment protection rules remain authoritative. Draft pull-request creation
+  (`cc pr --create`, #35) already does: it asks for a `context_disclosure` approval bound
+  to the exact push and pull-request text ([`GITHUB.md`](GITHUB.md)).
 - Commits an agent makes itself are not approved here, only reported and checked (see
   above and [`WORKTREES.md`](WORKTREES.md)). Every file version they introduced is
   scanned for credentials; history past the scan budget blocks the run.

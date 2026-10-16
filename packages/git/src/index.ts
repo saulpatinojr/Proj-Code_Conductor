@@ -495,14 +495,47 @@ export function treeChangedFiles(path: string, from: string, toTree: string): st
 export interface CommitHistory { commits: string[]; files: string[] }
 
 /**
- * Commits on HEAD since `base`, newest first, and every path any of them touched,
+ * Commits on `head` since `base`, newest first, and every path any of them touched,
  * including paths a later commit removed again (their content stays in history).
  */
-export function commitsSince(path: string, base: string): CommitHistory {
-  const commits = git(path, ['rev-list', `${base}..HEAD`]).split('\n').filter(Boolean);
+export function commitsSince(path: string, base: string, head = 'HEAD'): CommitHistory {
+  const commits = git(path, ['rev-list', `${base}..${head}`]).split('\n').filter(Boolean);
   if (!commits.length) return { commits, files: [] };
-  const files = git(path, ['log', '-z', '--format=', '--name-only', '--no-renames', '-m', '--ignore-submodules=none', '--no-show-signature', `${base}..HEAD`]).split('\0').filter(Boolean);
+  const files = git(path, ['log', '-z', '--format=', '--name-only', '--no-renames', '-m', '--ignore-submodules=none', '--no-show-signature', `${base}..${head}`]).split('\0').filter(Boolean);
   return { commits, files: [...new Set(files)].sort() };
+}
+
+/** The full commit SHA a ref names; throws when it does not name a commit. */
+export function resolveCommit(path: string, ref: string): string {
+  return git(path, ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).trim();
+}
+
+/** A remote URL without user name, password or token, for display and binding. */
+export function redactUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.username && !parsed.password) return url;
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch { return url; }
+}
+
+/** Where a remote fetches from and pushes to, after the person's own URL rewriting. */
+export function remoteUrls(path: string, remote: string): { fetch: string; push: string } {
+  return { fetch: git(path, ['remote', 'get-url', '--', remote]).trim(), push: git(path, ['remote', 'get-url', '--push', '--', remote]).trim() };
+}
+
+/**
+ * Push exactly `sha` to `refs/heads/<branch>` on `remote`. Never forced, so a remote
+ * branch with other history is rejected; repository hooks such as pre-push do not run
+ * (every Code Conductor git call disables them). Credentials are the person's own Git
+ * configuration; Code Conductor never sees them.
+ */
+export function pushCommit(path: string, remote: string, sha: string, branch: string): void {
+  if (!/^[a-f0-9]{40,64}$/.test(sha)) throw new Error(`Refusing to push ${sha}: not a full commit SHA.`);
+  try { git(path, ['check-ref-format', `refs/heads/${branch}`]); } catch { throw new Error(`Refusing to push to invalid branch name ${branch}.`); }
+  git(path, ['push', '--porcelain', '--', remote, `${sha}:refs/heads/${branch}`]);
 }
 
 /** Whether `ancestor` is reachable from `descendant` (for example base from an agent's HEAD). */

@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, printable, nextActions, planTask, parseAgentResult, recordedAgentWorktrees, stoppedForGitControl, type NextAction } from '@code-conductor/runtime';
+import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, stoppedForGitControl, type NextAction, type PullRequestOptions } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
 import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
@@ -14,7 +14,7 @@ import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, createBuiltinA
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
-import { githubAuthStatus, pullRequestChecks, pullRequestStatus } from '@code-conductor/github-gate';
+import { gh, githubAuthStatus, pullRequestStatus, summarizePullRequest, type PullRequestSummary } from '@code-conductor/github-gate';
 import { ContextOptimizer } from '@code-conductor/context-optimizer';
 import { TerminalApprover } from './approval-prompt.js';
 import { terminalSafeJson, terminalText } from './terminal-text.js';
@@ -343,7 +343,58 @@ function importRun(args: string[]): number {
 }
 function mcpList(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root); const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api'); console.log(JSON.stringify({ profiles, allowSeparatelyBilledApi: allowApi, servers: selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({ id, publisher: server.publisher, maturity: server.maturity, authentication: server.authentication, defaultAccess: server.default_access })) }, null, 2)); return 0; }
 function apmCheck(rootArg?: string): number { const root = resolve(rootArg ?? '.'); if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; } const result = apmAudit(root); process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.ok ? 0 : 1; }
-function githubGate(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required.'); return 1; } const status = pullRequestStatus(root); process.stdout.write(status.stdout); process.stderr.write(status.stderr); if (!status.ok) return 1; const checks = pullRequestChecks(root); process.stdout.write(checks.stdout); process.stderr.write(checks.stderr); return checks.ok ? 0 : 1; }
+function printPullRequestSummary(summary: PullRequestSummary): void {
+  console.log(`Pull request #${summary.number} ${summary.url}\n  ${summary.state}${summary.draft ? ' (draft)' : ''}: ${summary.head}@${summary.headSha.slice(0, 12)} into ${summary.base}`);
+  console.log(`  checks: ${summary.checks.passed}/${summary.checks.total} passed${summary.checks.failed.length ? `, failed: ${summary.checks.failed.map((item) => `${item.name}${item.url ? ` <${item.url}>` : ''}`).join(', ')}` : ''}${summary.checks.pending.length ? `, pending: ${summary.checks.pending.map((item) => item.name).join(', ')}` : ''}`);
+  console.log(`  review decision: ${summary.reviewDecision}; merge state: ${summary.mergeState}`);
+  for (const review of summary.reviews) console.log(`  review by ${review.author}: ${review.state}${review.stale === true ? ' (on an earlier commit)' : ''}`);
+  console.log(summary.ready ? 'READY: every native signal is green. Merging remains your decision in GitHub.' : `NOT READY:\n${summary.blockers.map((blocker) => `  - ${blocker}`).join('\n')}`);
+}
+
+// Read-only: summarizes native GitHub state for a pull request (the current branch's by default).
+function githubGate(args: string[]): number {
+  const root = resolve(getOption(args, '--repo') ?? '.');
+  if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
+  const status = pullRequestStatus(root, getOption(args, '--pr'));
+  if (!status.ok) { console.error(`ERROR github.pr: ${status.stderr.trim() || `gh pr view exited ${String(status.status)}`}`); return 1; }
+  let summary: PullRequestSummary;
+  try { summary = summarizePullRequest(JSON.parse(status.stdout)); }
+  catch (error) { console.error(`ERROR github.pr: gh returned unreadable JSON (${error instanceof Error ? error.message : String(error)}).`); return 1; }
+  if (args.includes('--json')) console.log(JSON.stringify(summary, null, 2));
+  else printPullRequestSummary(summary);
+  return summary.ready ? 0 : 1;
+}
+
+// Previews by default; --create pushes the exact agent commit and opens a draft PR only after approval.
+async function pullRequestCommand(args: string[]): Promise<number> {
+  const store = new RunStore();
+  const runId = getOption(args, '--run') ?? store.latestRunId();
+  if (!runId) { console.error('No stored runs. Run a task first.'); return 1; }
+  const options: PullRequestOptions = { worktreeRoot: defaultWorktreeRoot() };
+  for (const [flag, key] of [['--assignment', 'assignmentId'], ['--base', 'base'], ['--remote', 'remote'], ['--title', 'title']] as const) {
+    const value = getOption(args, flag);
+    if (value !== undefined) options[key] = value;
+  }
+  try {
+    const manifest = storedManifest(store, runId);
+    if (!args.includes('--create')) {
+      const plan = planPullRequest(manifest, options);
+      if (args.includes('--json')) { console.log(JSON.stringify(plan, null, 2)); return plan.refusals.length ? 1 : 0; }
+      console.log(`Draft pull request preview for run ${plan.runId}, assignment ${plan.assignmentId}:\n  push ${plan.head} (${plan.commits.length} commit(s), ${plan.files.length} file(s)) to ${plan.remote} ${plan.pushUrl} as ${plan.branch}\n  open a draft in ${plan.repository || 'an unrecognized repository'} into ${plan.base}: ${plan.title}`);
+      if (plan.uncommitted.length) console.log(`  not included (uncommitted): ${plan.uncommitted.join(', ')}`);
+      console.log(`\n${plan.body}\n`);
+      if (plan.refusals.length) { console.log(`REFUSED:\n${plan.refusals.map((item) => `  - ${item}`).join('\n')}`); return 1; }
+      console.log('Nothing was pushed. Re-run with --create in an interactive terminal to push and open this draft after approving it.');
+      return 0;
+    }
+    if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
+    const outcome = await openDraftPullRequest(manifest, options, { gh, approver: new TerminalApprover(), store });
+    if (args.includes('--json')) console.log(JSON.stringify({ status: outcome.status, url: outcome.url, blocker: outcome.blocker, approvals: outcome.approvals }, null, 2));
+    else if (outcome.status === 'created') console.log(`Draft pull request opened: ${outcome.url ?? '(gh did not print a URL)'}\nCheck it with: cc github-gate --pr ${outcome.url ?? outcome.plan?.branch ?? ''}`);
+    else console.error(`REFUSED: ${outcome.blocker ?? 'not approved'}`);
+    return outcome.status === 'created' ? 0 : 1;
+  } catch (error) { console.error(`ERROR pr.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
+}
 function contextStats(): number { const optimizer = new ContextOptimizer(); console.log(JSON.stringify(optimizer.getStats(), null, 2)); return 0; }
 function compressFile(args: string[]): number {
   const filePath = args[0];
@@ -360,7 +411,7 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.'); }
+function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|pr|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.\n\ngithub-gate [--repo <dir>] [--pr <number|url|branch>] [--json] summarizes native GitHub state for a pull request (checks, reviews, stale approvals, merge state) read-only, and exits 0 only when every signal is green.\n\npr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>] [--create] previews the draft pull request for a run\'s agent branch. With --create it asks in this terminal, then pushes that exact commit (never forced, no hooks) with your own Git credentials and opens a draft with gh. Branches whose history touches sensitive paths or adds credential-looking strings are refused.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
@@ -379,6 +430,7 @@ switch (command) {
   case 'runs': exitCode = runsCommand(args); break;
   case 'apm-audit': exitCode = apmCheck(args[0]); break;
   case 'github-gate': exitCode = githubGate(args); break;
+  case 'pr': exitCode = await pullRequestCommand(args); break;
   case 'context-stats': exitCode = contextStats(); break;
   case 'compress': exitCode = compressFile(args); break;
   case 'version': case '--version': case '-v': console.log(VERSION); break;
