@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { RunManifest } from '@code-conductor/schemas';
@@ -59,9 +59,14 @@ export class RunStore {
 
   /** Most recently written run manifest, if any. */
   latestRunId(): string | undefined {
-    if (!existsSync(this.root)) return undefined;
+    let entries;
+    try { entries = readdirSync(this.root, { withFileTypes: true }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
     let latest: { name: string; mtime: number } | undefined;
-    for (const entry of readdirSync(this.root, { withFileTypes: true })) {
+    for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       let mtime: number;
       try { mtime = statSync(join(this.root, entry.name, 'manifest.json')).mtimeMs; } catch { continue; }
