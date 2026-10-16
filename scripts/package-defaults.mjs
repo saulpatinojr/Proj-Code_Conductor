@@ -28,7 +28,8 @@ const generated = {
 function checkGeneratedDirectory(target) {
   const destination = join(root, target);
   try { if (!same(realpathSync(dirname(destination)), join(realRoot, dirname(target)))) refuse(target); } catch (error) { if (error.code) refuse(target); throw error; }
-  const entry = lstatSync(destination, { throwIfNoEntry: false });
+  let entry;
+  try { entry = lstatSync(destination, { throwIfNoEntry: false }); } catch { refuse(target); }
   // A symlink, or a symlinked folder above it, resolves somewhere else.
   if (entry && (!entry.isDirectory() || !same(realpathSync(destination), join(realRoot, target)))) refuse(target);
   return destination;
@@ -42,8 +43,9 @@ function writeGenerated(path, bytes) {
   const entry = lstatSync(path, { throwIfNoEntry: false });
   if (entry?.isFile() && entry.nlink === 1 && readFileSync(path).equals(Buffer.from(bytes))) return;
   if (entry?.isDirectory()) rmSync(path, { recursive: true, force: true });
-  // Stale temporary files were pruned with the rest; 'wx' refuses one planted meanwhile.
-  const temporary = `${path}.tmp`;
+  // Per process, so concurrent builds do not collide; stale ones are pruned with the rest,
+  // and 'wx' refuses one planted meanwhile.
+  const temporary = `${path}.${process.pid}.tmp`;
   writeFileSync(temporary, bytes, { flag: 'wx' });
   renameSync(temporary, path);
 }

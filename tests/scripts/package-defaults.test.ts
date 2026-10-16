@@ -57,7 +57,7 @@ describe.skipIf(process.platform === 'win32')('scripts/package-defaults.mjs', ()
     linkSync(join(outside, 'roles-copy.yaml'), join(defaults, 'roles.yaml'));
     rmSync(join(defaults, 'gates.yaml'));
     mkdirSync(join(defaults, 'gates.yaml'));
-    writeFileSync(join(repo, 'apps/vscode/schema/contracts.schema.json.tmp'), 'left behind\n');
+    writeFileSync(join(repo, 'apps/vscode/schema/contracts.schema.json.12345.tmp'), 'left behind\n');
     expect(run().status).toBe(0);
     expect(lstatSync(join(defaults, 'roles.yaml')).nlink).toBe(1);
     expect(lstatSync(join(outside, 'roles-copy.yaml')).nlink).toBe(1);
@@ -88,12 +88,13 @@ describe.skipIf(process.platform === 'win32')('scripts/package-defaults.mjs', ()
     expect(existsSync(join(repo, 'apps/vscode/schema/contracts.schema.json'))).toBe(false);
   });
 
-  it('refuses a file where a generated folder belongs, with the same message', () => {
+  it.each([['a generated folder', 'apps/vscode/defaults'], ['its parent', 'apps/vscode']])('refuses a file where %s belongs, with the same message', (_label, place) => {
     const { repo, run } = scratch();
-    writeFileSync(join(repo, 'apps/vscode/defaults'), 'not a folder\n');
+    rmSync(join(repo, place), { recursive: true, force: true });
+    writeFileSync(join(repo, place), 'not a folder\n');
     const result = run();
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/apps\/vscode\/defaults is not a plain directory inside the repository/);
+    expect(result.stderr).toMatch(/apps\/vscode\/(defaults|schema) is not a plain directory inside the repository/);
     expect(existsSync(join(repo, 'packages/policy/defaults'))).toBe(false);
   });
 });
