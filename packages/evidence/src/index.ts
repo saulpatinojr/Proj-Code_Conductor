@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { RunManifest } from '@code-conductor/schemas';
@@ -63,20 +63,32 @@ export class RunStore {
     let latest: { name: string; mtime: number } | undefined;
     for (const entry of readdirSync(this.root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const manifest = join(this.root, entry.name, 'manifest.json');
-      if (!existsSync(manifest)) continue;
-      const mtime = statSync(manifest).mtimeMs;
+      let mtime: number;
+      try { mtime = statSync(join(this.root, entry.name, 'manifest.json')).mtimeMs; } catch { continue; }
       if (!latest || mtime > latest.mtime) latest = { name: entry.name, mtime };
     }
     return latest?.name;
   }
 
-  /** Read a stored manifest without creating directories. Callers validate the contract. */
+  /**
+   * Read a stored manifest without creating directories. Callers validate the contract.
+   * One descriptor is checked and read, so the file cannot be swapped in between, and a
+   * symlink or non-regular file (for example a FIFO that would block) is refused.
+   */
   readManifest(runId: string, maxBytes = 16 * 1024 * 1024): unknown {
     const target = join(this.root, safeRunDirectoryName(runId), 'manifest.json');
-    if (!existsSync(target)) throw new Error(`No stored run manifest for ${runId}.`);
-    if (statSync(target).size > maxBytes) throw new Error(`Run manifest for ${runId} exceeds ${maxBytes} bytes.`);
-    return JSON.parse(readFileSync(target, 'utf8')) as unknown;
+    let descriptor: number;
+    try { descriptor = openSync(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`No stored run manifest for ${runId}.`);
+      throw new Error(`Run manifest for ${runId} cannot be opened: ${(error as NodeJS.ErrnoException).code ?? String(error)}.`);
+    }
+    try {
+      const stat = fstatSync(descriptor);
+      if (!stat.isFile()) throw new Error(`Run manifest for ${runId} is not a regular file.`);
+      if (stat.size > maxBytes) throw new Error(`Run manifest for ${runId} exceeds ${maxBytes} bytes.`);
+      return JSON.parse(readFileSync(descriptor, 'utf8')) as unknown;
+    } finally { closeSync(descriptor); }
   }
 
   appendEvent(event: RunEvent): string {
