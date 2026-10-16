@@ -55,6 +55,33 @@ describe.skipIf(process.platform === 'win32')('cc harness-smoke', () => {
     expect(readFileSync(client.log, 'utf8')).not.toMatch(/auth status|-p /);
   });
 
+  it('checks the folder it was started in too, so Git metadata there cannot move the repository', () => {
+    const client = fakeClaude();
+    client.setVersion('1.0.0 (Claude Code)');
+    // A folder whose own .git points its work tree at an unrelated directory.
+    const folder = mkdtempSync(join(tmpdir(), 'cc-smoke-worktree-'));
+    const elsewhere = mkdtempSync(join(tmpdir(), 'cc-smoke-elsewhere-'));
+    temps.push(folder, elsewhere);
+    spawnSync('git', ['init', '-q', folder]);
+    spawnSync('git', ['-C', folder, 'config', 'core.worktree', elsewhere]);
+    const run = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', 'read'], { cwd: folder, encoding: 'utf8', env: { ...client.env, CLAUDE_CONFIG_DIR: '.' }, timeout: 60_000 });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('would read its user configuration from inside the repository');
+    expect(readFileSync(client.log, 'utf8')).not.toMatch(/auth status|-p /);
+  });
+
+  it('outside a repository, refuses only a relative configuration directory', () => {
+    const client = fakeClaude();
+    client.setVersion('1.0.0 (Claude Code)');
+    const folder = mkdtempSync(join(tmpdir(), 'cc-smoke-plain-'));
+    temps.push(folder);
+    const absolute = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', 'read'], { cwd: folder, encoding: 'utf8', env: { ...client.env, CLAUDE_CONFIG_DIR: join(folder, 'claude-work') }, timeout: 60_000 });
+    expect(absolute.stderr).not.toContain('inside the repository');
+    const relative = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', 'read'], { cwd: folder, encoding: 'utf8', env: { ...client.env, CLAUDE_CONFIG_DIR: 'claude-work' }, timeout: 60_000 });
+    expect(relative.status).toBe(1);
+    expect(relative.stderr).toContain('would read its user configuration from inside the repository');
+  });
+
   it('refuses to smoke-test a client whose version cannot be read', () => {
     const client = fakeClaude();
     // No version file: `claude --version` fails.

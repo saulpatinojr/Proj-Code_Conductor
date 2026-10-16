@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
@@ -10,7 +10,7 @@ import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand
 import { RunStore } from '@code-conductor/evidence';
 import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
-import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
+import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, providerEnvironment } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
@@ -179,12 +179,18 @@ async function harnessSmoke(args: string[]): Promise<number> {
       return 1;
     }
   }
-  // The smoke test runs the provider for real, on the subscription.
-  // The smoke test runs the provider for real: the same refusal as a run, against the
-  // repository Code Conductor was started in (or that folder, outside any repository).
-  let repository = process.cwd();
-  try { repository = resolveRepositoryRoot(repository); } catch { /* Not in a repository. */ }
-  const inside = configurationInsideRepository(harness, repository);
+  // The smoke test runs the provider for real: the same refusal as a run. In a repository,
+  // against its top level and against the folder Code Conductor was started in (a
+  // folder's own Git metadata, such as core.worktree, can move the top level elsewhere).
+  // Outside one, against that folder, for a relative value, which names a place in it.
+  const started = process.cwd();
+  const environment = providerEnvironment();
+  let topLevel: string | undefined;
+  try { topLevel = resolveRepositoryRoot(started); } catch { /* Not in a repository. */ }
+  const relativeOnly = Object.fromEntries(Object.entries(environment).filter(([name]) => { const raw = process.env[name]; return raw !== undefined && raw !== '' && !isAbsolute(raw); }));
+  const inside = [...new Set(topLevel
+    ? [...configurationInsideRepository(harness, topLevel, environment), ...configurationInsideRepository(harness, started, environment)]
+    : configurationInsideRepository(harness, started, relativeOnly))];
   if (inside.length) { console.error(`BLOCKED: ${harness} would read its user configuration from inside the repository: ${printable(inside.join(', '), 2000)}. The repository could then supply the client's settings (hooks, environment, credential helper). Point it outside the repository.`); return 1; }
   if (adapter.authStatus) {
     const auth = await adapter.authStatus();

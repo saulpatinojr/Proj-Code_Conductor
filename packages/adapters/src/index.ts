@@ -169,22 +169,31 @@ const HARNESS_CONFIG_DIRECTORIES: Record<string, readonly string[]> = { claude: 
  * home folder (dotfiles) is the user's own configuration by definition.
  */
 export function configurationInsideRepository(harness: string, repository: string, env: NodeJS.ProcessEnv = providerEnvironment()): string[] {
-  const identity = (path: string) => { const stat = statSync(path, { bigint: true, throwIfNoEntry: false }); return stat ? `${stat.dev}:${stat.ino}` : undefined; };
+  // `undefined` when the path does not exist; UNVERIFIABLE when it cannot be examined
+  // (permission denied, a symlink loop, a name too long), which counts as inside.
+  const UNVERIFIABLE = 'unverifiable';
+  const identity = (path: string) => {
+    try { const stat = statSync(path, { bigint: true, throwIfNoEntry: false }); return stat ? `${stat.dev}:${stat.ino}` : undefined; } catch { return UNVERIFIABLE; }
+  };
   const root = identity(repository);
-  if (!root) return [];
-  return (HARNESS_CONFIG_DIRECTORIES[harness] ?? []).filter((name) => {
+  if (!root || root === UNVERIFIABLE) return [];
+  const found: string[] = [];
+  for (const name of HARNESS_CONFIG_DIRECTORIES[harness] ?? []) {
     const value = env[name];
-    if (!value) return false;
+    if (!value) continue;
     // From the directory (or, if it does not exist yet, its nearest existing ancestor),
     // symlinks resolved, up through each real parent to the file-system root.
     let start = resolve(value);
-    while (!identity(start) && dirname(start) !== start) start = dirname(start);
+    while (identity(start) === undefined && dirname(start) !== start) start = dirname(start);
     try { start = realpathSync(start); } catch { /* Compare the spelled path. */ }
     for (let current = start; ; current = dirname(current)) {
-      if (identity(current) === root) return true;
-      if (dirname(current) === current) return false;
+      const here = identity(current);
+      if (here === UNVERIFIABLE) { found.push(`${name} (${value}; its location cannot be verified)`); break; }
+      if (here === root) { found.push(`${name} (${value})`); break; }
+      if (dirname(current) === current) break;
     }
-  }).map((name) => `${name} (${env[name]})`);
+  }
+  return found;
 }
 
 function appendTail(current: string, next: string, limit = 256 * 1024): string {

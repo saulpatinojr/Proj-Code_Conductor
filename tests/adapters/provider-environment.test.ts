@@ -61,6 +61,12 @@ describe('provider client environment', () => {
       mkdirSync(join(repository, 'cfg'));
       symlinkSync(join(repository, 'cfg'), join(elsewhere, 'claude'));
       expect(configurationInsideRepository('claude', repository, { CLAUDE_CONFIG_DIR: join(elsewhere, 'claude') })).toHaveLength(1);
+      // A directory not created yet, below a symlink into the repository.
+      expect(configurationInsideRepository('claude', repository, { CLAUDE_CONFIG_DIR: join(elsewhere, 'claude', 'new', 'profile') })).toHaveLength(1);
+      // A folder that cannot be examined counts as inside: it cannot be shown to be outside.
+      symlinkSync(join(elsewhere, 'loop-b'), join(elsewhere, 'loop-a'));
+      symlinkSync(join(elsewhere, 'loop-a'), join(elsewhere, 'loop-b'));
+      expect(configurationInsideRepository('claude', repository, { CLAUDE_CONFIG_DIR: join(elsewhere, 'loop-a', 'cfg') })).toEqual([`CLAUDE_CONFIG_DIR (${join(elsewhere, 'loop-a', 'cfg')}; its location cannot be verified)`]);
       // The repository named through a symlink is the same repository.
       symlinkSync(repository, join(elsewhere, 'repo-link'));
       expect(configurationInsideRepository('claude', join(elsewhere, 'repo-link'), { CLAUDE_CONFIG_DIR: join(repository, 'cfg') })).toHaveLength(1);
