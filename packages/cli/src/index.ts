@@ -343,12 +343,16 @@ function importRun(args: string[]): number {
 }
 function mcpList(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root); const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api'); console.log(JSON.stringify({ profiles, allowSeparatelyBilledApi: allowApi, servers: selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({ id, publisher: server.publisher, maturity: server.maturity, authentication: server.authentication, defaultAccess: server.default_access })) }, null, 2)); return 0; }
 function apmCheck(rootArg?: string): number { const root = resolve(rootArg ?? '.'); if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; } const result = apmAudit(root); process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.ok ? 0 : 1; }
+// Names, branches, authors and URLs come from GitHub, where anyone who can open a pull
+// request or post a check chooses them: each is shown on one line with control and
+// format characters replaced.
 function printPullRequestSummary(summary: PullRequestSummary): void {
-  console.log(`Pull request #${summary.number} ${summary.url}\n  ${summary.state}${summary.draft ? ' (draft)' : ''}: ${summary.head}@${summary.headSha.slice(0, 12)} into ${summary.base}`);
-  console.log(`  checks: ${summary.checks.passed}/${summary.checks.total} passed${summary.checks.failed.length ? `, failed: ${summary.checks.failed.map((item) => `${item.name}${item.url ? ` <${item.url}>` : ''}`).join(', ')}` : ''}${summary.checks.pending.length ? `, pending: ${summary.checks.pending.map((item) => item.name).join(', ')}` : ''}`);
-  console.log(`  review decision: ${summary.reviewDecision}; merge state: ${summary.mergeState}`);
-  for (const review of summary.reviews) console.log(`  review by ${review.author}: ${review.state}${review.stale === true ? ' (on an earlier commit)' : ''}`);
-  console.log(summary.ready ? 'READY: every native signal is green. Merging remains your decision in GitHub.' : `NOT READY:\n${summary.blockers.map((blocker) => `  - ${blocker}`).join('\n')}`);
+  const p = (value: string): string => printable(value, 300);
+  console.log(`Pull request #${summary.number} ${p(summary.url)}\n  ${p(summary.state)}${summary.draft ? ' (draft)' : ''}: ${p(summary.head)}@${p(summary.headSha.slice(0, 12))} into ${p(summary.base)}`);
+  console.log(`  checks: ${summary.checks.passed}/${summary.checks.total} passed${summary.checks.failed.length ? `, failed: ${summary.checks.failed.map((item) => `${p(item.name)}${item.url ? ` <${p(item.url)}>` : ''}`).join(', ')}` : ''}${summary.checks.pending.length ? `, pending: ${summary.checks.pending.map((item) => p(item.name)).join(', ')}` : ''}`);
+  console.log(`  review decision: ${p(summary.reviewDecision)}; merge state: ${p(summary.mergeState)}`);
+  for (const review of summary.reviews) console.log(`  review by ${p(review.author)}: ${p(review.state)}${review.stale === true ? ' (on an earlier commit)' : ''}`);
+  console.log(summary.ready ? 'READY: every native signal is green. Merging remains your decision in GitHub.' : `NOT READY:\n${summary.blockers.map((blocker) => `  - ${printable(blocker, 2000)}`).join('\n')}`);
 }
 
 // Read-only: summarizes native GitHub state for a pull request (the current branch's by default).
@@ -356,11 +360,11 @@ function githubGate(args: string[]): number {
   const root = resolve(getOption(args, '--repo') ?? '.');
   if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
   const status = pullRequestStatus(root, getOption(args, '--pr'));
-  if (!status.ok) { console.error(`ERROR github.pr: ${status.stderr.trim() || `gh pr view exited ${String(status.status)}`}`); return 1; }
+  if (!status.ok) { console.error(`ERROR github.pr: ${printable(status.stderr.trim() || `gh pr view exited ${String(status.status)}`, 2000)}`); return 1; }
   let summary: PullRequestSummary;
   try { summary = summarizePullRequest(JSON.parse(status.stdout)); }
-  catch (error) { console.error(`ERROR github.pr: gh returned unreadable JSON (${error instanceof Error ? error.message : String(error)}).`); return 1; }
-  if (args.includes('--json')) console.log(JSON.stringify(summary, null, 2));
+  catch (error) { console.error(`ERROR github.pr: gh returned unreadable JSON (${printable(error instanceof Error ? error.message : String(error))}).`); return 1; }
+  if (args.includes('--json')) console.log(terminalSafeJson(summary));
   else printPullRequestSummary(summary);
   return summary.ready ? 0 : 1;
 }
@@ -379,21 +383,22 @@ async function pullRequestCommand(args: string[]): Promise<number> {
     const manifest = storedManifest(store, runId);
     if (!args.includes('--create')) {
       const plan = planPullRequest(manifest, options);
-      if (args.includes('--json')) { console.log(JSON.stringify(plan, null, 2)); return plan.refusals.length ? 1 : 0; }
-      console.log(`Draft pull request preview for run ${plan.runId}, assignment ${plan.assignmentId}:\n  push ${plan.head} (${plan.commits.length} commit(s), ${plan.files.length} file(s)) to ${plan.remote} ${plan.pushUrl} as ${plan.branch}\n  open a draft in ${plan.repository || 'an unrecognized repository'} into ${plan.base}: ${plan.title}`);
-      if (plan.uncommitted.length) console.log(`  not included (uncommitted): ${plan.uncommitted.join(', ')}`);
-      console.log(`\n${plan.body}\n`);
-      if (plan.refusals.length) { console.log(`REFUSED:\n${plan.refusals.map((item) => `  - ${item}`).join('\n')}`); return 1; }
+      if (args.includes('--json')) { console.log(terminalSafeJson(plan)); return plan.refusals.length ? 1 : 0; }
+      // Run records and Git output are untrusted text: one line each, with control and format characters replaced.
+      console.log(`Draft pull request preview for run ${printable(plan.runId)}, assignment ${printable(plan.assignmentId)}:\n  push ${plan.head} (${plan.commits.length} commit(s), ${plan.files.length} file(s)) to ${printable(plan.remote)} ${printable(plan.pushUrl)} as ${printable(plan.branch)}\n  open a draft in ${printable(plan.repository || 'an unrecognized repository')} into ${printable(plan.base)}: ${printable(plan.title)}`);
+      if (plan.uncommitted.length) console.log(`  not included (uncommitted): ${printable(plan.uncommitted.join(', '), 2000)}`);
+      console.log(`\n${terminalText(plan.body).text}\n`);
+      if (plan.refusals.length) { console.log(`REFUSED:\n${plan.refusals.map((item) => `  - ${printable(item, 2000)}`).join('\n')}`); return 1; }
       console.log('Nothing was pushed. Re-run with --create in an interactive terminal to push and open this draft after approving it.');
       return 0;
     }
     if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
     const outcome = await openDraftPullRequest(manifest, options, { gh, approver: new TerminalApprover(), store });
-    if (args.includes('--json')) console.log(JSON.stringify({ status: outcome.status, url: outcome.url, blocker: outcome.blocker, approvals: outcome.approvals }, null, 2));
-    else if (outcome.status === 'created') console.log(`Draft pull request opened: ${outcome.url ?? '(gh did not print a URL)'}\nCheck it with: cc github-gate --pr ${outcome.url ?? outcome.plan?.branch ?? ''}`);
-    else console.error(`REFUSED: ${outcome.blocker ?? 'not approved'}`);
+    if (args.includes('--json')) console.log(terminalSafeJson({ status: outcome.status, url: outcome.url, blocker: outcome.blocker, approvals: outcome.approvals }));
+    else if (outcome.status === 'created') console.log(`Draft pull request opened: ${printable(outcome.url ?? '(gh did not print a URL)')}\nCheck it with: cc github-gate --pr ${printable(outcome.url ?? outcome.plan?.branch ?? '')}`);
+    else console.error(`REFUSED: ${printable(outcome.blocker ?? 'not approved', 4000)}`);
     return outcome.status === 'created' ? 0 : 1;
-  } catch (error) { console.error(`ERROR pr.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
+  } catch (error) { console.error(`ERROR pr.unavailable: ${printable(error instanceof Error ? error.message : String(error), 2000)}`); return 1; }
 }
 function contextStats(): number { const optimizer = new ContextOptimizer(); console.log(JSON.stringify(optimizer.getStats(), null, 2)); return 0; }
 function compressFile(args: string[]): number {

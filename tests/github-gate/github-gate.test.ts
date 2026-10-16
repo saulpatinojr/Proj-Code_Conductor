@@ -1,4 +1,7 @@
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { githubAuthStatus, pullRequestStatus, summarizePullRequest, type GhRunner } from '../../packages/github-gate/src/index.js';
 
@@ -56,6 +59,21 @@ describe('GitHub gate helpers', () => {
     expect(summary.checks.pending.map((item) => item.name)).toEqual(['lint', 'legacy/ci']);
     expect(summary.reviews[0]?.stale).toBe(true);
     expect(summary.blockers.join(' ')).toMatch(/draft.*1 check\(s\) failed.*2 check\(s\) pending.*REVIEW_REQUIRED.*earlier commit.*BLOCKED/);
+  });
+
+  it.skipIf(process.platform === 'win32')('prints names that anyone can choose on GitHub without letting them drive the terminal', () => {
+    const bin = mkdtempSync(join(tmpdir(), 'cc-fake-gh-'));
+    try {
+      const hostile = { ...green, headRefName: 'cc/x\u001b]0;PWNED\u0007', statusCheckRollup: [{ __typename: 'CheckRun', name: 'evil\u001b[2J\u202e', workflowName: 'CI', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/x' }] };
+      writeFileSync(join(bin, 'gh'), `#!/bin/sh\ncat <<'JSON'\n${JSON.stringify(hostile)}\nJSON\n`);
+      chmodSync(join(bin, 'gh'), 0o755);
+      const env = { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH ?? ''}` };
+      for (const args of [['github-gate', '--pr', '7'], ['github-gate', '--pr', '7', '--json']]) {
+        const result = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), ...args], { encoding: 'utf8', env });
+        expect(result.stdout).toContain('evil');
+        expect(result.stdout).not.toMatch(/[\u001b\u0007\u202e]/u);
+      }
+    } finally { rmSync(bin, { recursive: true, force: true }); }
   });
 
   it('never treats missing data as passing', () => {
