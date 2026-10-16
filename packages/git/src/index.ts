@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
@@ -92,23 +92,34 @@ export function gitHead(cwd: string): string {
 
 export interface WorkingTreeState { revision: string; tree: string }
 
+// Stat-cache shortcuts let Git skip re-reading a file whose cached stat data still
+// matches. With core.checkStat=minimal / core.trustctime=false (common in containers)
+// or a repository-configured fsmonitor/untracked cache, an edit that preserves size
+// and mtime can go unseen. Content binding therefore hashes into a fresh index; the
+// real-index staging of an approved commit compares full stat data, never consults a
+// repository-configured fsmonitor hook, and is then checked against the approved tree.
+const CONTENT_EXACT = ['-c', 'core.checkStat=default', '-c', 'core.trustctime=true', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'] as const;
+
 /**
  * Content identity of a working tree for approval binding: HEAD plus the Git
- * tree of every tracked and untracked non-ignored file. A throwaway copy of the
- * index is used, so the repository's own index and files are never modified
- * (Git may add unreferenced blob objects, which it garbage-collects normally).
+ * tree of every tracked file and every untracked non-ignored file. A temporary
+ * index seeded from HEAD without stat data is used, so every file is hashed (no
+ * stat-cache shortcut can hide an edit) and the repository's own index and files
+ * are never modified.
+ * Git may add unreferenced blob objects, which it garbage-collects normally.
  * Paths outside Git report `unversioned`; their content cannot be bound.
  */
 export function workingTreeState(path: string): WorkingTreeState {
   if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return { revision: 'unversioned', tree: 'unversioned' };
   const revision = git(path, ['rev-parse', '--verify', '-q', 'HEAD'], true).trim() || 'unborn';
-  const index = git(path, ['rev-parse', '--path-format=absolute', '--git-path', 'index']).trim();
   const directory = mkdtempSync(join(tmpdir(), 'cc-tree-'));
   try {
     const temporaryIndex = join(directory, 'index');
-    if (isAbsolute(index) && existsSync(index)) copyFileSync(index, temporaryIndex);
     const env = { ...withoutGitLocalEnv(), GIT_INDEX_FILE: temporaryIndex };
-    git(path, ['add', '--all'], false, env);
+    // Seed with HEAD so tracked files that match .gitignore stay tracked, as they do
+    // in the real index. read-tree records no stat data, so `add` re-hashes every file.
+    if (revision !== 'unborn') git(path, ['read-tree', 'HEAD'], false, env);
+    git(path, [...CONTENT_EXACT, 'add', '--all'], false, env);
     return { revision, tree: git(path, ['write-tree'], false, env).trim() };
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
@@ -176,7 +187,7 @@ export function commitAgentChanges(handle: WorktreeHandle, message: string, opti
   const dirty = gitChangedFiles(handle.path);
   let created = false;
   if (dirty.length) {
-    git(handle.path, ['add', '--all']);
+    git(handle.path, [...CONTENT_EXACT, 'add', '--all']);
     if (options.expectedTree !== undefined) {
       const staged = git(handle.path, ['write-tree']).trim();
       if (staged !== options.expectedTree) {
