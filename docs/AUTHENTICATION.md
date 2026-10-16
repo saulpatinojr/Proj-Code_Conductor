@@ -89,7 +89,11 @@ How the checks work:
   prompt, including an `env` block, `apiKeyHelper` and hooks, which could switch a
   subscription run to the repository's own credential or endpoint after the check
   ([what runs before you trust a folder](https://code.claude.com/docs/en/permissions#what-runs-before-you-trust-a-folder)).
-  Your user and managed settings, `CLAUDE.md` and skills still apply.
+  Your user and managed settings, `CLAUDE.md` and skills still apply. A repository's
+  project skills are still discovered too, and under `claude -p` a skill's hooks and
+  `allowed-tools` apply when the skill is used. A relative `CLAUDE_CONFIG_DIR`,
+  `CODEX_HOME` or `XDG_CONFIG_HOME` is made absolute against the directory Code Conductor
+  was started in, so the probe and the run read the same configuration.
 - **The same client file throughout.** The version probe, the sign-in probe and the
   launch all run the one file the command resolves to on an absolute `PATH` entry. A
   relative entry such as `node_modules/.bin`, an empty entry, or (on Windows) the working

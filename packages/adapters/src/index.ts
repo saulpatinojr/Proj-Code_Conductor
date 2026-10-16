@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
@@ -128,9 +128,18 @@ export const BILLING_ROUTING_VARIABLES = [
 ] as const;
 // Git's repository-local variables are removed too, so an inherited GIT_DIR or
 // GIT_INDEX_FILE cannot point the client's own git at another repository.
-export function providerEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+// A relative client configuration directory would name a different directory for the
+// sign-in probe (an empty temporary directory) and for the run (the repository), so the
+// repository could supply the run's "user" settings. They are made absolute once, against
+// the directory Code Conductor was started in, as CODE_CONDUCTOR_HOME is.
+const CLIENT_CONFIG_DIRECTORIES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME'] as const;
+export function providerEnvironment(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): NodeJS.ProcessEnv {
   const scrubbed = withoutGitLocalEnv(env);
   for (const name of [...BILLING_CREDENTIAL_VARIABLES, ...BILLING_ROUTING_VARIABLES]) delete scrubbed[name];
+  for (const name of CLIENT_CONFIG_DIRECTORIES) {
+    const value = scrubbed[name];
+    if (value && !isAbsolute(value)) scrubbed[name] = resolve(cwd, value);
+  }
   return scrubbed;
 }
 

@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -35,5 +35,36 @@ describe('provider client environment', () => {
     const kiro = (new KiroAcpAdapter() as unknown as { env: NodeJS.ProcessEnv }).env;
     expect(kiro.CC_PROVIDER_ENV_PROBE).toBe('kept');
     for (const name of Object.keys(METERED)) expect(kiro[name]).toBeUndefined();
+  });
+
+  it('makes relative client configuration directories absolute, so the probe and the run read the same one', () => {
+    const env = providerEnvironment({ PATH: '/usr/bin', CLAUDE_CONFIG_DIR: 'cfg', CODEX_HOME: './codex', XDG_CONFIG_HOME: '/home/me/.config' }, '/work/start');
+    expect(env).toMatchObject({ CLAUDE_CONFIG_DIR: join('/work/start', 'cfg'), CODEX_HOME: join('/work/start', 'codex'), XDG_CONFIG_HOME: '/home/me/.config' });
+  });
+
+  it('starts Claude with only user and managed settings, in both modes', () => {
+    const claude = createBuiltinAdapters().get('claude')!;
+    const request = (authority: string[]) => ({ cwd: '/r', timeoutMs: 1, prompt: 'P', task: { id: 'T' }, assignment: { authority } }) as unknown as HarnessExecutionRequest;
+    expect(claude.invocation!(request(['observe'])).args).toEqual(['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '20', 'P']);
+    expect(claude.invocation!(request(['modify_worktree'])).args).toEqual(['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'acceptEdits', '--max-turns', '40', 'P']);
+  });
+
+  it.skipIf(process.platform === 'win32')('starts Kiro from an absolute PATH entry only, never one in the working directory', async () => {
+    const official = mkdtempSync(join(tmpdir(), 'cc-kiro-official-'));
+    const repository = mkdtempSync(join(tmpdir(), 'cc-kiro-planted-'));
+    temps.push(official, repository);
+    writeFileSync(join(official, 'kiro-cli'), `#!/bin/sh\ntouch '${join(official, 'ran')}'\nexit 1\n`);
+    writeFileSync(join(repository, 'kiro-cli'), `#!/bin/sh\ntouch '${join(repository, 'ran')}'\nexit 1\n`);
+    chmodSync(join(official, 'kiro-cli'), 0o755);
+    chmodSync(join(repository, 'kiro-cli'), 0o755);
+    process.env.PATH = `.${delimiter}${official}${delimiter}${saved.PATH ?? ''}`;
+    const request = { cwd: repository, timeoutMs: 5_000, prompt: 'P', task: { id: 'T' }, assignment: { authority: ['observe'] } } as unknown as HarnessExecutionRequest;
+    await new KiroAcpAdapter().execute(request).catch(() => undefined);
+    expect(existsSync(join(official, 'ran'))).toBe(true);
+    expect(existsSync(join(repository, 'ran'))).toBe(false);
+    // A relative command is never resolved at all, even where that file exists.
+    const cwd = process.cwd();
+    process.chdir(repository);
+    try { for (const command of ['./kiro-cli', 'kiro-cli/../kiro-cli']) expect(new KiroAcpAdapter({ command }).available()).toBe(false); } finally { process.chdir(cwd); }
   });
 });

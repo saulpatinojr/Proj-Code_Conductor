@@ -16,7 +16,7 @@ function fakeClaude(): { root: string; env: NodeJS.ProcessEnv; setVersion: (vers
   const result = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'READ_OK\nCC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":[],"findings":[],"risks":[],"blockers":[],"recommendation":"ready"}' });
   writeFileSync(join(root, 'claude'), [
     '#!/bin/sh',
-    `if [ "$1" = "--version" ]; then cat '${versionFile}'; exit 0; fi`,
+    `if [ "$1" = "--version" ]; then cat '${versionFile}' 2>/dev/null || exit 1; exit 0; fi`,
     'if [ "$1 $2" = "auth status" ]; then echo \'{"loggedIn":true,"authMethod":"claude.ai"}\'; exit 0; fi',
     // The run itself: the client is upgraded while the smoke test is running.
     `echo '2.0.0 (Claude Code)' > '${versionFile}'`,
@@ -39,5 +39,14 @@ describe.skipIf(process.platform === 'win32')('cc harness-smoke', () => {
     expect(run.stderr).toContain('the client changed during the smoke test (1.0.0 (Claude Code) before, 2.0.0 (Claude Code) after)');
     const state = join(client.root, 'home', 'workstation.json');
     expect(existsSync(state) ? readFileSync(state, 'utf8') : '').not.toContain('ValidatedAt');
+  });
+
+  it('refuses to smoke-test a client whose version cannot be read', () => {
+    const client = fakeClaude();
+    // No version file: `claude --version` fails.
+    const run = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', 'read'], { encoding: 'utf8', env: client.env, timeout: 60_000 });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('does not report its version');
+    expect(run.stdout).not.toContain('SMOKE PASS');
   });
 });
