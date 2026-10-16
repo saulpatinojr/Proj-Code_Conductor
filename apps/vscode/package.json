@@ -104,6 +104,6 @@
     "@code-conductor/policy": "0.1.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.138.0"
+    "@types/vscode": "^1.140.0"
   }
 }
