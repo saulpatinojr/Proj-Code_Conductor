@@ -95,4 +95,12 @@ describe('run evidence store', () => {
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it('normalizes long separator runs in run IDs quickly and keeps them inside the store', () => {
+    const started = Date.now();
+    const name = safeRunDirectoryName(`${'-'.repeat(200_000)}x${'-'.repeat(200_000)}!`);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(name).toMatch(/^x-[a-f0-9]{12}$/);
+    expect(safeRunDirectoryName('__../..__')).toMatch(/^run-[a-f0-9]{12}$/);
+  });
 });

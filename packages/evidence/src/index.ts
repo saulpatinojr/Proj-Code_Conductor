@@ -22,14 +22,20 @@ function ensurePrivateDirectory(path: string): void {
   chmodSync(path, 0o700);
 }
 
+// Trims leading and trailing '-'/'_' in linear time; an anchored regex such as
+// /[-_]+$/ backtracks quadratically on long runs of separators in untrusted run IDs.
+function trimSeparators(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && (value[start] === '-' || value[start] === '_')) start += 1;
+  while (end > start && (value[end - 1] === '-' || value[end - 1] === '_')) end -= 1;
+  return value.slice(start, end);
+}
+
 export function safeRunDirectoryName(runId: string): string {
   if (/^[A-Za-z0-9_-]{1,120}$/.test(runId)) return runId;
   const digest = createHash('sha256').update(runId).digest('hex').slice(0, 12);
-  const prefix = runId
-    .replace(/[^A-Za-z0-9_-]+/g, '-')
-    .replace(/^[-_]+|[-_]+$/g, '')
-    .slice(0, 96)
-    .replace(/[-_]+$/g, '');
+  const prefix = trimSeparators(trimSeparators(runId.replace(/[^A-Za-z0-9_-]+/g, '-')).slice(0, 96));
   return prefix ? `${prefix}-${digest}` : `run-${digest}`;
 }
 
