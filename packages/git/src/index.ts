@@ -241,6 +241,17 @@ const SECRET_PATTERNS: Array<[string, RegExp]> = [
   ['Stripe live key', /\b[rs]k_live_[0-9A-Za-z]{24,}\b/g],
   ['Azure storage account key', /AccountKey=[A-Za-z0-9+/]{40,}={0,2}/g],
 ];
+/**
+ * Replace credential-looking strings in free text, such as an agent's reported risks,
+ * with a marker naming their kind, so they are never passed on to another provider.
+ */
+export function redactSecrets(text: string): { text: string; redacted: number } {
+  let redacted = 0;
+  let result = text;
+  for (const [kind, pattern] of SECRET_PATTERNS) result = result.replace(pattern, () => { redacted += 1; return `[redacted ${kind}]`; });
+  return { text: result, redacted };
+}
+
 /** Content read by one scan, across all files and both sides of the comparison. */
 export const MAX_SCAN_BYTES = 64 * 1024 * 1024;
 const OBJECT_ID = /^[0-9a-f]{40,64}$/;

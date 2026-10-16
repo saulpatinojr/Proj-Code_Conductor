@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, HandoffPacket, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
-import { buildHandoffPacket, renderHandoff } from './handoff.js';
+import { buildHandoffPacket, describeHandoff, handoffExpired, renderHandoff, validHandoffTtl } from './handoff.js';
 import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
@@ -110,6 +110,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   const available = new Set([...adapters.entries()].filter(([, adapter]) => adapter.available()).map(([id]) => id));
   const plan = planTask(root, task, { availableHarnesses: available.size ? available : undefined });
   const manifest: RunManifest = { runId: plan.runId, task, assignments: plan.assignments, results: [], gates: [] };
+  if (options.handoffTtlMs !== undefined && !validHandoffTtl(options.handoffTtlMs)) throw new Error('Handoff TTL must be a positive number of milliseconds, at most 7 days.');
+  const clock = options.now ?? Date.now;
   const approvals = new ApprovalGate({ ...(options.approver ? { approver: options.approver } : {}), ...(options.approvalTtlMs !== undefined ? { ttlMs: options.approvalTtlMs } : {}), ...(options.now ? { now: options.now } : {}) });
   // Every consequential action goes through here. A request that cannot even be
   // built (for example Git failing to report the working tree) fails closed.
@@ -124,6 +126,23 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     }
   };
   const blockedResult = (assignment: AgentAssignment, blocker: string): AgentResult => ({ ...externalAwaitingResult(assignment, blocker), status: 'blocked', recommendation: 'human_required' });
+  // Versioned handoff from the completed work an assignment depends on: explicit
+  // recipient, expiry, prior findings, unresolved disagreements and provenance. Only
+  // called after the Git-control check for `cwd` passed, because its provenance hashes
+  // the working tree with `git add`, which runs filters the configuration defines.
+  const prepareHandoff = (assignment: AgentAssignment, cwd: string): { handoff?: { packet: HandoffPacket; sha256: string }; blocker?: string } => {
+    if (!assignment.dependsOn.length) return {};
+    try {
+      const state = workingTreeState(cwd);
+      const packet = buildHandoffPacket(manifest, assignment, { repository: cwd, revision: state.revision, tree: state.tree }, { ...(options.handoffTtlMs !== undefined ? { ttlMs: options.handoffTtlMs } : {}), now: clock() });
+      if (!packet) return {};
+      const digest = store.saveHandoff(packet);
+      manifest.handoffs = [...(manifest.handoffs ?? []), { id: packet.id, to: assignment.id, sha256: digest, expiresAt: packet.expiresAt }];
+      return { handoff: { packet, sha256: digest } };
+    } catch (error) {
+      return { blocker: `The handoff packet for ${assignment.id} could not be prepared (${error instanceof Error ? error.message : String(error)}).` };
+    }
+  };
   const pendingExternal: AgentAssignment[] = [];
   const createdWorktrees: WorktreeHandle[] = [];
   const executedGates: GateExecution[] = [];
@@ -235,7 +254,12 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
 
       const adapter = adapters.get(assignment.harness);
       if (!adapter || !adapter.available()) {
-        const result = externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? 'unknown'} requires manual/platform integration or is unavailable on this workstation.`);
+        // A person completes it with `cc handoff`, which prints the same packet.
+        const manualCwd = primaryBuilderWorktree?.path ?? root;
+        stopped = assignment.dependsOn.length ? controlChange(manualCwd, 'before preparing a manual handoff') : undefined;
+        if (stopped) { manifest.results.push(blockedResult(assignment, stopped)); save(); continue; }
+        const prepared = prepareHandoff(assignment, manualCwd);
+        const result = externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? 'unknown'} requires manual/platform integration or is unavailable on this workstation.${prepared.blocker ? ` ${prepared.blocker}` : ''}`);
         manifest.results.push(result); pendingExternal.push(assignment); save(); continue;
       }
 
@@ -254,42 +278,43 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       let cwd = root;
       let assignmentWorktree: WorktreeHandle | undefined;
       if (assignment.authority.includes('modify_worktree')) {
+        // `git worktree add` checks files out, which runs smudge filters.
+        stopped = controlChange(root, 'before creating an agent worktree');
+        if (stopped) { manifest.results.push(blockedResult(assignment, `${stopped} The provider was not started.`)); save(); continue; }
         assignmentWorktree = worktrees.create(root, task.id, assignment.agentId);
         createdWorktrees.push(assignmentWorktree); cwd = assignmentWorktree.path;
         manifest.worktrees = [...(manifest.worktrees ?? []), { assignmentId: assignment.id, path: assignmentWorktree.path, branch: assignmentWorktree.branch, baseSha: assignmentWorktree.baseSha }];
       } else if (primaryBuilderWorktree) cwd = primaryBuilderWorktree.path;
 
-      // Versioned handoff from the completed work this assignment depends on: explicit
-      // recipient, expiry, prior findings, unresolved disagreements and provenance.
-      let handoff: { packet: HandoffPacket; sha256: string } | undefined;
-      const handoffState = assignment.dependsOn.length ? workingTreeState(cwd) : undefined;
-      const packet = handoffState ? buildHandoffPacket(manifest, assignment, { repository: cwd, revision: handoffState.revision, tree: handoffState.tree }, { ...(options.handoffTtlMs !== undefined ? { ttlMs: options.handoffTtlMs } : {}), ...(options.now ? { now: options.now() } : {}) }) : undefined;
-      if (packet) {
-        handoff = { packet, sha256: store.saveHandoff(packet) };
-        manifest.handoffs = [...(manifest.handoffs ?? []), { id: packet.id, to: assignment.id, sha256: handoff.sha256, expiresAt: packet.expiresAt }];
-      }
+      const surface = assignment.surface ?? adapter.executionSurface;
+      const recipient = `${assignment.provider}/${assignment.harness}@${surface}`;
+      stopped = controlChange(cwd, `before starting ${recipient}`);
+      const prepared = stopped ? {} : prepareHandoff(assignment, cwd);
+      const handoff = prepared.handoff;
       const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment, handoff) };
       // Starting the client and disclosing the prompt plus repository access are
       // approved together but recorded separately, each bound to this recipient.
       // Every start, including a retry, is a new process and a new disclosure, so
       // each attempt needs its own approval of the then-current working tree.
-      const surface = assignment.surface ?? adapter.executionSurface;
-      const recipient = `${assignment.provider}/${assignment.harness}@${surface}`;
       const promptBytes = Buffer.byteLength(request.prompt, 'utf8');
       const invocation = adapter.invocation?.(request) ?? { command: adapter.command ?? 'platform', args: [] };
       // The prompt is bound by digest; redact it wherever an adapter embeds it.
       const argv = [invocation.command, ...invocation.args.map((arg) => (request.prompt && arg.includes(request.prompt) ? arg.replaceAll(request.prompt, '<prompt>') : arg))];
       const authorizeStart = (attempt: number) => authorize((): ApprovalRequest[] => {
+        // Also checked when the request is rebuilt after the decision: a packet that expired
+        // while the person was deciding is never disclosed.
+        if (handoff && handoffExpired(handoff.packet, clock())) throw new Error(`handoff packet ${handoff.packet.id} expired at ${handoff.packet.expiresAt}`);
         const state = workingTreeState(cwd);
         const bound = { runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: cwd, revision: state.revision, recipient };
         const prefix = attempt ? `Retry attempt ${attempt + 1}: ` : '';
         return [
           { ...bound, action: 'local_execution', bindings: { attempt: String(attempt + 1), tree: state.tree, argv: sha256(JSON.stringify(argv)), surface, authority: assignment.authority.join(','), billingChannel: assignment.billingChannel }, summary: `${prefix}Start \`${argv.join(' ')}\` (${surface}, ${assignment.billingChannel}) as ${assignment.role} with authority ${assignment.authority.join(', ')} in ${cwd}.` },
-          { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt to ${recipient}, running in ${cwd} at ${state.revision.slice(0, 12)}. What else it can read is set by that client's own sandbox and permissions, not by Code Conductor.` },
+          { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt${handoff ? `, including ${describeHandoff(handoff.packet, handoff.sha256)},` : ''} to ${recipient}, running in ${cwd} at ${state.revision.slice(0, 12)}. What else it can read is set by that client's own sandbox and permissions, not by Code Conductor.` },
         ];
       });
-      stopped = controlChange(cwd, `before starting ${recipient}`);
-      const approval = stopped ? { approved: false, blocker: `${stopped} The provider was not started.` } : await authorizeStart(0);
+      const approval = stopped ? { approved: false, blocker: `${stopped} The provider was not started.` }
+        : prepared.blocker ? { approved: false, blocker: `${prepared.blocker} The provider was not started.` }
+          : await authorizeStart(0);
       if (!approval.approved) {
         if (assignmentWorktree) {
           // Nothing ran in the fresh worktree; remove it and its branch rather than leave them

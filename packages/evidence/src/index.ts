@@ -17,6 +17,9 @@ export function conductorHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor');
 }
 
+/** Stored handoff packets are bounded on write and read. */
+const MAX_HANDOFF_BYTES = 4 * 1024 * 1024;
+
 function ensurePrivateDirectory(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
   chmodSync(path, 0o700);
@@ -96,6 +99,8 @@ export class RunStore {
     const directory = join(this.runDirectory(packet.runId), 'handoffs');
     ensurePrivateDirectory(directory);
     const text = `${JSON.stringify(packet, null, 2)}\n`;
+    // The same bound readHandoff enforces, so nothing is stored that could not be read back.
+    if (Buffer.byteLength(text) > MAX_HANDOFF_BYTES) throw new Error(`Handoff packet ${packet.id} exceeds ${MAX_HANDOFF_BYTES} bytes.`);
     const target = join(directory, `${packet.id}.json`);
     writeFileSync(`${target}.tmp`, text, { encoding: 'utf8', mode: 0o600 });
     renameSync(`${target}.tmp`, target);
@@ -106,14 +111,14 @@ export class RunStore {
   /** Read a stored packet and verify it against the manifest's recorded digest. Callers validate the contract. */
   readHandoff(runId: string, id: string, sha256: string): unknown {
     if (!/^HP-[A-Za-z0-9-]{8,80}$/.test(id)) throw new Error(`Invalid handoff packet id: ${id}`);
-    const text = readStoredText(join(this.root, safeRunDirectoryName(runId), 'handoffs', `${id}.json`), 4 * 1024 * 1024, `Handoff packet ${id} for ${runId}`);
+    const text = readStoredText(join(this.root, safeRunDirectoryName(runId), 'handoffs', `${id}.json`), MAX_HANDOFF_BYTES, `Handoff packet ${id}`);
     if (createHash('sha256').update(text).digest('hex') !== sha256) throw new Error(`Handoff packet ${id} does not match the digest recorded in run ${runId}.`);
     return JSON.parse(text) as unknown;
   }
 
-  /** Age of a stored run (from its manifest) in milliseconds. */
-  runAgeMs(runId: string, now = Date.now()): number {
-    return now - statSync(join(this.root, safeRunDirectoryName(runId), 'manifest.json')).mtimeMs;
+  /** Age of a stored run (from its manifest) in milliseconds; undefined when it cannot be read. */
+  runAgeMs(runId: string, now = Date.now()): number | undefined {
+    try { return now - lstatSync(join(this.root, safeRunDirectoryName(runId), 'manifest.json')).mtimeMs; } catch { return undefined; }
   }
 
   /** Delete one stored run's local evidence (manifest, events, handoffs). Never touches worktrees. */

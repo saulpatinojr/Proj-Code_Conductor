@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffExpired, importRunManifest, printable, nextActions, planTask, parseAgentResult, recordedAgentWorktrees, stoppedForGitControl, type NextAction } from '@code-conductor/runtime';
+import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, printable, nextActions, planTask, parseAgentResult, recordedAgentWorktrees, stoppedForGitControl, type NextAction } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
 import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
@@ -17,7 +17,7 @@ import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@cod
 import { githubAuthStatus, pullRequestChecks, pullRequestStatus } from '@code-conductor/github-gate';
 import { ContextOptimizer } from '@code-conductor/context-optimizer';
 import { TerminalApprover } from './approval-prompt.js';
-import { terminalText } from './terminal-text.js';
+import { terminalSafeJson, terminalText } from './terminal-text.js';
 
 const VERSION = '0.1.0';
 function hasCommand(command: string): boolean { const probe = process.platform === 'win32' ? 'where' : 'which'; return spawnSync(probe, [command], { stdio: 'ignore' }).status === 0; }
@@ -212,7 +212,7 @@ function nextCommand(args: string[]): number {
   try {
     const manifest = storedManifest(store, runId);
     const actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() });
-    if (args.includes('--json')) { console.log(JSON.stringify({ runId: manifest.runId, mergeDecision: manifest.mergeDecision, nextActions: actions.map(presentAction) }, null, 2)); return 0; }
+    if (args.includes('--json')) { console.log(terminalSafeJson({ runId: manifest.runId, mergeDecision: manifest.mergeDecision, nextActions: actions.map(presentAction) })); return 0; }
     // Everything taken from the run record is untrusted (runs can be imported): each
     // value is printed on one line, so it can neither rewrite the terminal nor forge a
     // step or a command line. Only Code Conductor starts a `$` line, with argv it built
@@ -278,20 +278,21 @@ function runsCommand(args: string[]): number {
   const apply = args.includes('--apply');
   let candidates = 0;
   for (const runId of store.listRunIds()) {
-    const ageDays = store.runAgeMs(runId) / 86_400_000;
-    let decision = 'unreadable';
-    let active: string[] = [];
-    try {
-      const manifest = storedManifest(store, runId);
-      decision = manifest.mergeDecision?.decision ?? 'planned';
-      active = (manifest.worktrees ?? []).filter((record) => existsSync(record.path)).map((record) => record.path);
-    } catch { /* still listed and eligible by age */ }
-    if (days === undefined) { console.log(`${runId} ${decision} ${ageDays.toFixed(1)}d${active.length ? ` worktrees=${active.length}` : ''}`); continue; }
-    if (ageDays < days) continue;
-    if (active.length) { console.log(`KEEP ${runId}: its worktree still exists (${active.join(', ')}); remove or review it first.`); continue; }
+    const age = store.runAgeMs(runId);
+    const name = printable(runId);
+    let manifest: RunManifest | undefined;
+    try { manifest = storedManifest(store, runId); } catch { manifest = undefined; }
+    const decision = manifest ? manifest.mergeDecision?.decision ?? 'planned' : 'unreadable';
+    const active = (manifest?.worktrees ?? []).filter((record) => existsSync(record.path)).map((record) => record.path);
+    const ageText = age === undefined ? 'age unknown' : `${(age / 86_400_000).toFixed(1)}d`;
+    if (days === undefined) { console.log(`${name} ${decision} ${ageText}${active.length ? ` worktrees=${active.length}` : ''}`); continue; }
+    if (age === undefined || age / 86_400_000 < days) continue;
+    // A run that cannot be read might still record a live worktree, so it is never deleted here.
+    if (!manifest) { console.log(`KEEP ${name}: its manifest cannot be read, so whether a worktree still uses it is unknown; inspect and remove it yourself.`); continue; }
+    if (active.length) { console.log(`KEEP ${name}: its worktree still exists (${active.map((path) => printable(path)).join(', ')}); remove or review it first.`); continue; }
     candidates += 1;
-    if (apply) { store.deleteRun(runId); console.log(`DELETED ${runId} (${ageDays.toFixed(1)} days old)`); }
-    else console.log(`WOULD DELETE ${runId} (${ageDays.toFixed(1)} days old, ${decision})`);
+    if (apply) { store.deleteRun(runId); console.log(`DELETED ${name} (${ageText} old)`); }
+    else console.log(`WOULD DELETE ${name} (${ageText} old, ${decision})`);
   }
   if (days !== undefined && !apply && candidates) console.log('Preview only. Re-run with --apply to delete these runs\' local evidence (manifests, events, handoff packets); worktrees and branches are never touched.');
   return 0;
@@ -310,10 +311,11 @@ function handoff(args: string[]): number {
     if (reference) {
       const packet = store.readHandoff(manifest.runId, reference.id, reference.sha256);
       assertContract('HandoffPacket', packet);
-      if (handoffExpired(packet as HandoffPacket)) { console.error(`ERROR handoff.expired: packet ${reference.id} expired at ${reference.expiresAt}; start a new run instead of handing off stale context.`); return 1; }
+      const problem = handoffProblem(packet as HandoffPacket, reference, manifest.runId);
+      if (problem) { console.error(`ERROR handoff.refused: ${printable(problem)}.`); return 1; }
       handoff = { packet: packet as HandoffPacket, sha256: reference.sha256 };
     }
-    if (args.includes('--json')) { console.log(JSON.stringify(handoff?.packet ?? null, null, 2)); return 0; }
+    if (args.includes('--json')) { console.log(terminalSafeJson(handoff?.packet ?? null)); return 0; }
     // stderr carries guidance; stdout is only the prompt so it can be piped or copied exactly.
     console.error(`Manual handoff for ${printable(assignment.role)} (${printable(assignment.harness)}@${printable(assignment.surface ?? 'manual')}). Paste the prompt below into the official client yourself; this disclosure is your decision. Keep the client's result with run ${printable(runId)}.`);
     const text = assignmentPrompt(manifest.task, assignment, handoff);
@@ -324,7 +326,7 @@ function handoff(args: string[]): number {
     console.log(shown.text);
     if (shown.replaced) console.error('Some characters were replaced with "?" for display. Redirect the output (cc handoff … > prompt.txt) to get the exact prompt.');
     return 0;
-  } catch (error) { console.error(`ERROR handoff.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
+  } catch (error) { console.error(`ERROR handoff.unavailable: ${printable(error instanceof Error ? error.message : String(error))}`); return 1; }
 }
 
 function importRun(args: string[]): number {

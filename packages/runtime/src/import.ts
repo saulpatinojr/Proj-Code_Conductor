@@ -42,6 +42,9 @@ export function importRunManifest(file: string, options: ImportOptions = {}): Im
   if (manifest.approvals?.length) {
     throw new Error('Imported manifests must not carry approval records; pre-action approvals are local, single-use evidence of decisions made in this Code Conductor run store (ADR 0013).');
   }
+  if (manifest.handoffs?.length) {
+    throw new Error('Imported manifests must not carry handoff packets; packets are created and digest-checked by this Code Conductor run store (D-063).');
+  }
   if (manifest.worktrees?.length) {
     throw new Error('Imported manifests must not carry worktree records; only worktrees this Code Conductor created are offered for native review (D-060).');
   }
