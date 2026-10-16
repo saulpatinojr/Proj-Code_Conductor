@@ -245,7 +245,7 @@ const SECRET_PATTERNS: Array<[string, RegExp]> = [
 export const MAX_SCAN_BYTES = 64 * 1024 * 1024;
 const OBJECT_ID = /^[0-9a-f]{40,64}$/;
 
-interface ScanEntry { path: string; after: string; before?: string }
+interface ScanEntry { path: string; after: string; before?: string; type?: 'blob' | 'commit' }
 interface ObjectInfo { id: string; type: string; size: number }
 
 // One `cat-file --batch-check` for all names; undefined where an object does not exist.
@@ -303,8 +303,8 @@ function scanEntries(cwd: string, entries: readonly ScanEntry[], maxBytes: numbe
   const planned: Array<{ path: string; after: ObjectInfo; before?: ObjectInfo }> = [];
   for (const entry of entries) {
     const after = byName.get(entry.after);
-    // Not a file (for example a submodule pointer): there is no content to scan.
-    if (!after || after.type !== 'blob') continue;
+    // Not what was asked for (for example a submodule pointer): there is no content to scan.
+    if (!after || after.type !== (entry.type ?? 'blob')) continue;
     const candidate = entry.before ? byName.get(entry.before) : undefined;
     const before = candidate?.type === 'blob' ? candidate : undefined;
     const fresh = new Map([after, before].filter((item): item is ObjectInfo => item !== undefined && !selected.has(item.id)).map((item) => [item.id, item]));
@@ -354,17 +354,20 @@ export function scanForNewSecrets(path: string, base: string, tree: string, maxB
 /**
  * New credential-looking strings anywhere in the history from `base` to `head`: every
  * file version any of those commits introduced, including ones a later commit removed
- * again (their content stays in history). Each version is read once, under the same
- * budget as `scanForNewSecrets`.
+ * again (their content stays in history), and each commit's own message and
+ * author/committer fields, which a push publishes too (reported as `commit <id>`).
+ * Each object is read once, under the same budget as `scanForNewSecrets`.
  */
 export function scanHistoryForNewSecrets(path: string, base: string, head = 'HEAD', maxBytes = MAX_SCAN_BYTES): SecretScan {
-  // "<id> <path>" for every tree and blob reachable from head but not from base.
+  // "<id>" for every commit and "<id> <path>" for every tree and blob reachable from
+  // head but not from base.
   const entries: ScanEntry[] = [];
   for (const line of git(path, ['rev-list', '--objects', `${base}..${head}`]).split('\n')) {
-    const match = /^([0-9a-f]{40,64}) (.+)$/.exec(line);
+    const match = /^([0-9a-f]{40,64})(?: (.*))?$/.exec(line);
     if (!match) continue;
-    const [, id, file] = match as unknown as [string, string, string];
-    entries.push({ path: file, after: id, ...(/[\r\n]/.test(file) ? {} : { before: `${base}:${file}` }) });
+    const [, id, file] = match as unknown as [string, string, string | undefined];
+    if (file === undefined) entries.push({ path: `commit ${id.slice(0, 12)}`, after: id, type: 'commit' });
+    else if (file) entries.push({ path: file, after: id, ...(/[\r\n]/.test(file) ? {} : { before: `${base}:${file}` }) });
   }
   return scanEntries(path, entries, maxBytes);
 }

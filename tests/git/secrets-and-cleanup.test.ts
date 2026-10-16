@@ -103,6 +103,15 @@ describe('secret scan of agent-made history', () => {
     expect(scanHistoryForNewSecrets(handle.path, handle.baseSha)).toEqual({ findings: [{ path: 'config.ts', line: 1, kind: 'GitHub token' }], unscanned: [] });
   });
 
+  it('scans the agent\'s commit messages, which a push publishes too', () => {
+    const { handle } = setup();
+    writeFileSync(join(handle.path, 'notes.txt'), 'x\n');
+    git(handle.path, 'add', '.');
+    commit(handle.path, `chore: use ${fake.github} for the deploy`);
+    const scan = scanHistoryForNewSecrets(handle.path, handle.baseSha);
+    expect(scan.findings).toEqual([{ path: `commit ${git(handle.path, 'rev-parse', 'HEAD').slice(0, 12)}`, line: 6, kind: 'GitHub token' }]);
+  });
+
   it('fails closed past the budget and ignores values the base already had', () => {
     const { handle } = setup();
     writeFileSync(join(handle.path, 'config.ts'), `// still ${LEGACY}\n`);

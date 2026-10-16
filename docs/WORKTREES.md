@@ -26,7 +26,9 @@ repository hooks. Before asking, it refuses two kinds of change:
 - **New credential-looking strings** in changed files: private keys (including PGP) and
   AWS, GitHub, GitLab, npm, Slack, Google, Anthropic, OpenAI, Perplexity, Hugging Face,
   Stripe and Azure storage key formats. Every changed file is read in full, whether text,
-  binary or UTF-16 (with a byte-order mark), and whatever its name. Findings are reported
+  binary or UTF-16 (with a byte-order mark), and whatever its name. Compressed content
+  (archives, `.docx`, gzip) is not unpacked, and UTF-16 without a byte-order mark is not
+  decoded. Findings are reported
   as `path:line kind`, never by value, and values the base revision already had at the
   same path are not reported. A refusal leaves the changes uncommitted in the worktree
   for you to review. If a finding is a false positive, commit it yourself after review.
@@ -35,7 +37,8 @@ repository hooks. Before asking, it refuses two kinds of change:
 
 The same checks cover commits the agent made itself. Every path any of them touched is
 checked, and every file version they introduced is scanned, so a credential that a later
-commit removed is still found: its content stays in history. Such a branch is blocked,
+commit removed is still found: its content stays in history. Their commit messages and
+author fields are scanned too, because a push publishes them. Such a branch is blocked,
 and Code Conductor commits nothing on top. There is no commit-count limit; history past
 the scan budget is blocked too.
 
