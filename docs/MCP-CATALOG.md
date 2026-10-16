@@ -19,9 +19,28 @@ Vendor-official MCP servers and explicitly approved Code Conductor first-party a
 | AWS | Official AWS MCP services/tools | OFF unless AWS profile | AWS docs/resource/tool access constrained by IAM |
 | Google Cloud | Official Google Cloud managed/local MCP tooling | OFF unless GCP profile | GCP service/resource context constrained by IAM and selected toolsets |
 | Perplexity | Official Perplexity MCP | OFF by default | automated external research only when separately billed API use is explicitly enabled |
-| Context optimizer | Code Conductor first-party adapter | OFF unless context-optimization profile | bounded provider-neutral context preparation; experimental MCP transport |
+The context optimizer's MCP transport is **not in the catalog**. Its server exists only in
+a source checkout, not in the packaged extension, and it stays experimental until W-006
+validates it against the official MCP TypeScript SDK (ADR 0007). Use its direct path,
+`cc compress`, instead. Catalog policy still allows Code Conductor first-party
+provenance, so a validated adapter can be listed again.
 
-The context optimizer is **not vendor-official**. It is allowed because catalog policy explicitly recognizes Code Conductor first-party provenance. Its direct package/CLI path is the primary v0.1 path; the MCP adapter remains experimental until official MCP TypeScript SDK/current-protocol validation is complete.
+## What selection means (I08, #40)
+
+`cc mcp [--repo <dir>] [--profiles <a,b>] [--allow-api]` lists the servers that match the
+repository's profiles. For each server it shows the publisher, whether it is
+vendor-official, its maturity and source, its authentication, its default access, whether
+it is separately billed, and the exact endpoint or pinned launch command. It is
+**selection only**:
+
+- Code Conductor starts no MCP server and grants no authority. Each native client
+  (Claude Code, Codex, Copilot, Kiro) activates, authenticates and authorizes its own
+  servers.
+- A listed server is not shown to work on this workstation. Each profile is validated
+  once, the first time it is used (W-004 under #4), before any write-capable authority
+  is granted.
+- Separately billed servers, such as automated Perplexity, are listed only with
+  `--allow-api`.
 
 ## Activation profiles
 
@@ -53,9 +72,6 @@ profiles:
     mcp:
       - github
 
-  context-optimization:
-    mcp:
-      - context-optimizer
 ```
 
 Profiles are additive only when the repository actually needs the additional platform/capability.

@@ -379,7 +379,20 @@ function importRun(args: string[]): number {
     return 1;
   }
 }
-function mcpList(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root); const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api'); console.log(JSON.stringify({ profiles, allowSeparatelyBilledApi: allowApi, servers: selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({ id, publisher: server.publisher, maturity: server.maturity, authentication: server.authentication, defaultAccess: server.default_access })) }, null, 2)); return 0; }
+// Selection only: Code Conductor starts no MCP server and grants no authority (I08, #40).
+const MCP_SELECTION_NOTE = 'Selected by repository profile only. Code Conductor starts no MCP server and grants no authority: each native client activates, authenticates and authorizes its own servers. A listed server is not verified to work on this workstation until its profile is validated (W-004).';
+function mcpList(args: string[]): number {
+  const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root);
+  const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api');
+  const servers = selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({
+    id, publisher: server.publisher, official: server.official, maturity: server.maturity, source: server.source,
+    authentication: server.authentication, defaultAccess: server.default_access, separatelyBilledApi: server.separately_billed_api === true,
+    // The exact endpoint or pinned launch command a native client would be configured with.
+    ...(server.endpoint ? { endpoint: server.endpoint } : {}), ...(server.endpoint_template ? { endpoint: server.endpoint_template } : {}),
+    ...(server.command ? { launch: [server.command, ...(server.args ?? [])] } : {}),
+  }));
+  console.log(JSON.stringify({ note: MCP_SELECTION_NOTE, profiles, allowSeparatelyBilledApi: allowApi, servers }, null, 2)); return 0;
+}
 function apmCheck(rootArg?: string): number { const root = resolve(rootArg ?? '.'); if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; } const result = apmAudit(root); process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.ok ? 0 : 1; }
 // Names, branches, authors and URLs come from GitHub, where anyone who can open a pull
 // request or post a check chooses them: each is shown on one line with control and
