@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
 import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, executeGatePlan, planGates, type CommandExecutor, type GateExecution } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isSensitiveRepositoryPath, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -111,9 +112,30 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   const createdWorktrees: WorktreeHandle[] = [];
   const executedGates: GateExecution[] = [];
   let primaryBuilderWorktree: WorktreeHandle | undefined;
-  // Set when Git configuration or history files changed under a provider; nothing that
-  // would run Git under that configuration happens for the rest of the run.
+  // Git configuration defines programs Code Conductor's own `git add` runs (clean and
+  // process filters), and grafts or a shallow file change which history it sees. A
+  // provider that changed them could get its programs run outside its own sandbox. Each
+  // directory's state is read once per run and every later check compares against that
+  // first reading, so a change between assignments is caught too. Once anything changed
+  // (or cannot be read), nothing that would run Git under it happens for the rest of the run.
   let stopped: string | undefined;
+  const sharedBaselines = new Map<string, string>();
+  const worktreeBaselines = new Map<string, string>();
+  const controlChange = (cwd: string, when: string): string | undefined => {
+    let changed: string | undefined;
+    try {
+      const current = gitControlState(cwd);
+      if (!current) return undefined;
+      // Shared state is keyed by repository, so a new agent worktree is compared with what
+      // earlier assignments saw; worktree-scope configuration is keyed by worktree.
+      for (const [baselines, key, digest] of [[sharedBaselines, current.commonDir, current.shared], [worktreeBaselines, resolve(cwd), current.worktree]] as const) {
+        const baseline = baselines.get(key);
+        if (baseline === undefined) baselines.set(key, digest);
+        else if (baseline !== digest) changed = 'changed since Code Conductor first read them in this run';
+      }
+    } catch { changed = 'could not be read'; }
+    return changed && `Git configuration or history files (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates) for ${cwd} ${changed} (checked ${when}). Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\` and the repository's .git directory before running again. Agent changes are preserved uncommitted.`;
+  };
   const save = (): string => store.saveManifest(manifest);
   store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'run.planned', message: `Planned ${plan.assignments.length} assignment(s).` });
   let manifestPath = save();
@@ -123,20 +145,26 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     for (const assignment of plan.assignments) {
       if (stopped) {
         manifest.results.push(blockedResult(assignment, stopped));
-        manifestPath = save();
+        save();
         continue;
       }
       const unmet = assignment.dependsOn.filter((id) => !manifest.results.some((result) => result.assignmentId === id && result.status === 'completed'));
       if (unmet.length) {
         const waiting = externalAwaitingResult(assignment, `Dependencies not completed: ${unmet.join(', ')}`);
         manifest.results.push({ ...waiting, status: 'blocked', recommendation: 'changes_required' });
-        manifestPath = save();
+        save();
         continue;
       }
 
       if (assignment.harness === 'internal-validator') {
         const validationRoot = primaryBuilderWorktree?.path ?? root;
         const gatePlan = planGates(validationRoot);
+        stopped = controlChange(validationRoot, 'before running gate commands');
+        if (stopped) {
+          manifest.results.push(blockedResult(assignment, stopped));
+          save();
+          continue;
+        }
         if (gatePlan.length) {
           // Gate profiles run the target repository's own scripts, so they are local execution.
           const commands = gatePlan.map((item) => [item.gate.command, ...(item.gate.args ?? [])].join(' '));
@@ -150,7 +178,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           });
           if (!approval.approved) {
             manifest.results.push(blockedResult(assignment, approval.blocker));
-            manifestPath = save();
+            save();
             continue;
           }
         }
@@ -165,26 +193,26 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           blockers: failed ? ['Blocking deterministic gate failed.'] : [], recommendation: failed ? 'changes_required' : 'continue',
         });
         store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'validation.completed', assignmentId: assignment.id, message: failed ? 'failed' : 'completed' });
-        manifestPath = save();
+        save();
         continue;
       }
 
       const adapter = adapters.get(assignment.harness);
       if (!adapter || !adapter.available()) {
         const result = externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? 'unknown'} requires manual/platform integration or is unavailable on this workstation.`);
-        manifest.results.push(result); pendingExternal.push(assignment); manifestPath = save(); continue;
+        manifest.results.push(result); pendingExternal.push(assignment); save(); continue;
       }
 
       if (assignment.surface && adapter.executionSurface !== assignment.surface) {
         manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} is configured for ${assignment.surface}, but the installed adapter exposes ${adapter.executionSurface}.`), status: 'blocked', recommendation: 'changes_required' });
-        manifestPath = save();
+        save();
         continue;
       }
 
       const trustMode = assignment.authority.includes('modify_worktree') ? 'modify' : 'read';
       if (!options.isHarnessTrusted?.(assignment.harness, trustMode, assignment.surface ?? adapter.executionSurface)) {
         manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? adapter.executionSurface} has not passed Code Conductor workstation ${trustMode} smoke validation.`), status: 'blocked', recommendation: 'changes_required' });
-        manifestPath = save(); continue;
+        save(); continue;
       }
 
       let cwd = root;
@@ -214,18 +242,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt to ${recipient}, running in ${cwd} at ${state.revision.slice(0, 12)}. What else it can read is set by that client's own sandbox and permissions, not by Code Conductor.` },
         ];
       });
-      // Git configuration defines programs Code Conductor's own `git add` runs (clean and
-      // process filters), and grafts or a shallow file change which history it sees. A
-      // provider that changed them could get its programs run outside its own sandbox,
-      // so they must be as they were before any further Git operation here.
-      let controlBefore = '';
-      let approval: { approved: boolean; blocker: string };
-      try {
-        controlBefore = gitControlState(cwd);
-        approval = await authorizeStart(0);
-      } catch (error) {
-        approval = { approved: false, blocker: `Git configuration in ${cwd} could not be read (${error instanceof Error ? error.message : String(error)}); the provider was not started.` };
-      }
+      stopped = controlChange(cwd, `before starting ${recipient}`);
+      const approval = stopped ? { approved: false, blocker: `${stopped} The provider was not started.` } : await authorizeStart(0);
       if (!approval.approved) {
         if (assignmentWorktree) {
           // Nothing ran in the fresh worktree; remove it and its branch rather than leave them behind.
@@ -237,15 +255,11 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           approval.blocker += cleanup;
         }
         manifest.results.push(blockedResult(assignment, approval.blocker));
-        manifestPath = save();
+        save();
         continue;
       }
       if (assignmentWorktree) primaryBuilderWorktree ??= assignmentWorktree;
-      const controlChanged = (): string | undefined => {
-        let changed: boolean;
-        try { changed = gitControlState(cwd) !== controlBefore; } catch { changed = true; }
-        return changed ? `Git configuration or history files (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates) changed after ${recipient} was started in ${cwd}. Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\` and the repository's .git directory before running again. Agent changes are preserved uncommitted.` : undefined;
-      };
+      const controlChanged = (): string | undefined => controlChange(cwd, `after ${recipient} was started`);
       let result: AgentResult | undefined;
       let lastFailure: AgentResult | undefined;
       let lastError: unknown;
@@ -299,6 +313,13 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             const sensitive = history.files.filter(isSensitiveRepositoryPath);
             if (sensitive.length) throw new Error(`The agent's own commits on ${handle.branch} touch sensitive repository paths: ${sensitive.join(', ')}. Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
           }
+          // An agent can also move its branch away from the base (for example reset to an
+          // older commit); the net file list then includes undoing the base's own changes.
+          if (!isAncestor(handle.path, handle.baseSha)) {
+            ownCommits += ` ${handle.branch} no longer descends from its base ${handle.baseSha.slice(0, 12)}, so the file list also undoes changes the base had.`;
+            result.recommendation = 'human_required';
+            result.risks = [...result.risks, `${handle.branch} no longer descends from its base ${handle.baseSha.slice(0, 12)}; the agent rewrote or reset the branch.`];
+          }
           if (result.status === 'completed') {
             let expectedTree: string | undefined;
             let expectedHead: string | undefined;
@@ -310,6 +331,9 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
               // Refuse unsafe targets before asking a person to approve a commit that cannot happen.
               assertAgentWorktree(handle);
               const approval = await authorize(() => {
+                // Built again after the person decides, so this also covers the wait.
+                stopped = controlChanged();
+                if (stopped) throw new Error(stopped);
                 const state = workingTreeState(handle.path);
                 // Shown files, the sensitive-path check and the bound tree come from one snapshot.
                 const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
@@ -353,7 +377,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
 
       manifest.results.push(result);
       store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'assignment.completed', assignmentId: assignment.id, message: result.status });
-      manifestPath = save();
+      save();
     }
 
     manifest.mergeDecision = mergeDecision(task, manifest.results, executedGates, approvals.records);

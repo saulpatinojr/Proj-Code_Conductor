@@ -65,23 +65,34 @@ are repository-controlled programs, so running them would be unapproved local ex
 
 Git configuration defines further programs that Code Conductor's own `git add` runs
 (clean and process filters), and grafts or a shallow file change which history Git
-reports. Code Conductor therefore takes a digest of the effective configuration of every
-scope, includes followed, and of `info/attributes`, `info/grafts`, `shallow` and
-`objects/info/alternates` before each provider starts. It checks the digest again before
-a retry, after the provider finishes, and right before committing. If anything changed,
-Code Conductor stops the run without running further Git operations under configuration
-it has not seen. The assignment and every later one are `blocked`, the run is
-`human_required`, and agent changes stay uncommitted. Only the digest is kept, because
-configuration can hold credentials. Tools an agent runs can change shared configuration
-legitimately, for example `husky` setting `core.hooksPath` during `npm install`. Those runs
-stop too, because the change also affects your own checkout.
+reports. Code Conductor therefore records a digest of the effective configuration of
+every scope, includes followed, and of `info/attributes`, `info/grafts`, `shallow` and
+`objects/info/alternates`. It reads them the first time it meets a repository in a run;
+worktree-scope configuration is kept per worktree. Every later check compares with that
+first reading:
+- before each provider starts and before a retry;
+- after the provider finishes;
+- while a commit approval is built and rebuilt;
+- right before committing;
+- before gate commands.
+
+If anything changed, Code Conductor stops the run without running further Git operations
+under configuration it has not seen. The assignment and every later one are `blocked`,
+the run is `human_required`, and agent changes stay uncommitted. Only the digests are
+kept, because configuration can hold credentials.
+
+Ordinary Git activity during a run also stops it, by design. Examples: `husky` setting
+`core.hooksPath` during `npm install`, `git push -u` or `git branch --set-upstream-to`
+writing `branch.*` keys, or `git fetch` or `gc` rewriting `shallow`. These changes affect
+your own checkout too, so review them and run again.
 
 Commits the agent makes itself happen under its own sandbox, not through an approval
 here. Code Conductor names them in the commit approval, the result's risks and its
 evidence, and checks every path any of them touched, including paths a later commit
 removed again, because their content stays in history. A sensitive path in that history
-blocks the assignment, and Code Conductor commits nothing on top. Agent-made commits
-always make the run `human_required`.
+blocks the assignment, and Code Conductor commits nothing on top. A branch the agent
+reset or rewrote so that it no longer descends from its base is flagged too. Either
+makes the run `human_required`.
 
 Every decision is single-use. Nothing reads approval records back as
 authority, so a stored record cannot approve a later action, and `cc import` rejects

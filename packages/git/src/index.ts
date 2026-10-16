@@ -160,24 +160,47 @@ function presentOnDisk(path: string): boolean {
   try { lstatSync(path); return true; } catch { return false; }
 }
 
+export interface GitControlState {
+  /** The repository's common Git directory, shared by all of its worktrees. */
+  commonDir: string;
+  /** Digest of everything shared by all worktrees of the repository. */
+  shared: string;
+  /** Digest of this worktree's own configuration (`extensions.worktreeConfig`). */
+  worktree: string;
+}
+
 /**
- * Digest of what, outside the work tree, decides which programs Code Conductor's own
+ * Digests of what, outside the work tree, decides which programs Code Conductor's own
  * Git operations run and which history they see: the effective configuration of every
  * scope with includes followed (it defines the clean, smudge and process filters that
  * `git add` runs), plus the grafts, shallow, alternates and info/attributes files. A
  * provider that rewrote them could make Code Conductor run its programs outside the
- * provider's own sandbox, or hide commits from the history check. Only the digest is
- * kept, never the configuration, which can hold credentials.
+ * provider's own sandbox, or hide commits from the history check. Worktree-scope
+ * configuration is digested separately because it legitimately differs between
+ * worktrees (for example a sparse checkout). Only digests are kept, never the
+ * configuration, which can hold credentials. Undefined outside Git.
  */
-export function gitControlState(path: string): string {
-  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return 'unversioned';
-  const digest = createHash('sha256').update(git(path, ['config', '--list', '--show-scope', '--show-origin', '-z']));
-  const files = git(path, ['rev-parse', '--path-format=absolute', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
-  for (const file of files) {
-    digest.update(`\0${file}\0`);
-    try { digest.update(readFileSync(file)); } catch (error) { digest.update(`unreadable:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`); }
+export function gitControlState(path: string): GitControlState | undefined {
+  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return undefined;
+  const shared = createHash('sha256');
+  const worktree = createHash('sha256');
+  const top = git(path, ['rev-parse', '--show-toplevel']).trim();
+  // -z prints scope, origin and "key\nvalue" as three NUL-terminated fields per entry.
+  // Origins of the main worktree's own files are relative (file:.git/config); make them
+  // absolute so every worktree of the repository reports the same shared state.
+  const fields = git(top, ['config', '--list', '--show-scope', '--show-origin', '-z']).split('\0');
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const origin = fields[index + 1] ?? '';
+    const file = origin.startsWith('file:') ? origin.slice(5) : undefined;
+    const absolute = file !== undefined && !isAbsolute(file) ? `file:${resolve(top, file)}` : origin;
+    (fields[index] === 'worktree' ? worktree : shared).update(`${fields[index]}\0${absolute}\0${fields[index + 2]}\0`);
   }
-  return digest.digest('hex');
+  const [commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
+  for (const file of files) {
+    shared.update(`\0${file}\0`);
+    try { shared.update(readFileSync(file)); } catch (error) { shared.update(`unreadable:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`); }
+  }
+  return { commonDir: resolve(commonDir), shared: shared.digest('hex'), worktree: worktree.digest('hex') };
 }
 
 export function isSensitiveRepositoryPath(path: string): boolean {
@@ -266,6 +289,13 @@ export function commitsSince(path: string, base: string): CommitHistory {
   if (!commits.length) return { commits, files: [] };
   const files = git(path, ['log', '-z', '--format=', '--name-only', '--no-renames', '-m', '--ignore-submodules=none', '--no-show-signature', `${base}..HEAD`]).split('\0').filter(Boolean);
   return { commits, files: [...new Set(files)].sort() };
+}
+
+/** Whether `ancestor` is reachable from `descendant` (for example base from an agent's HEAD). */
+export function isAncestor(path: string, ancestor: string, descendant = 'HEAD'): boolean {
+  const result = spawnSync('git', [...SAFE_GIT, 'merge-base', '--is-ancestor', ancestor, descendant], { cwd: path, env: withoutGitLocalEnv(), encoding: 'utf8', shell: false });
+  if (result.status === 0 || result.status === 1) return result.status === 0;
+  throw new Error(`git merge-base --is-ancestor failed: ${result.stderr || result.error?.message || `exit ${String(result.status)}`}`);
 }
 
 // Inherited identity variables override -c user.name/user.email, so a commit could

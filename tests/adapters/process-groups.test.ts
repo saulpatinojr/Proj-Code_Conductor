@@ -1,6 +1,8 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { delimiter, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createBuiltinAdapters, spawnIsolated, terminateGroup, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
 
@@ -31,6 +33,20 @@ describe.skipIf(process.platform === 'win32')('provider process isolation', () =
     terminateGroup(child, 'SIGKILL');
     for (let attempt = 0; attempt < 50 && alive(grandchild); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
     expect(alive(grandchild)).toBe(false);
+  });
+
+  it('reaps provider groups on a signal without overriding an embedding host\'s own handler', () => {
+    // Runs in a separate Node process against the built package: the host registers its
+    // own SIGTERM handler, so the process must stay alive and the handler run once.
+    const adapters = pathToFileURL(resolve('packages/adapters/dist/index.js')).href;
+    const script = `import { spawnIsolated } from ${JSON.stringify(adapters)};
+const child = spawnIsolated(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+let calls = 0;
+process.on('SIGTERM', () => { calls += 1; });
+child.once('exit', (code, signal) => { setTimeout(() => { console.log(JSON.stringify({ calls, signal })); process.exit(0); }, 200); });
+setTimeout(() => process.kill(process.pid, 'SIGTERM'), 100);`;
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 15_000 });
+    expect(JSON.parse(output.trim())).toEqual({ calls: 1, signal: 'SIGKILL' });
   });
 
   // A fake `codex` on PATH runs the given Node script, so the real SubprocessAdapter is exercised.

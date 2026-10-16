@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { rewriteKeepingTimes } from '../runtime/fixtures.js';
 import { commitAgentChanges, commitsSince, DISABLED_HOOKS_PATH, gitControlState, treeChangedFiles, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -37,10 +38,7 @@ describe('workingTreeState', () => {
   it('detects untracked files and same-size edits that preserve mtime', () => {
     const path = repository();
     const clean = workingTreeState(path).tree;
-    const file = join(path, 'tracked.txt');
-    const { atime, mtime } = statSync(file);
-    writeFileSync(file, 'bbbb\n');
-    utimesSync(file, atime, mtime);
+    rewriteKeepingTimes(join(path, 'tracked.txt'), () => 'bbbb\n');
     const edited = workingTreeState(path).tree;
     expect(edited).not.toBe(clean);
     writeFileSync(join(path, 'new.txt'), 'new\n');
@@ -202,16 +200,32 @@ describe('agent history and Git control state', () => {
 
   it('changes when configuration or history files change, not when a value is rewritten unchanged', () => {
     const repo = repository();
-    const initial = gitControlState(repo);
+    const initial = gitControlState(repo)!;
     git(repo, 'config', 'core.checkStat', 'minimal');
-    expect(gitControlState(repo)).toBe(initial);
+    expect(gitControlState(repo)).toEqual(initial);
     git(repo, 'config', 'filter.agent.clean', 'cat');
-    const filtered = gitControlState(repo);
-    expect(filtered).not.toBe(initial);
+    const filtered = gitControlState(repo)!;
+    expect(filtered.shared).not.toBe(initial.shared);
     writeFileSync(join(repo, '.git', 'info', 'grafts'), `${git(repo, 'rev-parse', 'HEAD')}\n`);
-    expect(gitControlState(repo)).not.toBe(filtered);
+    expect(gitControlState(repo)!.shared).not.toBe(filtered.shared);
     const plain = mkdtempSync(join(tmpdir(), 'cc-control-plain-'));
     temps.push(plain);
-    expect(gitControlState(plain)).toBe('unversioned');
+    expect(gitControlState(plain)).toBeUndefined();
+  });
+
+  it('keys shared state by repository and keeps worktree-scope configuration apart', () => {
+    const repo = repository();
+    const manager = new WorktreeManager(join(repo, '..', `${repo.split('/').at(-1)}-control-worktrees`));
+    temps.push(manager.root);
+    const handle = manager.create(repo, 'T-1', 'builder-control');
+    git(repo, 'config', 'extensions.worktreeConfig', 'true');
+    git(repo, 'config', '--worktree', 'core.sparseCheckout', 'true');
+    const primary = gitControlState(repo)!;
+    const agent = gitControlState(handle.path)!;
+    expect(agent.commonDir).toBe(primary.commonDir);
+    expect(agent.shared).toBe(primary.shared);
+    expect(agent.worktree).not.toBe(primary.worktree);
+    git(handle.path, 'config', 'filter.agent.clean', 'cat');
+    expect(gitControlState(repo)!.shared).not.toBe(primary.shared);
   });
 });

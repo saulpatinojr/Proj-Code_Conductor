@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, fstatSync, ftruncateSync, futimesSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { HarnessAdapter, HarnessExecutionRequest, HarnessExecutionOutcome, HarnessExecutionSurface } from '../../packages/adapters/src/index.js';
 import { WorktreeManager, type WorktreeHandle } from '../../packages/git/src/index.js';
@@ -31,6 +31,22 @@ export class WritingAdapter extends FakeAdapter {
 }
 
 export const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+
+/**
+ * Rewrite a file in place and restore its access and modification times, as an agent
+ * hiding an edit from Git's stat cache would. One file descriptor is used throughout,
+ * so the times restored are those of the file that was rewritten.
+ */
+export function rewriteKeepingTimes(file: string, transform: (text: string) => string): void {
+  const descriptor = openSync(file, 'r+');
+  try {
+    const { atime, mtime } = fstatSync(descriptor);
+    const next = Buffer.from(transform(readFileSync(descriptor, 'utf8')));
+    ftruncateSync(descriptor, 0);
+    writeSync(descriptor, next, 0, next.length, 0);
+    futimesSync(descriptor, atime, mtime);
+  } finally { closeSync(descriptor); }
+}
 
 export function initRepository(path: string): string {
   mkdirSync(path, { recursive: true });

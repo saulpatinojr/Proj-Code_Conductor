@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -8,7 +8,7 @@ import { RunStore } from '../../packages/evidence/src/index.js';
 import type { Approver } from '../../packages/policy/src/index.js';
 import { assertContract, type ApprovalRequest } from '../../packages/schemas/src/index.js';
 import { createTask, executeTask } from '../../packages/runtime/src/index.js';
-import { git, SandboxWorktrees, WritingAdapter } from './fixtures.js';
+import { git, rewriteKeepingTimes, SandboxWorktrees, WritingAdapter } from './fixtures.js';
 
 const approveAll: Approver = { decide: async () => ({ approved: true, approver: 'test' }) };
 
@@ -269,9 +269,7 @@ describe('pre-action approval enforcement (#44)', () => {
           const past = new Date(Date.now() - 3_600_000);
           utimesSync(file, past, past);
           execFileSync('git', ['update-index', '--refresh'], { cwd: request.cwd, stdio: 'ignore' });
-          const before = statSync(file);
-          writeFileSync(file, readFileSync(file, 'utf8').replace('fixture', 'FIXTURE'));
-          utimesSync(file, before.atime, before.mtime);
+          rewriteKeepingTimes(file, (text) => text.replace('fixture', 'FIXTURE'));
           const payload = { status: 'completed', changes: ['README.md'], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: 'review' };
           return { harness: this.id, surface: this.executionSurface, command: 'fake', args: [], exitCode: 0, signal: null, stdout: `CC_RESULT_JSON:${JSON.stringify(payload)}\n`, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
         }
@@ -380,6 +378,23 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(seen.some((request) => request.action === 'commit')).toBe(false);
     expect(builder.status).toBe('blocked');
     expect(builder.blockers.join(' ')).toContain('touch sensitive repository paths: .env');
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it('flags an agent branch that no longer descends from its base', async () => {
+    class Resetter extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') git(request.cwd, 'reset', '-q', '--soft', 'HEAD~1');
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, {
+      codex: new Resetter('codex', 'openai'),
+      sandbox: (repository) => { writeFileSync(join(repository, 'second.txt'), 'second\n'); git(repository, 'add', 'second.txt'); git(repository, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'second'); },
+    });
+    expect(seen.find((request) => request.action === 'commit')?.summary).toContain('no longer descends from its base');
+    expect(outcome.manifest.results[0]?.recommendation).toBe('human_required');
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 
