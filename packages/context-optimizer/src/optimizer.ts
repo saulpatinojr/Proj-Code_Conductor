@@ -290,8 +290,9 @@ export class ContextOptimizer {
 
   private resolveAllowedFile(filePath: string): string {
     requireDescriptorLocation(filePath);
-    // One answer for a path that does not exist and for one outside the roots, so a caller
-    // (an MCP client, for example) cannot learn which paths exist elsewhere on the machine.
+    // One answer for a path that does not exist and for one outside the roots, so no single
+    // answer tells a caller (an MCP client, for example) which paths exist elsewhere on the
+    // machine. ADR 0007 records the statistical residual under concurrent renames.
     let canonical: string | undefined;
     try { canonical = realpathSync(resolve(filePath)); } catch { canonical = undefined; }
     if (!canonical || !this.allowedRoots.some((root) => pathWithinRoot(canonical, root))) {
