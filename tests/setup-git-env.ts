@@ -1,6 +1,7 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterAll } from 'vitest';
 import { GIT_LOCAL_ENV_VARS } from '../packages/git/src/index.js';
 
 // Tests spawn git directly against throwaway repositories. When the suite itself is
@@ -16,3 +17,4 @@ const home = mkdtempSync(join(tmpdir(), 'cc-test-home-'));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 delete process.env.CODE_CONDUCTOR_HOME;
+afterAll(() => rmSync(home, { recursive: true, force: true }));
