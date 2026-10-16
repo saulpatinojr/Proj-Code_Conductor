@@ -62,9 +62,13 @@
       "type": "object", "additionalProperties": false, "required": ["requestDigest", "action", "runId", "taskId", "revision", "status", "approver", "requestedAt", "summary"],
       "properties": { "requestDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "action": { "type": "string", "enum": ["local_execution", "context_disclosure", "commit", "deployment"] }, "runId": { "type": "string", "minLength": 1 }, "taskId": { "type": "string", "minLength": 1 }, "assignmentId": { "type": "string", "minLength": 1 }, "recipient": { "type": "string", "minLength": 1 }, "revision": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["approved", "denied", "missing", "expired", "changed"] }, "approver": { "type": "string", "minLength": 1 }, "requestedAt": { "type": "string", "format": "date-time" }, "decidedAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" }, "summary": { "type": "string" } }
     },
+    "WorktreeRecord": {
+      "type": "object", "additionalProperties": false, "required": ["assignmentId", "path", "branch", "baseSha"],
+      "properties": { "assignmentId": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 }, "branch": { "type": "string", "minLength": 1 }, "baseSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" } }
+    },
     "RunManifest": {
       "type": "object", "additionalProperties": false, "required": ["runId", "task", "assignments", "results", "gates"],
-      "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
+      "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "worktrees": { "type": "array", "items": { "$ref": "#/$defs/WorktreeRecord" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
     }
   }
 }

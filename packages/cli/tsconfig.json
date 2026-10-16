@@ -4,7 +4,7 @@
   "references": [
     { "path": "../schemas" }, { "path": "../core" }, { "path": "../policy" }, { "path": "../runtime" }, { "path": "../gates" },
     { "path": "../mcp" }, { "path": "../apm-adapter" }, { "path": "../github-gate" }, { "path": "../adapters" }, { "path": "../workstation" },
-    { "path": "../context-optimizer" }
+    { "path": "../context-optimizer" }, { "path": "../evidence" }, { "path": "../git" }
   ],
   "include": ["src/**/*.ts"]
 }

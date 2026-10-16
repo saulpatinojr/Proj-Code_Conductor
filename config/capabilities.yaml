@@ -21,6 +21,10 @@ harnesses:
   copilot-github:
     provider: github
     auth_boundary: github
+    sign_in:
+      command: [gh, auth, login]
+      instructions: Sign in with the official GitHub CLI; Copilot in VS Code uses the VS Code GitHub account.
+      docs: https://cli.github.com/manual/gh_auth_login
     subscription: copilot-pro-plus
     command_candidates: [gh]
     strengths: [github_native_pr_review, github_repository_context, github_actions_context, pull_request_quality_gate]
@@ -43,6 +47,10 @@ harnesses:
   claude:
     provider: anthropic
     auth_boundary: claude-code
+    sign_in:
+      command: [claude, auth, login]
+      instructions: Sign in with your Claude subscription (claude auth status shows the result). Do not use --console or an API key, which bill API usage separately.
+      docs: https://code.claude.com/docs/en/authentication
     subscription: claude-max
     command_candidates: [claude]
     strengths: [implementation, refactoring, codebase_reasoning, independent_review]
@@ -76,6 +84,10 @@ harnesses:
   codex:
     provider: openai
     auth_boundary: codex
+    sign_in:
+      command: [codex, login]
+      instructions: Sign in with ChatGPT for subscription access (not an API key, which is billed separately).
+      docs: https://learn.chatgpt.com/docs/auth
     subscription: chatgpt-business
     command_candidates: [codex]
     strengths: [implementation, debugging, testing, repository_work]
@@ -110,6 +122,10 @@ harnesses:
   kiro:
     provider: aws
     auth_boundary: kiro-cli
+    sign_in:
+      command: [kiro-cli, login]
+      instructions: Sign in through Kiro's official browser or device flow.
+      docs: https://kiro.dev/docs/getting-started/authentication/
     subscription: kiro-pro
     command_candidates: [kiro-cli]
     strengths: [specification, requirements, design_planning, implementation_planning, aws_specialization, kiro_native_workflows]
@@ -145,6 +161,8 @@ harnesses:
   antigravity:
     provider: google
     auth_boundary: antigravity-cli
+    sign_in:
+      instructions: Sign in inside Google Antigravity itself; Code Conductor never handles Google credentials.
     subscription: google-ai-pro
     command_candidates: [agy]
     strengths: [google_native_agent_work, gcp_specialization, independent_implementation, independent_review]
@@ -171,6 +189,8 @@ harnesses:
   perplexity:
     provider: perplexity
     auth_boundary: perplexity-pro-client
+    sign_in:
+      instructions: Sign in to Perplexity in its own app or browser; research handoffs stay manual.
     subscription: perplexity-pro
     strengths: [web_research, source_discovery, research_synthesis]
     primary_specializations: [external_research]

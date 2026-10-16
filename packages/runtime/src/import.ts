@@ -28,7 +28,7 @@ export interface ImportOutcome {
  * Imported evidence is never treated as readiness. Manifests that carry a
  * mergeDecision or a `ready` recommendation are rejected: readiness belongs to
  * Code Conductor's own independent review and deterministic gates. Approval
- * records are rejected too: they would look like this store's own evidence.
+ * and worktree records are rejected too: they would look like this store's own evidence.
  */
 export function importRunManifest(file: string, options: ImportOptions = {}): ImportOutcome {
   const size = statSync(file).size;
@@ -41,6 +41,9 @@ export function importRunManifest(file: string, options: ImportOptions = {}): Im
   }
   if (manifest.approvals?.length) {
     throw new Error('Imported manifests must not carry approval records; pre-action approvals are local, single-use evidence of decisions made in this Code Conductor run store (ADR 0013).');
+  }
+  if (manifest.worktrees?.length) {
+    throw new Error('Imported manifests must not carry worktree records; only worktrees this Code Conductor created are offered for native review (D-060).');
   }
   if (manifest.results.some((result) => result.recommendation === 'ready')) {
     throw new Error('Imported manifests must not recommend `ready`; readiness is decided by Code Conductor review and gates (ADR 0011).');
