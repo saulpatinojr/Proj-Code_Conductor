@@ -14,7 +14,7 @@
     "build": "npm run build:ts && npm run build:vscode",
     "clean": "tsc -b --clean",
     "typecheck": "npm run defaults:package && tsc -b --pretty false",
-    "test": "npm run defaults:package && vitest run",
+    "test": "vitest run",
     "test:watch": "vitest",
     "cc:validate": "npm run build && node packages/cli/dist/index.js validate .",
     "cc:doctor": "npm run build && node packages/cli/dist/index.js doctor .",

@@ -1,6 +1,6 @@
 # Code Conductor status
 
-**Checkpoint:** 2026-09-18  
+**Checkpoint:** 2026-10-08  
 **Target:** v0.1 workstation/VS Code release
 
 ## Current state
@@ -16,7 +16,7 @@ Parallel work continues under #13 for the actual legacy corpus migration and #14
 ## Verified in repository/CI
 
 - TypeScript workspace builds successfully on Node 24.
-- Current consolidated unit suite passes: **80 tests across 18 test files**.
+- Current consolidated unit suite passes: **145 tests across 23 test files** (re-verified 2026-10-08; this line previously still cited the 2026-09-18 count of 80/18).
 - `cc validate` passes repository policy/configuration validation.
 - `npm ci --ignore-scripts` and `npm audit --audit-level=high` report **0 vulnerabilities**.
 - `package-lock.json` is committed and normal dependency CI remains read-only/reproducible.
@@ -42,6 +42,9 @@ Parallel work continues under #13 for the actual legacy corpus migration and #14
 - The VS Code extension bundles its compiled Code Conductor runtime and uses workspace-scoped fingerprints/lazy discovery rather than requiring a repository-local runtime build for normal packaged use.
 - The Agent Catalog intake tool hashes and inventories source files, records duplicate/classification/lineage candidates, never follows symlinks, refuses output inside the immutable source corpus, and does not auto-discard unique content.
 - VSIX release packaging now uses a pinned official `@vscode/vsce` 4.0.0 toolchain, staged Marketplace metadata, publisher validation, and ignored generated release artifacts; Marketplace publication/provenance automation remains open.
+
+- ADR 0011 (2026-10-08): the Code Workflow sibling boundary is locked (D-057). `cc agents` / `cc doctor` provide a read-only provider-native inventory. `AgentResult.notVerified` is available. `cc import` ingests Code Workflow exports without granting readiness. Gate evidence carries `sha256`. APM projections were re-materialized and `apm audit` passes (D-058).
+- ADR 0012 (Proposed): provider-local subagent evidence hooks, pending W-003/W-005 workstation validation of per-client hook trust flows.
 
 ## Roadmap and scope state
 

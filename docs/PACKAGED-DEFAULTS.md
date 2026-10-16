@@ -5,7 +5,8 @@ Implements the C01 configuration boundary from #32/#43; related delivery #56.
 Canonical defaults stay in this source repository's `config/*.yaml`. The deterministic
 `npm run defaults:package` step copies the seven approved documents to the policy package
 and VS Code distribution, with a SHA-256 manifest. Generated assets are ignored in Git,
-regenerated before typecheck/tests/build, and included in the VSIX. Customers do not clone
+regenerated before typecheck/build and by Vitest global setup for every test entry point
+(including watch mode and IDE runners), and included in the VSIX. Customers do not clone
 Code Conductor or create an application `config` directory. Runtime readers verify the
 packaged manifest. This is artifact consistency/provenance, not a signature or sandbox.
 
@@ -49,8 +50,10 @@ scaffold/config check used by CI. VS Code Validate uses workspace validation.
 ## Portable gates and optional tools
 
 A generic Node project gets the `npm test` gate; absence of a working test script is a
-failure, not a skipped success. The source-specific Code Conductor profile requires its
-CLI source marker and does not run in every TypeScript application. Terraform and Ansible
+failure, not a skipped success. The source-specific Code Conductor profile requires both
+the exact `@code-conductor/root` package name and its CLI source marker, so a conventional
+`packages/cli` monorepo receives only the generic Node gate. When no profile applies, gate
+selection returns a blocking `no-applicable-gates` failure with zero commands executed. Terraform and Ansible
 profiles remain available. Profiles select validation commands, not authorization to run
 untrusted project scripts. An unknown project still needs a suitable validation profile;
 no detected gates must not be represented as proof that a change was tested.

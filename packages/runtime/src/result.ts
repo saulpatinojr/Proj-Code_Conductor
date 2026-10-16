@@ -56,6 +56,7 @@ export function parseAgentResult(assignment: AgentAssignment, outcome: HarnessEx
         risks: candidate.risks ?? [],
         blockers: candidate.blockers ?? [],
         recommendation: candidate.recommendation ?? (outcome.exitCode === 0 ? 'review' : 'changes_required'),
+        ...(candidate.notVerified !== undefined ? { notVerified: candidate.notVerified } : {}),
       };
       const validation = validateContract('AgentResult', result);
       if (validation.ok) return result;

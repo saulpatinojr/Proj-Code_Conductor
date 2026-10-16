@@ -117,7 +117,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:40533ea9b9800d5ccb39966303c69ea6d32e7789b5e28e95d94295a8fbbc507e
+  content_hash: sha256:417ff11af8410bbd719c46bd48b06eee9f74a19c413aca366892ee8ab3eeaee2
 - kind: project-relative
   target: claude
   value: .claude/skills/evidence-driven-review
@@ -468,7 +468,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:40533ea9b9800d5ccb39966303c69ea6d32e7789b5e28e95d94295a8fbbc507e
+  content_hash: sha256:417ff11af8410bbd719c46bd48b06eee9f74a19c413aca366892ee8ab3eeaee2
 - kind: project-relative
   target: kiro
   value: .kiro/skills/evidence-driven-review
@@ -522,7 +522,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:40533ea9b9800d5ccb39966303c69ea6d32e7789b5e28e95d94295a8fbbc507e
+  content_hash: sha256:417ff11af8410bbd719c46bd48b06eee9f74a19c413aca366892ee8ab3eeaee2
 - kind: project-relative
   target: legacy
   value: .agents/skills/evidence-driven-review
@@ -623,7 +623,7 @@ local_deployed_files:
 - .kiro/skills/github-gatekeeper
 - .kiro/skills/github-gatekeeper/SKILL.md
 local_deployed_file_hashes:
-  .agents/skills/code-conductor-protocol/SKILL.md: sha256:40533ea9b9800d5ccb39966303c69ea6d32e7789b5e28e95d94295a8fbbc507e
+  .agents/skills/code-conductor-protocol/SKILL.md: sha256:417ff11af8410bbd719c46bd48b06eee9f74a19c413aca366892ee8ab3eeaee2
   .agents/skills/evidence-driven-review/SKILL.md: sha256:7df7b1a50e001478bc9354dc9f4b0b7a3282ee27486d30efc5523c55f45a205c
   .agents/skills/github-gatekeeper/SKILL.md: sha256:08d292196ae9eb408b84d0ad999f94474d99ef38164b59b2988513adc047cfb4
   .claude/agents/arbiter.md: sha256:cc855c5b0793f68a6d02f15ce2f0d7842ef3ce5860260ed9b84ef3a4b9a229df
@@ -637,7 +637,7 @@ local_deployed_file_hashes:
   .claude/agents/security-reviewer.md: sha256:bca7bb46b4e74324942b325069eadfe6c3708af658ba838d3b9dfc79d92118b4
   .claude/agents/spec-lead.md: sha256:bb095a9f8a7617bd81eb4b22ce67c95e928dd2bd8ff35c3bfd2a5fddb06c00f0
   .claude/agents/validator.md: sha256:f5c816866226da02adfc26a802059ba44a747b6755f6cff45656d619b142366b
-  .claude/skills/code-conductor-protocol/SKILL.md: sha256:40533ea9b9800d5ccb39966303c69ea6d32e7789b5e28e95d94295a8fbbc507e
+  .claude/skills/code-conductor-protocol/SKILL.md: sha256:417ff11af8410bbd719c46bd48b06eee9f74a19c413aca366892ee8ab3eeaee2
   .claude/skills/evidence-driven-review/SKILL.md: sha256:7df7b1a50e001478bc9354dc9f4b0b7a3282ee27486d30efc5523c55f45a205c
   .claude/skills/github-gatekeeper/SKILL.md: sha256:08d292196ae9eb408b84d0ad999f94474d99ef38164b59b2988513adc047cfb4
   .codex/agents/arbiter.toml: sha256:8b7eb34fab0c64ed119c6a6985b5d04629ae1239eafadfef0e4ee450fea61d51
@@ -673,6 +673,6 @@ local_deployed_file_hashes:
   .kiro/agents/security-reviewer.md: sha256:a02d4b9e6417ba834715c8141d53870b3ec3fd3397a63108f9f65e774cc1133a
   .kiro/agents/spec-lead.md: sha256:06e29720be7eef1b239d911ea82f9434b02d00ad63331e89fe806c1a3f6f5831
   .kiro/agents/validator.md: sha256:da78ba6221ac5b1692f1ab44642d06f94eef4b8278a25afcb1bbcedf3195e849
-  .kiro/skills/code-conductor-protocol/SKILL.md: sha256:40533ea9b9800d5ccb39966303c69ea6d32e7789b5e28e95d94295a8fbbc507e
+  .kiro/skills/code-conductor-protocol/SKILL.md: sha256:417ff11af8410bbd719c46bd48b06eee9f74a19c413aca366892ee8ab3eeaee2
   .kiro/skills/evidence-driven-review/SKILL.md: sha256:7df7b1a50e001478bc9354dc9f4b0b7a3282ee27486d30efc5523c55f45a205c
   .kiro/skills/github-gatekeeper/SKILL.md: sha256:08d292196ae9eb408b84d0ad999f94474d99ef38164b59b2988513adc047cfb4

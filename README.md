@@ -19,6 +19,10 @@ Code Conductor v0.x is intentionally **not another standalone desktop app**.
 - The packaged extension now bundles the compiled Code Conductor runtime; clean-machine validation and Marketplace publication still must prove customers do not need this source tree or a local `npm run build` step.
 - First run performs explicit local discovery/bootstrap; subsequent starts use cached non-secret state and lazy provider/MCP/APM activation.
 
+### Sibling product: Code Workflow
+
+[Code Workflow](https://github.com/saulpatinojr/Proj-Code_Workflow) is the slim, in-client sibling. It runs multi-agent workflows inside one AI client (Claude Code, Codex CLI, or GitHub Copilot) through that client's own subagents, installs with one script, and has no background runtime. Code Conductor remains the full cross-provider program: routing, risk classes, independence, worktrees, gates, and human approval. Work exported from Code Workflow (`workflow.py export`) can be brought under Code Conductor review with `cc import <run-manifest.json>`; import never establishes readiness. The boundary and the shared `AgentResult`/`RunManifest` contract are locked in [ADR 0011](docs/adr/0011-code-workflow-sibling-boundary-and-shared-contract.md) (D-057).
+
 ## Architecture at a glance
 
 | Layer | Responsibility |
@@ -82,6 +86,12 @@ Run workstation diagnostics after building the development checkout:
 
 ```bash
 npm run cc:doctor
+```
+
+List provider-native agents and skills (project and user scope, read-only), marking project files APM did not deploy:
+
+```bash
+node packages/cli/dist/index.js agents --repo .
 ```
 
 Prepare a repository file as context after building. Reads are scoped to the supplied root and sensitive/state paths are blocked:

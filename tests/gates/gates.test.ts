@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -66,6 +67,14 @@ describe('deterministic gates', () => {
     expect(executions.length).toBeGreaterThan(0);
     expect(blockingGateFailure(executions)).toBe(false);
     expect(executions.every((item) => item.result.status === 'passed')).toBe(true);
+  });
+
+  it('hashes the full untruncated gate output into evidence sha256', () => {
+    const longOutput = 'x'.repeat(9000);
+    const executions = runGates(resolve('.'), ['code-conductor'], () => ({ status: 0, stdout: longOutput, stderr: '' }));
+    const expected = createHash('sha256').update(longOutput).digest('hex');
+    expect(executions[0]?.evidence.sha256).toBe(expected);
+    expect(executions[0]?.evidence.summary.length).toBeLessThan(longOutput.length);
   });
 
   it('blocks on a failed blocking gate', () => {

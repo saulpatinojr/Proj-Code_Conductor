@@ -1,5 +1,5 @@
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -149,6 +149,7 @@ export function runGates(root: string, profiles?: string[], executor: CommandExe
         kind: 'test',
         source: `${gate.command} ${(gate.args ?? []).join(' ')}`.trim(),
         summary: combined ? `${summary}\n${combined.slice(0, 8000)}` : summary,
+        sha256: createHash('sha256').update(combined).digest('hex'),
       };
       executions.push({
         profile: profileName,
