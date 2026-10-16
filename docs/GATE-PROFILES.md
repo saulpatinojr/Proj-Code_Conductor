@@ -83,18 +83,25 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   have side effects. In an agent worktree, the agent may have written that
   configuration. The approval summary for this gate says so; approve only after
   reviewing the configuration the agent changed.
-- No gate applies changes. Terraform and OpenTofu gates may only use `fmt`, `validate`,
-  `plan` (never with `-out`, because a saved plan can hold secrets and be applied later)
-  or `version`; `fmt` only with `-check`, and `plan` never with `-generate-config-out`.
-  Shells and command wrappers (`sh`, `bash`, `cmd`, `pwsh`, `env`, `sudo`, `setsid`,
-  `npx`, `terragrunt`, …), interpreters with inline code (`node -e`, `python -c`) and
-  package executors (`npm exec`, `pnpm dlx`, `yarn dlx`) cannot be gate commands,
-  because they could run anything. Neither can auto-approve flags. The allowlist governs
-  the packaged catalog, which only maintainers change; gates themselves still run the
-  repository's own scripts, which is why they are approved first. Command names are compared case-insensitively and
-  without `.exe`/`.cmd` extensions. The planner refuses such gates, and `cc validate`
-  rejects them in the catalog (`gates.infrastructure_change`, `gates.wrapper`,
-  `gates.auto_approve`, `gates.command`). Production apply belongs to a native pipeline
+- No gate applies changes. Every gate tool has a fixed shape, and anything else is
+  refused, whatever its spelling:
+
+  | Tool | Allowed |
+  |---|---|
+  | `npm`, `pnpm`, `yarn` | `test`, or `run <script>`, with nothing else |
+  | `node` | a script file in the repository as the first argument (relative, no `..`); no options or inline code |
+  | `terraform`, `tofu` | at most one `-chdir=<repository subfolder>`, then `fmt` (only with `-check`; `-recursive`, `-diff`, `-no-color`), `validate` (`-no-color`, `-json`), `plan` (`-input=false`, `-lock=false`, `-no-color`, `-refresh=false`, `-detailed-exitcode`, `-compact-warnings`) or `version` (`-json`); no paths, no `-out` or `-generate-config-out`, no other flags |
+  | `ansible-lint` | `--offline`, `--nocolor`, `--parseable`, `-p`, `-q`, `--strict`; never `--fix` |
+
+  Shells, wrappers (`env`, `sudo`, `setsid`, `npx`, `pnpx`, `bunx`, `terragrunt`, …),
+  other interpreters and package executors are not gate tools, because they could run
+  anything; neither are auto-approve flags. Supporting another tool means describing its
+  shape in `gateCommandProblem` (`packages/policy`). The rules govern the packaged
+  catalog, which only maintainers change; gates themselves still run the repository's
+  own scripts, which is why they are approved first. Command names are compared
+  case-insensitively and without `.exe`/`.cmd` extensions. The planner refuses other
+  gates, and `cc validate` rejects them in the catalog (`gates.tool`, `gates.shape`,
+  `gates.infrastructure_change`, `gates.auto_approve`, `gates.command`). Production apply belongs to a native pipeline
   with environment protection and its own approval (#32 deployment boundary, C02
   `deployment` action).
 

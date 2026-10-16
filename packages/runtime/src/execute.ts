@@ -163,7 +163,13 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       if (assignment.harness === 'internal-validator') {
         const validationRoot = primaryBuilderWorktree?.path ?? root;
         let gatePlan: PlannedGate[];
-        try { gatePlan = planGates(validationRoot, options.gateProfiles); }
+        let dropped: string[] = [];
+        try {
+          gatePlan = planGates(validationRoot, options.gateProfiles);
+          // An explicit choice replaces detection; say what that leaves out.
+          const chosen = new Set(gatePlan.map((item) => item.profile));
+          if (gatePlan.some((item) => item.explicit)) dropped = detectGateProfiles(validationRoot).filter((name) => !chosen.has(name));
+        }
         catch (error) {
           manifest.results.push({ ...externalAwaitingResult(assignment, `Gate selection failed: ${error instanceof Error ? error.message : String(error)}`), status: 'failed', recommendation: 'changes_required' });
           save();
@@ -182,9 +188,6 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           const disclosures = [...new Set(runnable.flatMap((item) => (item.gate.disclosure ? [item.gate.disclosure] : [])))];
           // In an agent worktree, dependencies, .terraform and build output exist only because
           // something in this run created them, possibly the agent; they are ignored by Git.
-          // An explicit choice replaces detection; say what that leaves out.
-          const chosen = new Set(gatePlan.map((item) => item.profile));
-          const dropped = gatePlan.some((item) => item.explicit) ? detectGateProfiles(validationRoot).filter((name) => !chosen.has(name)) : [];
           const skipped = dropped.length ? ` Detected profile(s) not run because you chose others: ${dropped.join(', ')}.` : '';
           const untrusted = validationRoot === primaryBuilderWorktree?.path ? ' Prerequisites such as installed dependencies, .terraform or build output in this agent worktree were created during the run, possibly by the agent, and are not bound by this approval.' : '';
           const approval = await authorize(() => {

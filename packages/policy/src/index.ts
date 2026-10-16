@@ -190,34 +190,64 @@ export function validateCapabilities(capabilities: CapabilityConfig): Validation
 
 type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?: unknown; gates?: Array<{ id?: unknown; command?: unknown; args?: unknown; requires?: unknown }> }> };
 
-// Gates validate; they never change infrastructure, state or credentials. Shells and
-// command wrappers could run anything, so a gate names the tool itself. Terraform and
-// OpenTofu gates are limited to an allowlist of read-only subcommands (plan still runs
-// provider plugins; see the terraform-plan disclosure in config/gates.yaml).
-const GATE_WRAPPERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'csh', 'tcsh', 'fish', 'cmd', 'powershell', 'pwsh', 'env', 'sudo', 'doas', 'su', 'xargs', 'nohup', 'nice', 'timeout', 'time', 'exec', 'eval', 'busybox', 'npx', 'terragrunt', 'setsid', 'stdbuf', 'chroot', 'unshare', 'nsenter', 'script']);
-const TERRAFORM_ALLOWED = new Set(['fmt', 'validate', 'plan', 'version']);
-// Interpreters may run a script file from the repository, never inline code.
-const INTERPRETERS = new Set(['node', 'python', 'python3', 'perl', 'ruby', 'deno', 'bun', 'php']);
-const INLINE_CODE = /^(-e|-c|-p|-r|--eval|--print|--command)(=|$)/;
-// Package-manager subcommands that download and run arbitrary packages.
-const PACKAGE_EXECUTORS: Record<string, Set<string>> = { npm: new Set(['exec', 'x']), pnpm: new Set(['dlx', 'exec']), yarn: new Set(['dlx', 'exec']) };
+// Gates validate; they never change infrastructure, state or credentials. Every gate tool
+// has a fixed shape, checked positively: a command or argument this does not describe is
+// refused, so a new spelling cannot slip past (inline interpreter code, package executors,
+// wrappers, file-writing flags). Supporting another tool means describing its shape here.
+const SCRIPT_NAME = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
+/** A path inside the repository: relative (no root, drive or UNC prefix), no `..` segment, plain characters. */
+function repositoryRelative(path: string): boolean {
+  return /^[A-Za-z0-9._][A-Za-z0-9._/\\-]*$/.test(path) && !/^[A-Za-z]:/.test(path) && !path.split(/[\\/]/).includes('..');
+}
+// Terraform and OpenTofu: one optional `-chdir=<repository subfolder>`, then a read-only
+// subcommand with only these flags (Go's flag parser stops at the first other argument,
+// so a path or `--` before `-check` would silently drop it). Plan still runs provider
+// plugins; see the terraform-plan disclosure in config/gates.yaml.
+const TERRAFORM_FLAGS: Record<string, ReadonlySet<string>> = {
+  fmt: new Set(['-check', '-recursive', '-diff', '-no-color']),
+  validate: new Set(['-no-color', '-json']),
+  plan: new Set(['-input=false', '-lock=false', '-no-color', '-refresh=false', '-detailed-exitcode', '-compact-warnings']),
+  version: new Set(['-json']),
+};
+const ANSIBLE_LINT_FLAGS: ReadonlySet<string> = new Set(['--offline', '--nocolor', '--parseable', '-p', '-q', '--strict']);
+
+type GateShape = (args: readonly string[]) => string | undefined;
+const packageScript: GateShape = (args) => (args.length === 1 && args[0] === 'test') || (args.length === 2 && args[0] === 'run' && SCRIPT_NAME.test(args[1] ?? ''))
+  ? undefined : 'only `test` or `run <script>`, which run the repository\'s own scripts';
+const terraformShape: GateShape = (args) => {
+  const rest = args[0]?.startsWith('-chdir=') && repositoryRelative(args[0].slice('-chdir='.length)) ? args.slice(1) : args;
+  const [subcommand, ...flags] = rest;
+  const allowed = subcommand === undefined ? undefined : TERRAFORM_FLAGS[subcommand];
+  if (!allowed) return `only ${Object.keys(TERRAFORM_FLAGS).join(', ')}, after at most one -chdir=<repository subfolder>: gates check formatting, validate or plan, never change infrastructure`;
+  const extra = flags.find((flag) => !allowed.has(flag));
+  if (extra !== undefined) return `${subcommand} takes only ${[...allowed].join(' ')} here (not ${extra}): no paths, no files written, no other options`;
+  if (subcommand === 'fmt' && !flags.includes('-check')) return 'fmt rewrites files unless -check is given; gates only check';
+  return undefined;
+};
+const GATE_TOOLS: Record<string, GateShape> = {
+  npm: packageScript,
+  pnpm: packageScript,
+  yarn: packageScript,
+  node: (args) => (args[0] !== undefined && repositoryRelative(args[0]) && /\.[cm]?js$/.test(args[0]) ? undefined : 'only a repository script file as the first argument (no options, no inline code)'),
+  terraform: terraformShape,
+  tofu: terraformShape,
+  'ansible-lint': (args) => {
+    const extra = args.find((arg) => !ANSIBLE_LINT_FLAGS.has(arg));
+    return extra === undefined ? undefined : `only ${[...ANSIBLE_LINT_FLAGS].join(' ')} (not ${extra}): no fixes written, no other options`;
+  },
+};
 
 /** Why a gate command may never run, or undefined. Shared by `cc validate` and the gate planner. */
 export function gateCommandProblem(command: unknown, args: readonly unknown[] = []): { code: string; message: string } | undefined {
   if (typeof command !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) return { code: 'gates.command', message: 'it must name a plain executable (no shell, no path)' };
-  const name = command.toLowerCase().replace(/\.(exe|com|cmd|bat|ps1)$/, '');
-  const values = args.filter((arg): arg is string => typeof arg === 'string');
-  if (GATE_WRAPPERS.has(name)) return { code: 'gates.wrapper', message: `${command} is a shell or command wrapper, which could run anything; a gate names the tool itself` };
+  if (!args.every((arg) => typeof arg === 'string')) return { code: 'gates.command', message: 'every argument must be a string' };
+  const values = args as readonly string[];
   if (values.some((arg) => /^-?-auto-approve(=|$)/i.test(arg))) return { code: 'gates.auto_approve', message: 'auto-approval flags can never be part of a gate' };
-  if (name === 'terraform' || name === 'tofu') {
-    const subcommand = values.find((arg) => !arg.startsWith('-'));
-    if (!subcommand || !TERRAFORM_ALLOWED.has(subcommand)) return { code: 'gates.infrastructure_change', message: `${command} ${subcommand ?? '(no subcommand)'} is not one of ${[...TERRAFORM_ALLOWED].join(', ')}; gates may only check formatting, validate or plan` };
-    if (subcommand === 'plan' && values.some((arg) => /^-?-(out|generate-config-out)(=|$)/.test(arg))) return { code: 'gates.infrastructure_change', message: 'plan gates never write files: a saved plan can hold secrets and be applied later' };
-    if (subcommand === 'fmt' && !values.includes('-check')) return { code: 'gates.infrastructure_change', message: 'fmt rewrites files unless -check is given; gates only check' };
-  }
-  if (INTERPRETERS.has(name) && values.some((arg) => INLINE_CODE.test(arg))) return { code: 'gates.wrapper', message: `${command} with inline code could run anything; a gate runs a script file` };
-  const executors = PACKAGE_EXECUTORS[name];
-  if (executors && values.some((arg) => !arg.startsWith('-') && executors.has(arg))) return { code: 'gates.wrapper', message: `${command} ${values.find((arg) => executors.has(arg))} downloads and runs arbitrary packages` };
+  const name = command.toLowerCase().replace(/\.(exe|com|cmd|bat|ps1)$/, '');
+  const shape = Object.hasOwn(GATE_TOOLS, name) ? GATE_TOOLS[name] : undefined;
+  if (!shape) return { code: 'gates.tool', message: `${command} is not a gate tool (${Object.keys(GATE_TOOLS).join(', ')}); shells, wrappers and package executors never are, because they could run anything` };
+  const problem = shape(values);
+  if (problem) return { code: name === 'terraform' || name === 'tofu' ? 'gates.infrastructure_change' : 'gates.shape', message: `${command}: ${problem}` };
   return undefined;
 }
 

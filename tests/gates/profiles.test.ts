@@ -87,6 +87,8 @@ describe('declarative gate profiles', () => {
     for (const args of [['fmt', '-check', '-recursive'], ['validate', '-no-color'], ['plan', '-input=false', '-lock=false', '-no-color'], ['-chdir=infra', 'validate']]) {
       expect(forbiddenGateReason({ id: 'x', command: 'terraform', args })).toBeUndefined();
     }
+    // -chdir stays inside the repository.
+    for (const chdir of ['-chdir=../other', '-chdir=/etc', '-chdir=infra/../..', '-chdir=C:\\x']) expect(forbiddenGateReason({ id: 'x', command: 'terraform', args: [chdir, 'validate'] }), chdir).toBeDefined();
   });
 
   it('never reaches readiness from advisory gates alone, and missing prerequisites always block', async () => {
@@ -105,26 +107,26 @@ describe('declarative gate profiles', () => {
     mkdirSync(trusted);
     mkdirSync(join(root, 'bin'));
     for (const [directory, label] of [[trusted, 'TRUSTED'], [join(root, 'bin'), 'PLANTED']] as const) {
-      writeFileSync(join(directory, 'cc-fake-tool'), `#!/bin/sh\necho ${label}\n`);
-      chmodSync(join(directory, 'cc-fake-tool'), 0o755);
+      writeFileSync(join(directory, 'ansible-lint'), `#!/bin/sh\necho ${label}\n`);
+      chmodSync(join(directory, 'ansible-lint'), 0o755);
     }
     // A relative entry that really reaches the planted binary from this process, and the
     // one a gate running in the repository would see.
     const planted = relative(process.cwd(), join(root, 'bin'));
     for (const path of [`${planted}${delimiter}${trusted}`, `bin${delimiter}${trusted}`, `${delimiter}${trusted}`, `.${delimiter}${trusted}`]) {
-      expect(resolveExecutable('cc-fake-tool', { PATH: path }).path, path).toBe(join(trusted, 'cc-fake-tool'));
+      expect(resolveExecutable('ansible-lint', { PATH: path }).path, path).toBe(join(trusted, 'ansible-lint'));
     }
-    expect(resolveExecutable('cc-fake-tool', { PATH: `${planted}${delimiter}bin` }).path).toBeUndefined();
+    expect(resolveExecutable('ansible-lint', { PATH: `${planted}${delimiter}bin` }).path).toBeUndefined();
     if (process.platform !== 'win32') {
       const original = process.env.PATH;
       process.env.PATH = `bin${delimiter}${trusted}${delimiter}${original ?? ''}`;
       try {
-        const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'cc-fake-tool', args: [], blocking: true }] } } };
+        const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'ansible-lint', args: [], blocking: true }] } } };
         const plan = planGates(root, ['fake'], config);
-        expect(plan[0]?.executable).toBe(join(trusted, 'cc-fake-tool'));
+        expect(plan[0]?.executable).toBe(join(trusted, 'ansible-lint'));
         const [result] = await executeGatePlan(root, plan);
         expect(result?.evidence.summary).toContain('TRUSTED');
-        expect(result?.evidence.source).toContain(join(trusted, 'cc-fake-tool'));
+        expect(result?.evidence.source).toContain(join(trusted, 'ansible-lint'));
       } finally { process.env.PATH = original; }
     }
   });
@@ -135,20 +137,47 @@ describe('declarative gate profiles', () => {
     mkdirSync(trusted);
     mkdirSync(join(root, 'bin'));
     // Like npm's `#!/usr/bin/env node`: the tool itself starts an interpreter found on PATH.
-    writeFileSync(join(trusted, 'cc-fake-env-tool'), '#!/usr/bin/env cc-fake-interp\n');
+    writeFileSync(join(trusted, 'ansible-lint'), '#!/usr/bin/env cc-fake-interp\n');
     for (const [directory, label] of [[trusted, 'TRUSTED'], [join(root, 'bin'), 'PLANTED']] as const) {
       writeFileSync(join(directory, 'cc-fake-interp'), `#!/bin/sh\necho ${label}\n`);
       chmodSync(join(directory, 'cc-fake-interp'), 0o755);
     }
-    chmodSync(join(trusted, 'cc-fake-env-tool'), 0o755);
+    chmodSync(join(trusted, 'ansible-lint'), 0o755);
     const original = process.env.PATH;
     process.env.PATH = `bin${delimiter}${trusted}${delimiter}${original ?? ''}`;
     try {
-      const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'cc-fake-env-tool', args: [], blocking: true }] } } };
+      const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'ansible-lint', args: [], blocking: true }] } } };
       const [result] = await executeGatePlan(root, planGates(root, ['fake'], config));
       expect(result?.evidence.summary).toContain('TRUSTED');
       expect(result?.evidence.summary).not.toContain('PLANTED');
     } finally { process.env.PATH = original; }
+  });
+
+  it('refuses every spelling outside the fixed tool shapes', () => {
+    const refused: Array<[string, string[]]> = [
+      // Interpreter inline code and loaders.
+      ['node', ['-pe', 'x']], ['node', ['--import', 'data:text/javascript,x']], ['node', ['--loader', 'data:x']], ['node', ['--eval=x']], ['nodejs', ['-e', 'x']],
+      ['node', ['/abs/script.js']], ['node', ['../outside.js']], ['node', ['scripts/../../x.js']], ['node', ['script.sh']],
+      ['python3', ['-cx']], ['python3', ['-Ic', 'x']], ['python3', ['-m', 'timeit', 'x']], ['python3.12', ['-c', 'x']], ['py', ['-c', 'x']],
+      ['perl', ['-E', 'x']], ['perl', ['-le', 'x']], ['ruby', ['-le', 'x']], ['php', ['-B', 'x']], ['deno', ['eval', 'x']],
+      // Package executors and other subcommands that run packages.
+      ['npm', ['exe', '--call=x']], ['npm', ['EXEC', 'x']], ['npm', ['init', 'x']], ['npm', ['create', 'x']], ['npm', ['explore', 'x']], ['npm', ['run', 'x', '--', '-y']], ['npm', ['--prefix', '/x', 'test']], ['npm', ['run', '$(x)']],
+      ['yarn', ['node', '-e', 'x']], ['yarnpkg', ['dlx', 'x']], ['pnpx', ['x']], ['bunx', ['x']], ['bun', ['x', 'y']], ['corepack', ['npm', 'exec', 'x']],
+      // Wrappers.
+      ...['flock', 'ionice', 'taskset', 'setarch', 'chrt', 'prlimit', 'runuser', 'setpriv', 'strace', 'watch', 'xvfb-run', 'wsl', 'forfiles', 'conhost'].map((command): [string, string[]] => [command, ['terraform', 'apply']]),
+      // Terraform forms that would write despite -check, or take other options.
+      ['terraform', ['fmt', '-check', '-check=false']], ['terraform', ['fmt', '.', '-check']], ['terraform', ['fmt', '--', '-check']], ['terraform', ['fmt', '-write=true', '-check']],
+      ['terraform', ['plan', '-var-file=x', '-input=false']], ['terraform', ['validate', 'dir']], ['tofu', ['plan', '-out=x']],
+      // ansible-lint fixes files.
+      ['ansible-lint', ['--fix']], ['ansible-lint', ['--write']], ['ansible-lint', ['playbook.yml']],
+    ];
+    for (const [command, args] of refused) expect(forbiddenGateReason({ id: 'x', command, args }), `${command} ${args.join(' ')}`).toBeDefined();
+    // The shapes the packaged catalog uses.
+    for (const [command, args] of [['npm', ['run', 'typecheck']], ['npm', ['test']], ['pnpm', ['test']], ['yarn', ['test']], ['NPM.CMD', ['test']], ['node', ['packages/cli/dist/index.js', 'validate', '.']], ['ansible-lint', []], ['tofu', ['fmt', '-check', '-recursive']]] as Array<[string, string[]]>) {
+      expect(forbiddenGateReason({ id: 'x', command, args }), `${command} ${args.join(' ')}`).toBeUndefined();
+    }
+    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'node', args: ['-pe', 'x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.shape']);
+    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'pnpx', args: ['x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.tool']);
   });
 
   it('rejects inline interpreter code, package executors and file-writing Terraform forms', () => {
