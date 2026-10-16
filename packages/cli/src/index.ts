@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, printable, importRunManifest, nextActions, planTask, parseAgentResult, recordedAgentWorktrees, stoppedForGitControl, type NextAction } from '@code-conductor/runtime';
+import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffExpired, importRunManifest, printable, nextActions, planTask, parseAgentResult, recordedAgentWorktrees, stoppedForGitControl, type NextAction } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
 import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree } from '@code-conductor/git';
-import { assertContract, type RunManifest } from '@code-conductor/schemas';
+import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
 import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, createBuiltinAdapters } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
@@ -270,6 +270,33 @@ function worktreesCommand(args: string[]): number {
   return failures ? 1 : 0;
 }
 
+function runsCommand(args: string[]): number {
+  const store = new RunStore();
+  const olderThan = getOption(args, '--older-than');
+  const days = olderThan === undefined ? undefined : Number(olderThan);
+  if (days !== undefined && (!Number.isFinite(days) || days < 1)) { console.error('ERROR runs.invalid_age: --older-than takes a number of days (1 or more).'); return 2; }
+  const apply = args.includes('--apply');
+  let candidates = 0;
+  for (const runId of store.listRunIds()) {
+    const ageDays = store.runAgeMs(runId) / 86_400_000;
+    let decision = 'unreadable';
+    let active: string[] = [];
+    try {
+      const manifest = storedManifest(store, runId);
+      decision = manifest.mergeDecision?.decision ?? 'planned';
+      active = (manifest.worktrees ?? []).filter((record) => existsSync(record.path)).map((record) => record.path);
+    } catch { /* still listed and eligible by age */ }
+    if (days === undefined) { console.log(`${runId} ${decision} ${ageDays.toFixed(1)}d${active.length ? ` worktrees=${active.length}` : ''}`); continue; }
+    if (ageDays < days) continue;
+    if (active.length) { console.log(`KEEP ${runId}: its worktree still exists (${active.join(', ')}); remove or review it first.`); continue; }
+    candidates += 1;
+    if (apply) { store.deleteRun(runId); console.log(`DELETED ${runId} (${ageDays.toFixed(1)} days old)`); }
+    else console.log(`WOULD DELETE ${runId} (${ageDays.toFixed(1)} days old, ${decision})`);
+  }
+  if (days !== undefined && !apply && candidates) console.log('Preview only. Re-run with --apply to delete these runs\' local evidence (manifests, events, handoff packets); worktrees and branches are never touched.');
+  return 0;
+}
+
 function handoff(args: string[]): number {
   const runId = getOption(args, '--run'); const assignmentId = getOption(args, '--assignment');
   if (!runId || !assignmentId) { console.error('Usage: cc handoff --run <runId> --assignment <assignmentId>'); return 2; }
@@ -277,9 +304,19 @@ function handoff(args: string[]): number {
     const manifest = storedManifest(new RunStore(), runId);
     const assignment = manifest.assignments.find((item) => item.id === assignmentId);
     if (!assignment) { console.error(`ERROR handoff.unknown_assignment: ${assignmentId} is not part of ${runId}.`); return 1; }
+    const store = new RunStore();
+    const reference = [...(manifest.handoffs ?? [])].reverse().find((item) => item.to === assignmentId);
+    let handoff: { packet: HandoffPacket; sha256: string } | undefined;
+    if (reference) {
+      const packet = store.readHandoff(manifest.runId, reference.id, reference.sha256);
+      assertContract('HandoffPacket', packet);
+      if (handoffExpired(packet as HandoffPacket)) { console.error(`ERROR handoff.expired: packet ${reference.id} expired at ${reference.expiresAt}; start a new run instead of handing off stale context.`); return 1; }
+      handoff = { packet: packet as HandoffPacket, sha256: reference.sha256 };
+    }
+    if (args.includes('--json')) { console.log(JSON.stringify(handoff?.packet ?? null, null, 2)); return 0; }
     // stderr carries guidance; stdout is only the prompt so it can be piped or copied exactly.
     console.error(`Manual handoff for ${printable(assignment.role)} (${printable(assignment.harness)}@${printable(assignment.surface ?? 'manual')}). Paste the prompt below into the official client yourself; this disclosure is your decision. Keep the client's result with run ${printable(runId)}.`);
-    const text = assignmentPrompt(manifest.task, assignment);
+    const text = assignmentPrompt(manifest.task, assignment, handoff);
     if (!process.stdout.isTTY) { process.stdout.write(`${text}\n`); return 0; }
     // On a terminal, untrusted task text must not drive it: each line is shown with
     // control and format characters replaced. Redirect stdout for the exact bytes.
@@ -321,7 +358,7 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).'); }
+function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
@@ -337,6 +374,7 @@ switch (command) {
   case 'next': exitCode = nextCommand(args); break;
   case 'handoff': exitCode = handoff(args); break;
   case 'worktrees': exitCode = worktreesCommand(args); break;
+  case 'runs': exitCode = runsCommand(args); break;
   case 'apm-audit': exitCode = apmCheck(args[0]); break;
   case 'github-gate': exitCode = githubGate(args); break;
   case 'context-stats': exitCode = contextStats(); break;

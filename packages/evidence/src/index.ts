@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { RunManifest } from '@code-conductor/schemas';
+import type { HandoffPacket, RunManifest } from '@code-conductor/schemas';
 
 export interface RunEvent {
   at: string;
@@ -30,6 +30,33 @@ function trimSeparators(value: string): string {
   while (start < end && (value[start] === '-' || value[start] === '_')) start += 1;
   while (end > start && (value[end - 1] === '-' || value[end - 1] === '_')) end -= 1;
   return value.slice(start, end);
+}
+
+/**
+ * Read a file from the run store through one descriptor, so it cannot be swapped between
+ * the checks and the read: no symlink following, non-blocking open (a FIFO cannot hang
+ * the read), a regular file no larger than maxBytes, and at most its fstat size + 1 bytes.
+ */
+function readStoredText(target: string, maxBytes: number, label: string): string {
+  let descriptor: number;
+  try { descriptor = openSync(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`${label} is not stored.`);
+    throw new Error(`${label} cannot be opened: ${(error as NodeJS.ErrnoException).code ?? String(error)}.`);
+  }
+  try {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error(`${label} is not a regular file.`);
+    if (stat.size > maxBytes) throw new Error(`${label} exceeds ${maxBytes} bytes.`);
+    const buffer = Buffer.alloc(stat.size + 1);
+    let length = 0;
+    for (let read = -1; read !== 0 && length < buffer.length;) {
+      read = readSync(descriptor, buffer, length, buffer.length - length, null);
+      length += read;
+    }
+    if (length > stat.size) throw new Error(`${label} changed while it was read.`);
+    return buffer.subarray(0, length).toString('utf8');
+  } finally { closeSync(descriptor); }
 }
 
 export function safeRunDirectoryName(runId: string): string {
@@ -63,6 +90,42 @@ export class RunStore {
     return target;
   }
 
+  /** Persist a handoff packet next to its run (owner-only); returns its sha256. */
+  saveHandoff(packet: HandoffPacket): string {
+    if (!/^HP-[A-Za-z0-9-]{8,80}$/.test(packet.id)) throw new Error(`Invalid handoff packet id: ${packet.id}`);
+    const directory = join(this.runDirectory(packet.runId), 'handoffs');
+    ensurePrivateDirectory(directory);
+    const text = `${JSON.stringify(packet, null, 2)}\n`;
+    const target = join(directory, `${packet.id}.json`);
+    writeFileSync(`${target}.tmp`, text, { encoding: 'utf8', mode: 0o600 });
+    renameSync(`${target}.tmp`, target);
+    chmodSync(target, 0o600);
+    return createHash('sha256').update(text).digest('hex');
+  }
+
+  /** Read a stored packet and verify it against the manifest's recorded digest. Callers validate the contract. */
+  readHandoff(runId: string, id: string, sha256: string): unknown {
+    if (!/^HP-[A-Za-z0-9-]{8,80}$/.test(id)) throw new Error(`Invalid handoff packet id: ${id}`);
+    const text = readStoredText(join(this.root, safeRunDirectoryName(runId), 'handoffs', `${id}.json`), 4 * 1024 * 1024, `Handoff packet ${id} for ${runId}`);
+    if (createHash('sha256').update(text).digest('hex') !== sha256) throw new Error(`Handoff packet ${id} does not match the digest recorded in run ${runId}.`);
+    return JSON.parse(text) as unknown;
+  }
+
+  /** Age of a stored run (from its manifest) in milliseconds. */
+  runAgeMs(runId: string, now = Date.now()): number {
+    return now - statSync(join(this.root, safeRunDirectoryName(runId), 'manifest.json')).mtimeMs;
+  }
+
+  /** Delete one stored run's local evidence (manifest, events, handoffs). Never touches worktrees. */
+  deleteRun(runId: string): void {
+    const name = safeRunDirectoryName(runId);
+    const target = join(this.root, name);
+    let stored = false;
+    try { stored = lstatSync(join(target, 'manifest.json')).isFile(); } catch { stored = false; }
+    if (name !== runId || !stored) throw new Error(`No stored run ${runId}.`);
+    rmSync(target, { recursive: true, force: true });
+  }
+
   /** Stored runs, most recently written first. Only a regular manifest file (not a symlink) counts. */
   listRunIds(): string[] {
     let entries;
@@ -93,28 +156,12 @@ export class RunStore {
    * symlink or non-regular file (for example a FIFO that would block) is refused.
    */
   readManifest(runId: string, maxBytes = 16 * 1024 * 1024): unknown {
-    const target = join(this.root, safeRunDirectoryName(runId), 'manifest.json');
-    let descriptor: number;
-    try { descriptor = openSync(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); }
+    const label = `Run manifest for ${runId}`;
+    try { return JSON.parse(readStoredText(join(this.root, safeRunDirectoryName(runId), 'manifest.json'), maxBytes, label)) as unknown; }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`No stored run manifest for ${runId}.`);
-      throw new Error(`Run manifest for ${runId} cannot be opened: ${(error as NodeJS.ErrnoException).code ?? String(error)}.`);
+      if (error instanceof Error && error.message === `${label} is not stored.`) throw new Error(`No stored run manifest for ${runId}.`);
+      throw error;
     }
-    try {
-      const stat = fstatSync(descriptor);
-      if (!stat.isFile()) throw new Error(`Run manifest for ${runId} is not a regular file.`);
-      if (stat.size > maxBytes) throw new Error(`Run manifest for ${runId} exceeds ${maxBytes} bytes.`);
-      // Read at most one byte more than fstat reported, so a file that grows meanwhile is
-      // refused rather than read without bound.
-      const buffer = Buffer.alloc(stat.size + 1);
-      let length = 0;
-      for (let read = -1; read !== 0 && length < buffer.length;) {
-        read = readSync(descriptor, buffer, length, buffer.length - length, null);
-        length += read;
-      }
-      if (length > stat.size) throw new Error(`Run manifest for ${runId} changed while it was read.`);
-      return JSON.parse(buffer.subarray(0, length).toString('utf8')) as unknown;
-    } finally { closeSync(descriptor); }
   }
 
   appendEvent(event: RunEvent): string {

@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
+import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, HandoffPacket, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
+import { buildHandoffPacket, renderHandoff } from './handoff.js';
 import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
@@ -30,12 +31,14 @@ export interface ExecuteOptions {
   /** Gate profiles a person chose for this run; otherwise profiles are detected. */
   gateProfiles?: string[];
   approvalTtlMs?: number;
+  /** How long a handoff packet stays valid (default 24 hours). */
+  handoffTtlMs?: number;
   now?: () => number;
 }
 export interface ExecuteOutcome { plan: TaskPlan; manifest: RunManifest; manifestPath: string; pendingExternal: AgentAssignment[]; worktrees: WorktreeHandle[] }
 
 /** The exact prompt an assignment receives; also used for a person-driven manual handoff. */
-export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment): string {
+export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment, handoff?: { packet: HandoffPacket; sha256?: string }): string {
   return [
     `Code Conductor task ${task.id}.`, `Objective: ${task.objective}`, `Role: ${assignment.role}. Stance: ${assignment.stance}.`,
     `Harness: ${assignment.harness}. Surface: ${assignment.surface ?? 'unspecified'}.`,
@@ -44,6 +47,7 @@ export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment
     `Specializations: ${task.specializations?.length ? task.specializations.join(', ') : 'Use approved routing/configuration.'}`,
     'Read AGENTS.md and applicable repository instructions before acting.',
     'Do not reveal private chain-of-thought. Return conclusions, evidence, changes, tests, findings, risks, blockers, and recommendation only.',
+    ...(handoff ? [renderHandoff(handoff.packet, handoff.sha256)] : []),
     'Your FINAL line MUST be CC_RESULT_JSON:<single-line JSON object> matching AgentResult fields that you control: status, changes, tests, evidence, findings, risks, blockers, recommendation, and optionally notVerified (a list of checks you did not perform or could not verify).',
   ].join('\n');
 }
@@ -255,7 +259,16 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         manifest.worktrees = [...(manifest.worktrees ?? []), { assignmentId: assignment.id, path: assignmentWorktree.path, branch: assignmentWorktree.branch, baseSha: assignmentWorktree.baseSha }];
       } else if (primaryBuilderWorktree) cwd = primaryBuilderWorktree.path;
 
-      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment) };
+      // Versioned handoff from the completed work this assignment depends on: explicit
+      // recipient, expiry, prior findings, unresolved disagreements and provenance.
+      let handoff: { packet: HandoffPacket; sha256: string } | undefined;
+      const handoffState = assignment.dependsOn.length ? workingTreeState(cwd) : undefined;
+      const packet = handoffState ? buildHandoffPacket(manifest, assignment, { repository: cwd, revision: handoffState.revision, tree: handoffState.tree }, { ...(options.handoffTtlMs !== undefined ? { ttlMs: options.handoffTtlMs } : {}), ...(options.now ? { now: options.now() } : {}) }) : undefined;
+      if (packet) {
+        handoff = { packet, sha256: store.saveHandoff(packet) };
+        manifest.handoffs = [...(manifest.handoffs ?? []), { id: packet.id, to: assignment.id, sha256: handoff.sha256, expiresAt: packet.expiresAt }];
+      }
+      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment, handoff) };
       // Starting the client and disclosing the prompt plus repository access are
       // approved together but recorded separately, each bound to this recipient.
       // Every start, including a retry, is a new process and a new disclosure, so
