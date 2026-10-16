@@ -5,7 +5,7 @@ import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/ad
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, executeGatePlan, planGates, type CommandExecutor, type GateExecution } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, gitChangedFiles, workingTreeState, worktreeChangedFiles, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, headTree, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -180,9 +180,11 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         if (assignmentWorktree) {
           // Nothing ran in the fresh worktree; remove it and its branch rather than leave them behind.
           const unused = assignmentWorktree;
+          let cleanup = '';
           try { worktrees.remove(unused, true, false); }
-          catch { /* Removal is best effort; report the worktree only if it still exists. */ }
+          catch (error) { cleanup = ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
           if (!existsSync(unused.path)) createdWorktrees.splice(createdWorktrees.indexOf(unused), 1);
+          approval.blocker += cleanup;
         }
         manifest.results.push(blockedResult(assignment, approval.blocker));
         manifestPath = save();
@@ -222,10 +224,13 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         try {
           let expectedTree: string | undefined;
           let commitAllowed = true;
-          if (gitChangedFiles(handle.path).length) {
+          // Content-exact comparison (not git status), so an edit hidden from the stat
+          // cache still requires an approved commit instead of silently staying out of it.
+          const before = workingTreeState(handle.path);
+          if (before.tree !== headTree(handle.path)) {
             // Refuse unsafe targets before asking a person to approve a commit that cannot happen.
             assertAgentWorktree(handle);
-            const files = worktreeChangedFiles(handle);
+            const files = treeChangedFiles(handle.path, handle.baseSha, before.tree);
             assertSafeChangedPaths(files);
             const approval = await authorize(() => {
               const state = workingTreeState(handle.path);

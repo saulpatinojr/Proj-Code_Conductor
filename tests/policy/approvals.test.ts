@@ -84,6 +84,17 @@ describe('ApprovalGate', () => {
     expect(outcome.records[0]?.revision).toBe('a'.repeat(40));
   });
 
+  it('records a decision whose context can no longer be rebuilt as changed', async () => {
+    let calls = 0;
+    const outcome = await new ApprovalGate({ approver: approve }).authorize(() => {
+      calls += 1;
+      if (calls > 1) throw new Error('git unavailable');
+      return [request()];
+    });
+    expect(outcome.approved).toBe(false);
+    expect(outcome.records[0]).toMatchObject({ status: 'changed', approver: 'test' });
+  });
+
   it('approves an unchanged context once, with a bounded expiry and schema-valid evidence', async () => {
     const gate = new ApprovalGate({ approver: approve, ttlMs: 60_000, now: () => Date.parse('2026-10-16T00:00:00Z') });
     const outcome = await gate.authorize(() => [request(), request({ action: 'local_execution', bindings: { command: 'codex' } })]);

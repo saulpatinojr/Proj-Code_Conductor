@@ -62,8 +62,10 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
    is recorded as `missing`. There is no auto-approve flag.
 5. Each provider start, including a retry, is a separate approval of the then-current
    tree and exact argv. Code Conductor's own Git operations never run repository hooks or
-   a configured fsmonitor, and an approved commit is checked against the approved tree
-   both before and after `git commit`. `cc import` rejects manifests carrying approvals.
+   a configured fsmonitor (`core.hooksPath=/dev/null`; a private directory on Windows).
+   An approved commit is created from the approved tree object with `git commit-tree`
+   after re-verifying the worktree hashes to it. `cc import` rejects manifests carrying
+   approvals.
 6. `RunManifest.approvals` carries non-secret `ApprovalRecord` evidence. Any non-approved
    record makes the merge decision `human_required`.
 
@@ -75,7 +77,8 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
   commit. This cost is accepted for exact binding, which a coarser prompt cannot provide.
 - Computing the working-tree identity hashes every non-ignored file (no stat-cache
   shortcuts, so container settings such as `core.checkStat=minimal` cannot hide an edit).
-  On very large repositories this costs one content read per approval. It may add
+  On very large repositories this costs two content reads per approval (build and
+  rebuild), plus one more before an approved commit. It may add
   unreferenced Git blob objects, which Git garbage-collects normally. The index and
   working files are untouched. Ignored files and inherited environment variables are
   outside the binding.
@@ -105,8 +108,10 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
   - expiry.
 - An independent review found three blockers in the first implementation, each with a
   reproduction: a retry reused the first approval; Git hooks ran after the tree check;
-  and buffered input answered a later prompt. Fixed with regression tests. The hook tests
-  were mutation-checked: they fail when hooks are re-enabled.
+  and buffered input answered a later prompt. A re-review found a fourth: the first
+  hook-disabling path was a predictable name in world-writable `/tmp` that another
+  process or user could create. All are fixed with regression tests. The hook and
+  stat-hidden-commit tests were mutation-checked: they fail when the fix is reverted.
 - `tests/runtime/approvals.test.ts` also covers:
   - retry re-approval and refusal;
   - hooks and a husky-style relative `core.hooksPath`;

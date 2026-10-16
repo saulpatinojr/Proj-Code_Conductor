@@ -85,9 +85,11 @@ export class ApprovalGate {
     else if (decision.approved !== true) status = 'denied';
     else if (decidedAt - requestedAt > this.#ttlMs) status = 'expired';
     else {
-      const current = await build();
-      const unchanged = current.length === digests.length && current.every((request, index) => {
-        assertRequest(request);
+      // A context that can no longer be rebuilt cannot be shown to be unchanged.
+      let current: ApprovalRequest[] | undefined;
+      try { current = await build(); } catch { current = undefined; }
+      const unchanged = current !== undefined && current.length === digests.length && current.every((request, index) => {
+        try { assertRequest(request); } catch { return false; }
         return approvalDigest(request) === digests[index];
       });
       status = unchanged ? 'approved' : 'changed';

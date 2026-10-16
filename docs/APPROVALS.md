@@ -37,13 +37,18 @@ requests and requires identical digests before acting. The action does not run w
 - anything bound changed while the request waited, such as a new commit, an edited
   file, a different prompt or recipient (`changed`).
 
-Commits are exact: Code Conductor stages the worktree and commits only if the staged
-tree equals the approved tree, and then checks that the committed tree still equals it;
-otherwise it undoes the commit, unstages and refuses. Code Conductor never runs repository
-Git hooks (`pre-commit`, `post-checkout`, a husky-style `core.hooksPath`, and so on) or a
-configured `core.fsmonitor` from its own Git operations. Those are repository-controlled
-programs, so running them would be unapproved local execution and could restage an
-approved commit. Every decision is single-use. Nothing reads approval records back as
+Commits are exact: Code Conductor re-hashes the worktree, refuses if it no longer equals
+the approved tree, and otherwise creates the commit from the approved tree object itself
+(`git commit-tree` plus a compare-and-swap `update-ref`). No staging step, stat cache or
+hook can change what is committed. Whether a commit is needed at all is decided by content,
+not `git status`, so an agent edit that preserves size and mtime still needs an approved
+commit. Code Conductor never runs repository Git hooks (`pre-commit`, `post-checkout`, a
+husky-style `core.hooksPath`, and so on) or a configured `core.fsmonitor` from its own Git
+operations: every call sets `core.hooksPath=/dev/null` (on Windows, a private empty
+directory under the per-user temporary directory). A hooks path in a shared temporary
+directory would not be safe, because its name is visible in process arguments and could be
+created by another process or user. Hooks and fsmonitor are repository-controlled
+programs, so running them would be unapproved local execution. Every decision is single-use. Nothing reads approval records back as
 authority, so a stored record cannot approve a later action, and `cc import` rejects
 manifests that carry approval records.
 

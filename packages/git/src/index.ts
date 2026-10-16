@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -56,9 +56,14 @@ export function withoutGitLocalEnv(env: NodeJS.ProcessEnv = process.env): NodeJS
 
 // Repository hooks (pre-commit, post-checkout, ...) and a configured fsmonitor are
 // repository-controlled programs. Code Conductor's own Git operations must neither
-// execute them without approval nor let a pre-commit hook restage an approved tree,
-// so every invocation points core.hooksPath at a per-process path that never exists.
-const NO_HOOKS = join(tmpdir(), `code-conductor-no-hooks-${randomUUID()}`);
+// execute them without approval nor let a hook restage an approved tree. The hooks
+// path must be one nobody can populate: a path name in a shared temporary directory
+// is visible in every git child's argv and could be created by another process or
+// user. /dev/null cannot contain files on POSIX; on Windows %TEMP% is per-user and a
+// freshly created private empty directory is used.
+const NO_HOOKS = process.platform === 'win32' ? mkdtempSync(join(tmpdir(), 'cc-no-hooks-')) : '/dev/null';
+/** The hooks path every Code Conductor git invocation uses (exported for tests). */
+export const DISABLED_HOOKS_PATH = NO_HOOKS;
 const SAFE_GIT = ['-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false'] as const;
 
 function git(cwd: string, args: string[], allowFailure = false, env: NodeJS.ProcessEnv = withoutGitLocalEnv()): string {
@@ -182,12 +187,27 @@ export function assertAgentWorktree(handle: WorktreeHandle): void {
 }
 
 export interface CommitOptions {
-  /** When set, commit only if the staged tree is exactly this approved tree. */
+  /**
+   * When set, commit exactly this approved tree: the working tree must still hash
+   * to it, and the commit object is created from the tree itself (git commit-tree),
+   * so no staging step, stat cache or hook can change what is committed.
+   */
   expectedTree?: string;
+}
+
+/** Tree of HEAD, used to tell whether a working tree differs from its last commit. */
+export function headTree(path: string): string {
+  return git(path, ['rev-parse', 'HEAD^{tree}']).trim();
+}
+
+/** Paths that differ between a commit and a tree object (both already in the object store). */
+export function treeChangedFiles(path: string, from: string, toTree: string): string[] {
+  return git(path, ['diff-tree', '-r', '--name-only', '--no-renames', '-z', from, toTree]).split('\0').filter(Boolean).sort();
 }
 
 export function commitAgentChanges(handle: WorktreeHandle, message: string, options: CommitOptions = {}): AgentCommit | undefined {
   assertAgentWorktree(handle);
+  if (options.expectedTree !== undefined) return commitApprovedTree(handle, message, options.expectedTree);
   const files = worktreeChangedFiles(handle);
   if (!files.length) return undefined;
   assertSafeChangedPaths(files);
@@ -195,26 +215,29 @@ export function commitAgentChanges(handle: WorktreeHandle, message: string, opti
   let created = false;
   if (dirty.length) {
     git(handle.path, [...CONTENT_EXACT, 'add', '--all']);
-    if (options.expectedTree !== undefined) {
-      const staged = git(handle.path, ['write-tree']).trim();
-      if (staged !== options.expectedTree) {
-        git(handle.path, ['reset', '-q'], true);
-        throw new Error(`Refusing to commit agent changes in ${handle.path}: the worktree changed after commit approval (approved tree ${options.expectedTree}, now ${staged}). Changes are preserved uncommitted.`);
-      }
-    }
     git(handle.path, ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', 'commit', '-m', message]);
     created = true;
-    if (options.expectedTree !== undefined) {
-      const committed = git(handle.path, ['rev-parse', 'HEAD^{tree}']).trim();
-      if (committed !== options.expectedTree) {
-        // Defense in depth: hooks are disabled, but never keep a commit whose tree was not approved.
-        git(handle.path, ['reset', '-q', '--soft', 'HEAD~1'], true);
-        git(handle.path, ['reset', '-q'], true);
-        throw new Error(`Refusing agent commit in ${handle.path}: committed tree ${committed} differs from approved tree ${options.expectedTree}. The commit was undone; changes are preserved uncommitted.`);
-      }
-    }
   }
   return { sha: gitHead(handle.path), files: worktreeChangedFiles(handle), created };
+}
+
+function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTree: string): AgentCommit | undefined {
+  const files = treeChangedFiles(handle.path, handle.baseSha, expectedTree);
+  if (!files.length) return undefined;
+  assertSafeChangedPaths(files);
+  const current = workingTreeState(handle.path);
+  if (current.tree !== expectedTree) {
+    throw new Error(`Refusing to commit agent changes in ${handle.path}: the worktree changed after commit approval (approved tree ${expectedTree}, now ${current.tree}). Changes are preserved uncommitted.`);
+  }
+  const head = gitHead(handle.path);
+  if (headTree(handle.path) === expectedTree) return { sha: head, files, created: false };
+  const identity = ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com'];
+  const sha = git(handle.path, [...identity, 'commit-tree', expectedTree, '-p', head, '-m', message]).trim();
+  // Compare-and-swap: refuse if the branch moved since it was read.
+  git(handle.path, ['update-ref', '-m', 'code-conductor: approved agent commit', `refs/heads/${handle.branch}`, sha, head]);
+  // Bring the index in line with the new commit; the working tree already matches it.
+  git(handle.path, ['reset', '-q'], true);
+  return { sha, files, created: true };
 }
 
 export class WorktreeManager {

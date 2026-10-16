@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { workingTreeState } from '../../packages/git/src/index.js';
+import { commitAgentChanges, DISABLED_HOOKS_PATH, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 const temps: string[] = [];
@@ -66,5 +66,47 @@ describe('workingTreeState', () => {
     const path = mkdtempSync(join(tmpdir(), 'cc-tree-state-plain-'));
     temps.push(path);
     expect(workingTreeState(path)).toEqual({ revision: 'unversioned', tree: 'unversioned' });
+  });
+
+  it('never points git at a hooks path another process could create', () => {
+    if (process.platform !== 'win32') expect(DISABLED_HOOKS_PATH).toBe('/dev/null');
+  });
+});
+
+describe('approved agent commits', () => {
+  function agentWorktree() {
+    const repo = repository();
+    const manager = new WorktreeManager(join(repo, '..', `${repo.split('/').at(-1)}-worktrees`));
+    temps.push(manager.root);
+    return manager.create(repo, 'T-1', 'builder-test');
+  }
+
+  it('commits exactly the approved tree without staging and leaves a clean index', () => {
+    const handle = agentWorktree();
+    writeFileSync(join(handle.path, 'agent.txt'), 'change\n');
+    const approved = workingTreeState(handle.path).tree;
+    const commit = commitAgentChanges(handle, 'feat(agent): test', { expectedTree: approved });
+    expect(commit).toMatchObject({ created: true, files: ['agent.txt'] });
+    expect(git(handle.path, 'rev-parse', 'HEAD^{tree}')).toBe(approved);
+    expect(git(handle.path, 'rev-parse', 'HEAD^')).toBe(handle.baseSha);
+    expect(git(handle.path, 'status', '--porcelain')).toBe('');
+  });
+
+  it('refuses when the worktree no longer matches the approved tree', () => {
+    const handle = agentWorktree();
+    writeFileSync(join(handle.path, 'agent.txt'), 'change\n');
+    const approved = workingTreeState(handle.path).tree;
+    writeFileSync(join(handle.path, 'agent.txt'), 'other\n');
+    expect(() => commitAgentChanges(handle, 'feat(agent): test', { expectedTree: approved })).toThrow('changed after commit approval');
+    expect(git(handle.path, 'rev-parse', 'HEAD')).toBe(handle.baseSha);
+    expect(git(handle.path, 'status', '--porcelain')).toContain('agent.txt');
+  });
+
+  it('refuses sensitive paths in the approved tree', () => {
+    const handle = agentWorktree();
+    writeFileSync(join(handle.path, '.env'), 'TOKEN=x\n');
+    git(handle.path, 'add', '-f', '.env');
+    const approved = workingTreeState(handle.path).tree;
+    expect(() => commitAgentChanges(handle, 'feat(agent): test', { expectedTree: approved })).toThrow('Sensitive repository paths');
   });
 });

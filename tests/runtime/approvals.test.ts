@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -255,5 +256,37 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(codex.calls + claude.calls).toBe(0);
     expect(outcome.manifest.approvals?.[0]?.status).toBe('missing');
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it('commits an agent edit hidden from the stat cache, with approval', async () => {
+    // An agent can make an edit that keeps size and mtime; with core.checkStat=minimal
+    // and core.trustctime=false, git status would report a clean tree.
+    class StealthBuilder extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          this.calls += 1;
+          const file = join(request.cwd, 'README.md');
+          const past = new Date(Date.now() - 3_600_000);
+          utimesSync(file, past, past);
+          execFileSync('git', ['update-index', '--refresh'], { cwd: request.cwd, stdio: 'ignore' });
+          const before = statSync(file);
+          writeFileSync(file, readFileSync(file, 'utf8').replace('fixture', 'FIXTURE'));
+          utimesSync(file, before.atime, before.mtime);
+          const payload = { status: 'completed', changes: ['README.md'], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: 'review' };
+          return { harness: this.id, surface: this.executionSurface, command: 'fake', args: [], exitCode: 0, signal: null, stdout: `CC_RESULT_JSON:${JSON.stringify(payload)}\n`, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, {
+      codex: new StealthBuilder('codex', 'openai'),
+      sandbox: (repository) => { git(repository, 'config', 'core.checkStat', 'minimal'); git(repository, 'config', 'core.trustctime', 'false'); },
+    });
+    const worktree = outcome.worktrees[0]!;
+    expect(git(worktree.path, 'status', '--porcelain')).toBe('');
+    expect(seen.some((request) => request.action === 'commit')).toBe(true);
+    expect(outcome.manifest.results[0]?.changes).toEqual(['README.md']);
+    expect(git(worktree.path, 'show', 'HEAD:README.md')).toContain('FIXTURE');
   });
 });
