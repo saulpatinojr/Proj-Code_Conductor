@@ -109,4 +109,21 @@ describe('approved agent commits', () => {
     const approved = workingTreeState(handle.path).tree;
     expect(() => commitAgentChanges(handle, 'feat(agent): test', { expectedTree: approved })).toThrow('Sensitive repository paths');
   });
+
+  it('refuses without an approved tree and when the branch moved after approval', () => {
+    const handle = agentWorktree();
+    writeFileSync(join(handle.path, 'agent.txt'), 'change\n');
+    expect(() => commitAgentChanges(handle, 'x', undefined as never)).toThrow('without an approved tree');
+    expect(() => commitAgentChanges(handle, 'x', { expectedTree: '' })).toThrow('without an approved tree');
+    const approved = workingTreeState(handle.path);
+    git(handle.path, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'concurrent');
+    expect(() => commitAgentChanges(handle, 'x', { expectedTree: approved.tree, expectedHead: approved.revision })).toThrow('moved from the approved');
+  });
+
+  it('keeps sparse-checkout (skip-worktree) paths out of the change set', () => {
+    const handle = agentWorktree();
+    git(handle.path, 'update-index', '--skip-worktree', 'tracked.txt');
+    rmSync(join(handle.path, 'tracked.txt'));
+    expect(workingTreeState(handle.path).tree).toBe(git(handle.path, 'rev-parse', 'HEAD^{tree}'));
+  });
 });

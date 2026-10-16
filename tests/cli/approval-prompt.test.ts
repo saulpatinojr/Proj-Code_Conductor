@@ -32,7 +32,7 @@ describe('terminal approver', () => {
     expect(code).toMatch(/^[a-f0-9]{6}$/);
     answerAfterPrompt(io, code);
     await expect(new TerminalApprover(io.input, io.output).decide([request])).resolves.toEqual({ approved: true, approver: 'interactive-terminal' });
-    expect(io.written()).toContain(`Type ${code} to approve`);
+    expect(io.written()).toContain(`Type ${code} to approve these 1 action(s)`);
     expect(io.written()).toContain('git:cc/T-1/builder-codex');
     expect(io.written()).toContain(`tree: ${'b'.repeat(40)}`);
     expect(io.written()).toContain('approval digest:');
@@ -73,5 +73,13 @@ describe('terminal approver', () => {
     for (const code of hostile) expect(text).not.toContain(ch(code));
     expect(text).toContain('ok?[2J evil?txt.exe??x??');
     expect(text).toContain('tr?ee: x?y');
+  });
+
+  it('escapes look-alike characters and truncates very long values with a visible marker', () => {
+    const cyrillicA = String.fromCodePoint(0x430);
+    const text = describeApprovalRequests([{ ...request, recipient: `git:cc/p${cyrillicA}ypal`, summary: 'x'.repeat(2000) }]);
+    expect(text).toContain('git:cc/p\\u{430}ypal');
+    expect(text).toContain('more characters not shown; the full value is bound by the digest');
+    expect(text).toContain('Approving: commit → git:cc/p\\u{430}ypal');
   });
 });

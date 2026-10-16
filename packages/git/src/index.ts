@@ -131,6 +131,13 @@ export function workingTreeState(path: string): WorkingTreeState {
     // Seed with HEAD so tracked files that match .gitignore stay tracked, as they do
     // in the real index. read-tree records no stat data, so `add` re-hashes every file.
     if (revision !== 'unborn') git(path, ['read-tree', 'HEAD'], false, env);
+    // Sparse checkouts omit skip-worktree paths from disk; carry those bits over so
+    // they are not mistaken for deletions (which an approved commit would then record).
+    const skipped = git(path, ['ls-files', '-t', '-z']).split('\0').filter((entry) => entry.startsWith('S ')).map((entry) => entry.slice(2));
+    if (skipped.length) {
+      const update = spawnSync('git', [...SAFE_GIT, 'update-index', '-z', '--skip-worktree', '--stdin'], { cwd: path, env, input: `${skipped.join('\0')}\0`, encoding: 'utf8', shell: false });
+      if (update.status !== 0) throw new Error(`git update-index --skip-worktree failed: ${update.stderr || update.error?.message || 'unknown error'}`);
+    }
     git(path, [...CONTENT_EXACT, 'add', '--all'], false, env);
     return { revision, tree: git(path, ['write-tree'], false, env).trim() };
   } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -188,11 +195,14 @@ export function assertAgentWorktree(handle: WorktreeHandle): void {
 
 export interface CommitOptions {
   /**
-   * When set, commit exactly this approved tree: the working tree must still hash
-   * to it, and the commit object is created from the tree itself (git commit-tree),
-   * so no staging step, stat cache or hook can change what is committed.
+   * The approved tree. Code Conductor commits only this tree: the working tree must
+   * still hash to it, and the commit object is created from the tree itself
+   * (git commit-tree), so no staging step, stat cache or hook can change what is
+   * committed. There is deliberately no unapproved commit path.
    */
-  expectedTree?: string;
+  expectedTree: string;
+  /** The HEAD the approval was bound to; refuse if the branch moved since. */
+  expectedHead?: string;
 }
 
 /** Tree of HEAD, used to tell whether a working tree differs from its last commit. */
@@ -205,23 +215,15 @@ export function treeChangedFiles(path: string, from: string, toTree: string): st
   return git(path, ['diff-tree', '-r', '--name-only', '--no-renames', '-z', from, toTree]).split('\0').filter(Boolean).sort();
 }
 
-export function commitAgentChanges(handle: WorktreeHandle, message: string, options: CommitOptions = {}): AgentCommit | undefined {
-  assertAgentWorktree(handle);
-  if (options.expectedTree !== undefined) return commitApprovedTree(handle, message, options.expectedTree);
-  const files = worktreeChangedFiles(handle);
-  if (!files.length) return undefined;
-  assertSafeChangedPaths(files);
-  const dirty = gitChangedFiles(handle.path);
-  let created = false;
-  if (dirty.length) {
-    git(handle.path, [...CONTENT_EXACT, 'add', '--all']);
-    git(handle.path, ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', 'commit', '-m', message]);
-    created = true;
+export function commitAgentChanges(handle: WorktreeHandle, message: string, options: CommitOptions): AgentCommit | undefined {
+  if (!options || typeof options.expectedTree !== 'string' || !/^[a-f0-9]{40,64}$/.test(options.expectedTree)) {
+    throw new Error('Refusing to commit agent changes without an approved tree.');
   }
-  return { sha: gitHead(handle.path), files: worktreeChangedFiles(handle), created };
+  assertAgentWorktree(handle);
+  return commitApprovedTree(handle, message, options.expectedTree, options.expectedHead);
 }
 
-function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTree: string): AgentCommit | undefined {
+function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTree: string, expectedHead?: string): AgentCommit | undefined {
   const files = treeChangedFiles(handle.path, handle.baseSha, expectedTree);
   if (!files.length) return undefined;
   assertSafeChangedPaths(files);
@@ -230,8 +232,12 @@ function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTre
     throw new Error(`Refusing to commit agent changes in ${handle.path}: the worktree changed after commit approval (approved tree ${expectedTree}, now ${current.tree}). Changes are preserved uncommitted.`);
   }
   const head = gitHead(handle.path);
+  if (expectedHead !== undefined && head !== expectedHead) {
+    throw new Error(`Refusing to commit agent changes in ${handle.path}: ${handle.branch} moved from the approved ${expectedHead} to ${head}. Changes are preserved uncommitted.`);
+  }
   if (headTree(handle.path) === expectedTree) return { sha: head, files, created: false };
-  const identity = ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com'];
+  // Code Conductor's own identity; never sign with the person's key on their behalf.
+  const identity = ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', '-c', 'commit.gpgSign=false'];
   const sha = git(handle.path, [...identity, 'commit-tree', expectedTree, '-p', head, '-m', message]).trim();
   // Compare-and-swap: refuse if the branch moved since it was read.
   git(handle.path, ['update-ref', '-m', 'code-conductor: approved agent commit', `refs/heads/${handle.branch}`, sha, head]);

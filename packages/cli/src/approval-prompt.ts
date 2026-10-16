@@ -14,8 +14,13 @@ type TerminalOutput = Writable & { isTTY?: boolean };
  * bidirectional overrides and zero-width characters) and line/paragraph
  * separators are replaced.
  */
-function printable(value: string): string {
-  return value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '?');
+const MAX_DISPLAY = 600;
+function printable(value: string, limit = MAX_DISPLAY): string {
+  const safe = value
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '?')
+    // Escape remaining non-ASCII so look-alike characters cannot disguise a path or recipient.
+    .replace(/[^\x20-\x7E]/gu, (char) => `\\u{${(char.codePointAt(0) ?? 0).toString(16)}}`);
+  return safe.length > limit ? `${safe.slice(0, limit)}… [${safe.length - limit} more characters not shown; the full value is bound by the digest]` : safe;
 }
 
 /**
@@ -36,6 +41,7 @@ export function describeApprovalRequests(requests: readonly ApprovalRequest[]): 
     for (const [key, value] of Object.entries(request.bindings)) lines.push(`    ${printable(key)}: ${printable(value)}`);
     lines.push(`    approval digest: ${approvalDigest(request)}`);
   }
+  lines.push(`Approving: ${requests.map((request) => `${request.action}${request.recipient ? ` → ${printable(request.recipient, 120)}` : ''}`).join('; ')}`);
   lines.push('This approves only the action(s) above, once, for this exact context. Workstation trust is not approval.');
   return `${lines.join('\n')}\n`;
 }
@@ -66,7 +72,7 @@ export class TerminalApprover implements Approver {
     prompt.once('close', () => abort.abort());
     prompt.once('SIGINT', () => abort.abort());
     try {
-      const answer = await prompt.question(`Type ${code} to approve; anything else denies: `, { signal: abort.signal });
+      const answer = await prompt.question(`Type ${code} to approve these ${requests.length} action(s); anything else denies: `, { signal: abort.signal });
       return { approved: answer.trim() === code, approver: 'interactive-terminal' };
     } catch {
       return { approved: false, approver: 'interactive-terminal' };

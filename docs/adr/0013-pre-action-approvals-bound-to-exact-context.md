@@ -64,8 +64,10 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
    tree and exact argv. Code Conductor's own Git operations never run repository hooks or
    a configured fsmonitor (`core.hooksPath=/dev/null`; a private directory on Windows).
    An approved commit is created from the approved tree object with `git commit-tree`
-   after re-verifying the worktree hashes to it. `cc import` rejects manifests carrying
-   approvals.
+   after re-verifying that the worktree hashes to it and that the branch is still at the
+   approved HEAD. There is no unapproved commit path. Provider clients run in isolated
+   process groups without a controlling terminal, and their leftovers are terminated.
+   `cc import` rejects manifests carrying approvals.
 6. `RunManifest.approvals` carries non-secret `ApprovalRecord` evidence. Any non-approved
    record makes the merge decision `human_required`.
 
@@ -108,9 +110,14 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
   - expiry.
 - An independent review found three blockers in the first implementation, each with a
   reproduction: a retry reused the first approval; Git hooks ran after the tree check;
-  and buffered input answered a later prompt. A re-review found a fourth: the first
-  hook-disabling path was a predictable name in world-writable `/tmp` that another
-  process or user could create. All are fixed with regression tests. The hook and
+  and buffered input answered a later prompt. Re-reviews and a security review found
+  more:
+  - The first hook-disabling path was a predictable name in world-writable `/tmp` that
+    another process or user could create.
+  - A fallback commit path could commit index-only or racing changes without approval.
+  - The displayed file list could come from a stat-cached `git status`.
+
+  All are fixed with regression tests. The hook and
   stat-hidden-commit tests were mutation-checked: they fail when the fix is reverted.
 - `tests/runtime/approvals.test.ts` also covers:
   - retry re-approval and refusal;

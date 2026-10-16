@@ -289,4 +289,66 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.results[0]?.changes).toEqual(['README.md']);
     expect(git(worktree.path, 'show', 'HEAD:README.md')).toContain('FIXTURE');
   });
+
+  it.each([
+    ['force-adding an ignored file', (cwd: string) => { writeFileSync(join(cwd, 'ignored.txt'), 'x\n'); execFileSync('git', ['add', '-f', 'ignored.txt'], { cwd }); }],
+    ['untracking an ignored tracked file', (cwd: string) => { execFileSync('git', ['rm', '-q', '--cached', 'tracked-ignored.txt'], { cwd }); }],
+  ])('never commits index-only changes without approval (%s)', async (_label, mutate) => {
+    class IndexMutator extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') mutate(request.cwd);
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, {
+      codex: new IndexMutator('codex', 'openai'),
+      sandbox: (repository) => {
+        writeFileSync(join(repository, '.gitignore'), 'ignored.txt\ntracked-ignored.txt\n');
+        writeFileSync(join(repository, 'tracked-ignored.txt'), 'kept\n');
+        git(repository, 'add', '-f', '.gitignore', 'tracked-ignored.txt');
+        git(repository, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'ignore rules');
+      },
+    });
+    // The WritingAdapter base still writes agent-output.txt, which is committed with approval;
+    // the index-only change must not ride along.
+    const worktree = outcome.worktrees[0]!;
+    const committed = git(worktree.path, 'show', '--name-status', '--format=', 'HEAD');
+    expect(seen.filter((request) => request.action === 'commit')).toHaveLength(1);
+    expect(committed).toBe('A\tagent-output.txt');
+  });
+
+  it('refuses a sensitive file inside a new folder before asking for commit approval', async () => {
+    class KeyWriter extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') { mkdirSync(join(request.cwd, 'keys'), { recursive: true }); writeFileSync(join(request.cwd, 'keys', 'id_rsa'), 'PRIVATE\n'); }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new KeyWriter('codex', 'openai'), sandbox: (repository) => git(repository, 'config', 'status.showUntrackedFiles', 'no') });
+    const worktree = outcome.worktrees[0]!;
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+    expect(outcome.manifest.results[0]?.status).toBe('blocked');
+    expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain('keys/id_rsa');
+    expect(git(worktree.path, 'rev-parse', 'HEAD')).toBe(worktree.baseSha);
+  });
+
+  it('lists untracked files for commit approval even with status.showUntrackedFiles=no', async () => {
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { sandbox: (repository) => git(repository, 'config', 'status.showUntrackedFiles', 'no') });
+    expect(seen.find((request) => request.action === 'commit')?.summary).toContain('agent-output.txt');
+    expect(outcome.manifest.results[0]?.changes).toEqual(['agent-output.txt']);
+  });
+
+  it('redacts the prompt wherever an adapter embeds it in its argv', async () => {
+    class EmbeddingAdapter extends CountingAdapter {
+      invocation(request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: 'fake-embed', args: ['run', `--prompt=${request.prompt}`] }; }
+    }
+    const seen: ApprovalRequest[] = [];
+    await run(decideWith(() => true, seen), { count: 0 }, { codex: new EmbeddingAdapter('codex', 'openai') });
+    const start = seen.find((request) => request.action === 'local_execution' && request.recipient === 'openai/codex@cli');
+    expect(start?.summary).toContain('--prompt=<prompt>');
+    expect(start?.summary).not.toContain('approval-gated R1 run');
+  });
 });

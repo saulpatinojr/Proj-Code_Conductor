@@ -3,7 +3,10 @@ import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { WorktreeManager, assertSafeChangedPaths, commitAgentChanges, gitChangedFiles, isSensitiveRepositoryPath, resolveRepositoryRoot, safeGitRefSegment } from '../../packages/git/src/index.js';
+import { WorktreeManager, assertSafeChangedPaths, commitAgentChanges, gitChangedFiles, isSensitiveRepositoryPath, resolveRepositoryRoot, safeGitRefSegment, workingTreeState } from '../../packages/git/src/index.js';
+
+// Every agent commit is bound to an approved tree (ADR 0013); these tests approve the current one.
+const approved = (path: string) => ({ expectedTree: workingTreeState(path).tree === 'unversioned' ? 'f'.repeat(40) : workingTreeState(path).tree });
 
 describe('git helpers', () => {
   it('can inspect the current repository without mutating it', () => {
@@ -105,7 +108,7 @@ describe('git helpers', () => {
       const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim();
 
       const handle = { repositoryRoot, path: repositoryRoot, branch: 'cc/T-48/builder', baseRef: 'HEAD', baseSha: head, taskId: 'T-48', agentId: 'builder' };
-      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-48')).toThrow(/primary working tree/);
+      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-48', approved(handle.path))).toThrow(/primary working tree/);
       expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim()).toBe(head);
       expect(gitChangedFiles(repositoryRoot)).toEqual(['uncommitted-notes.txt']);
     } finally {
@@ -125,7 +128,7 @@ describe('git helpers', () => {
 
       const handle = new WorktreeManager(worktreeRoot).create(repositoryRoot, 'T-LINKED', 'builder');
       writeFileSync(join(handle.path, 'agent-output.txt'), 'agent change\n');
-      const commit = commitAgentChanges(handle, 'feat(agent): builder for T-LINKED');
+      const commit = commitAgentChanges(handle, 'feat(agent): builder for T-LINKED', approved(handle.path));
 
       expect(commit?.created).toBe(true);
       expect(commit?.files).toEqual(['agent-output.txt']);
@@ -151,7 +154,7 @@ describe('git helpers', () => {
       const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: contributorWorktree, encoding: 'utf8' }).trim();
 
       const handle = { repositoryRoot, path: contributorWorktree, branch: 'cc/T-48/builder', baseRef: 'HEAD', baseSha: head, taskId: 'T-48', agentId: 'builder' };
-      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-48')).toThrow(/refs\/heads\/contributor-feature checked out, not a Code Conductor agent branch matching cc\/T-48\/builder/);
+      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-48', approved(handle.path))).toThrow(/refs\/heads\/contributor-feature checked out, not a Code Conductor agent branch matching cc\/T-48\/builder/);
       expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: contributorWorktree, encoding: 'utf8' }).trim()).toBe(head);
       expect(gitChangedFiles(contributorWorktree)).toEqual(['uncommitted-notes.txt']);
     } finally {
@@ -183,7 +186,7 @@ describe('git helpers', () => {
       chmodSync(shim, 0o755);
       process.env.PATH = `${shimDirectory}${delimiter}${originalPath ?? ''}`;
 
-      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-OLD-GIT')).toThrow(/Git 2\.31 or later is required/);
+      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-OLD-GIT', approved(handle.path))).toThrow(/Git 2\.31 or later is required/);
       process.env.PATH = originalPath;
       expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: handle.path, encoding: 'utf8' }).trim()).toBe(head);
       expect(gitChangedFiles(handle.path)).toEqual(['agent-output.txt']);
@@ -209,7 +212,7 @@ describe('git helpers', () => {
       const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: contributorWorktree, encoding: 'utf8' }).trim();
 
       const handle = { repositoryRoot, path: contributorWorktree, branch: 'feature/human', baseRef: 'HEAD', baseSha: head, taskId: 'T-48', agentId: 'builder' };
-      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-48')).toThrow(/not a Code Conductor agent branch/);
+      expect(() => commitAgentChanges(handle, 'feat(agent): builder for T-48', approved(handle.path))).toThrow(/not a Code Conductor agent branch/);
       expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: contributorWorktree, encoding: 'utf8' }).trim()).toBe(head);
       expect(gitChangedFiles(contributorWorktree)).toEqual(['uncommitted-notes.txt']);
     } finally {
@@ -242,7 +245,7 @@ describe('git helpers', () => {
       process.env[name] = value(repositoryRoot);
       const handle = new WorktreeManager(worktreeRoot).create(repositoryRoot, 'T-ENV', 'builder');
       writeFileSync(join(handle.path, 'agent-output.txt'), 'agent change\n');
-      const commit = commitAgentChanges(handle, 'feat(agent): builder for T-ENV');
+      const commit = commitAgentChanges(handle, 'feat(agent): builder for T-ENV', approved(handle.path));
       if (original === undefined) delete process.env[name];
       else process.env[name] = original;
 
@@ -272,7 +275,7 @@ describe('git helpers', () => {
       const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim();
 
       process.env.GIT_DIR = agentGitDir;
-      expect(() => commitAgentChanges({ ...agent, path: repositoryRoot }, 'feat(agent): builder for T-GITDIR')).toThrow(/primary working tree/);
+      expect(() => commitAgentChanges({ ...agent, path: repositoryRoot }, 'feat(agent): builder for T-GITDIR', approved(repositoryRoot))).toThrow(/primary working tree/);
       if (original === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = original;
 

@@ -49,6 +49,45 @@ function commandVersion(command: string): string | undefined {
   return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;
 }
 
+// Provider clients run in their own session and process group on POSIX. Without a
+// controlling terminal they cannot open /dev/tty to draw over, or type into, the
+// approval prompt in the person's terminal, and any process they leave behind is
+// terminated with the group instead of outliving the run and editing the worktree
+// while a later approval is pending. Groups still alive when Code Conductor exits or
+// is interrupted are terminated too.
+const ISOLATE_PROCESS_GROUPS = process.platform !== 'win32';
+const liveGroups = new Set<number>();
+let reaperInstalled = false;
+
+function reapGroups(): void {
+  for (const pid of liveGroups) { try { process.kill(-pid, 'SIGKILL'); } catch { /* group already gone */ } }
+  liveGroups.clear();
+}
+
+/** Spawn a provider client isolated from the controlling terminal (exported for tests). */
+export function spawnIsolated(command: string, args: readonly string[], options: Parameters<typeof spawn>[2]): ReturnType<typeof spawn> {
+  const child = spawn(command, [...args], { ...options, detached: ISOLATE_PROCESS_GROUPS, windowsHide: true });
+  if (ISOLATE_PROCESS_GROUPS && child.pid) {
+    liveGroups.add(child.pid);
+    if (!reaperInstalled) {
+      reaperInstalled = true;
+      process.once('exit', reapGroups);
+      for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+        process.once(signal, () => { reapGroups(); process.kill(process.pid, signal); });
+      }
+    }
+  }
+  return child;
+}
+
+/** Signal a provider client and everything it started. */
+export function terminateGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signals = 'SIGTERM'): void {
+  if (ISOLATE_PROCESS_GROUPS && child.pid) {
+    try { process.kill(-child.pid, signal); } catch { /* group already gone */ }
+    if (signal === 'SIGKILL') liveGroups.delete(child.pid);
+  } else child.kill(signal);
+}
+
 function appendTail(current: string, next: string, limit = 256 * 1024): string {
   const combined = current + next;
   return combined.length <= limit ? combined : combined.slice(combined.length - limit);
@@ -58,8 +97,8 @@ async function settleChild(
   child: ReturnType<typeof spawn>,
   closeState: { exitCode: number | null; signal: NodeJS.Signals | null },
 ): Promise<void> {
-  if (closeState.exitCode !== null || closeState.signal !== null) return;
-  child.kill('SIGTERM');
+  if (closeState.exitCode !== null || closeState.signal !== null) { terminateGroup(child, 'SIGKILL'); return; }
+  terminateGroup(child, 'SIGTERM');
   await new Promise<void>((resolve) => {
     const done = () => resolve();
     child.once('close', done);
@@ -68,6 +107,7 @@ async function settleChild(
       resolve();
     }, 750).unref();
   });
+  terminateGroup(child, 'SIGKILL');
 }
 
 function argsFor(id: string, request: HarnessExecutionRequest): string[] {
@@ -94,18 +134,21 @@ class SubprocessAdapter implements HarnessAdapter {
     const args = argsFor(this.id, request);
     const startedAt = new Date().toISOString();
     return new Promise((resolve, reject) => {
-      const child = spawn(this.command, args, { cwd: request.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+      const child = spawnIsolated(this.command, args, { cwd: request.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
       let stdout = '';
       let stderr = '';
       let timedOut = false;
-      child.stdout.setEncoding('utf8');
-      child.stderr.setEncoding('utf8');
-      child.stdout.on('data', (chunk: string) => { stdout = appendTail(stdout, chunk); });
-      child.stderr.on('data', (chunk: string) => { stderr = appendTail(stderr, chunk); });
+      // stdout/stderr are pipes per the stdio option above.
+      child.stdout!.setEncoding('utf8');
+      child.stderr!.setEncoding('utf8');
+      child.stdout!.on('data', (chunk: string) => { stdout = appendTail(stdout, chunk); });
+      child.stderr!.on('data', (chunk: string) => { stderr = appendTail(stderr, chunk); });
       child.on('error', reject);
-      const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, request.timeoutMs);
+      const timer = setTimeout(() => { timedOut = true; terminateGroup(child, 'SIGTERM'); }, request.timeoutMs);
       child.on('close', (exitCode, signal) => {
         clearTimeout(timer);
+        // The client exited; do not let anything it left running keep touching the worktree.
+        terminateGroup(child, 'SIGKILL');
         resolve({ harness: this.id, surface: this.executionSurface, command: this.command, args, exitCode, signal, stdout, stderr, startedAt, finishedAt: new Date().toISOString(), timedOut });
       });
     });
@@ -145,7 +188,7 @@ export class KiroAcpAdapter implements HarnessAdapter {
 
   async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const startedAt = new Date().toISOString();
-    const child = spawn(this.command, this.args, { cwd: request.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    const child = spawnIsolated(this.command, this.args, { cwd: request.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     const spawnFailure = new Promise<never>((_, reject) => child.once('error', reject));
     if (!child.stdin || !child.stdout || !child.stderr) {
       child.kill('SIGTERM');

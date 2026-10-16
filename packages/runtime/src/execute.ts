@@ -45,6 +45,14 @@ function buildPrompt(task: TaskEnvelope, assignment: AgentAssignment): string {
 
 function sha256(text: string): string { return createHash('sha256').update(text).digest('hex'); }
 
+// Files that can change what later runs (CI, hooks, scripts, dependencies, Git behaviour)
+// are always named in a commit summary, even past the display cap.
+const EXECUTION_RELEVANT = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|Makefile|Dockerfile|\.gitattributes|\.gitmodules|\.gitignore|[^/]+\.(sh|ps1|cmd|bat))$|(^|\/)(\.github|\.husky|scripts)\//;
+function summarizeFiles(files: readonly string[]): string {
+  const shown = [...new Set([...files.filter((file) => EXECUTION_RELEVANT.test(file)), ...files])].slice(0, Math.max(20, files.filter((file) => EXECUTION_RELEVANT.test(file)).length));
+  return `${shown.join(', ')}${files.length > shown.length ? `, … (${files.length - shown.length} more)` : ''}`;
+}
+
 function mergeDecision(task: TaskEnvelope, results: AgentResult[], gates: GateExecution[], approvals: readonly ApprovalRecord[]): MergeDecision {
   const evidenceIds = [...new Set([...results.flatMap((r) => r.evidence.map((e) => e.id)), ...gates.flatMap((g) => g.result.evidenceIds)])];
   if (results.some((r) => r.status === 'awaiting_external')) return { decision: 'human_required', rationale: 'One or more assignments require an external/manual platform step.', evidenceIds };
@@ -165,14 +173,15 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       const recipient = `${assignment.provider}/${assignment.harness}@${surface}`;
       const promptBytes = Buffer.byteLength(request.prompt, 'utf8');
       const invocation = adapter.invocation?.(request) ?? { command: adapter.command ?? 'platform', args: [] };
-      const argv = [invocation.command, ...invocation.args.map((arg) => (arg === request.prompt ? '<prompt>' : arg))];
+      // The prompt is bound by digest; redact it wherever an adapter embeds it.
+      const argv = [invocation.command, ...invocation.args.map((arg) => (request.prompt && arg.includes(request.prompt) ? arg.replaceAll(request.prompt, '<prompt>') : arg))];
       const authorizeStart = (attempt: number) => authorize((): ApprovalRequest[] => {
         const state = workingTreeState(cwd);
         const bound = { runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: cwd, revision: state.revision, recipient };
         const prefix = attempt ? `Retry attempt ${attempt + 1}: ` : '';
         return [
           { ...bound, action: 'local_execution', bindings: { attempt: String(attempt + 1), tree: state.tree, argv: sha256(JSON.stringify(argv)), surface, authority: assignment.authority.join(','), billingChannel: assignment.billingChannel }, summary: `${prefix}Start \`${argv.join(' ')}\` (${surface}, ${assignment.billingChannel}) as ${assignment.role} with authority ${assignment.authority.join(', ')} in ${cwd}.` },
-          { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt and access to ${cwd} at ${state.revision.slice(0, 12)} to ${recipient}.` },
+          { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt to ${recipient}, running in ${cwd} at ${state.revision.slice(0, 12)}. What else it can read is set by that client's own sandbox and permissions, not by Code Conductor.` },
         ];
       });
       const approval = await authorizeStart(0);
@@ -223,6 +232,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         const handle = assignmentWorktree;
         try {
           let expectedTree: string | undefined;
+          let expectedHead: string | undefined;
           let commitAllowed = true;
           // Content-exact comparison (not git status), so an edit hidden from the stat
           // cache still requires an approved commit instead of silently staying out of it.
@@ -230,15 +240,17 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           if (before.tree !== headTree(handle.path)) {
             // Refuse unsafe targets before asking a person to approve a commit that cannot happen.
             assertAgentWorktree(handle);
-            const files = treeChangedFiles(handle.path, handle.baseSha, before.tree);
-            assertSafeChangedPaths(files);
             const approval = await authorize(() => {
               const state = workingTreeState(handle.path);
+              // Shown files, the sensitive-path check and the bound tree come from one snapshot.
+              const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
+              assertSafeChangedPaths(files);
               expectedTree = state.tree;
+              expectedHead = state.revision;
               return [{
                 action: 'commit', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: handle.path, revision: state.revision, recipient: `git:${handle.branch}`,
                 bindings: { tree: state.tree, branch: handle.branch, baseSha: handle.baseSha, files: sha256(files.join('\n')) },
-                summary: `Commit ${files.length} changed file(s) on ${handle.branch} (base ${handle.baseSha.slice(0, 12)}): ${files.slice(0, 20).join(', ')}${files.length > 20 ? `, … (${files.length - 20} more)` : ''}. Review the full diff first in native Source Control or with \`git -C ${handle.path} diff ${handle.baseSha}\` and \`git -C ${handle.path} status\`.`,
+                summary: `Commit ${files.length} changed file(s) on ${handle.branch} (base ${handle.baseSha.slice(0, 12)}): ${summarizeFiles(files)}. Review the full diff first in native Source Control or with \`git -C ${handle.path} diff ${handle.baseSha}\` and \`git -C ${handle.path} status\`.`,
               }];
             });
             if (!approval.approved) {
@@ -248,7 +260,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
               result.blockers.push(`${approval.blocker} Changes are preserved uncommitted in ${handle.path} for review in native Source Control.`);
             }
           }
-          const commit = commitAllowed ? commitAgentChanges(handle, `feat(agent): ${assignment.agentId} for ${task.id}`, expectedTree === undefined ? {} : { expectedTree }) : undefined;
+          const commit = commitAllowed ? commitAgentChanges(handle, `feat(agent): ${assignment.agentId} for ${task.id}`, { expectedTree: expectedTree ?? before.tree, expectedHead: expectedHead ?? before.revision }) : undefined;
           result.changes = commit?.files ?? [];
           if (commit) {
             result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${commit.sha}`, summary: `${commit.created ? 'Committed' : 'Preserved existing commits for'} ${commit.files.length} changed file(s) on ${handle.branch}: ${commit.files.join(', ')}` });
