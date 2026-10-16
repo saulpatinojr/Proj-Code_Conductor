@@ -17,20 +17,23 @@ Separately billed model APIs are disabled by default. Prefer each user's existin
 | Google / Antigravity | Google official sign-in/keyring | Google AI Pro | Use official Google execution lane. Do not reuse browser cookies or export consumer session credentials. |
 | Perplexity Pro | Perplexity consumer sign-in | Perplexity Pro | Human-in-the-loop research only. |
 | Perplexity MCP/API | Official API key | separately billed API | Disabled by default; enable only through explicit policy/consent. |
-
-**Moving Perplexity from manual to automated research** is an explicit, separately
-billed step:
-
-1. Create a Perplexity API key in its own console. Your Pro sign-in is never used for
-   automation.
-2. Allow separately billed APIs in the repository's policy.
-3. Select the server with `cc mcp --allow-api` and configure it in your native client.
-
-Until then, research assignments stay manual (`cc handoff`, then `cc import`). Results keep
-their source URLs (`Evidence.uri`) and the billing channel they ran on.
 | Azure MCP/CLI | Microsoft Entra/Azure Identity | cloud account/IAM | Use user/service identity and RBAC; cloud writes remain policy-gated. |
 | AWS MCP/CLI | Official AWS identity/OAuth/IAM | cloud account/IAM | Use AWS permissions as source of authority; cloud writes remain policy-gated. |
 | Google Cloud MCP/CLI | Google Cloud IAM | cloud account/IAM | Use IAM as authority; enable only project-required toolsets. |
+
+**Moving Perplexity from manual to automated research** is an explicit, separately
+billed step that you take in your own client. No repository policy key enables it:
+`allow_separately_billed_api` stays `false`, and the policy validator refuses `true`.
+
+1. Create a Perplexity API key in Perplexity's own console. Your Pro sign-in is never
+   used for automation.
+2. List the server with `cc mcp --profiles research-automated --allow-api`. The explicit
+   `--allow-api` flag is the consent; without it, separately billed servers are left out.
+3. Configure that server in your native client by following its `source` documentation,
+   with your own key.
+
+Until then, research assignments stay manual (`cc handoff`, then `cc import`). Results keep
+their source URLs (`Evidence.uri`) and the billing channel they ran on.
 
 ## Credential storage
 

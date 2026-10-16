@@ -385,10 +385,11 @@ function mcpList(args: string[]): number {
   const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root);
   const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api');
   const servers = selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({
-    id, publisher: server.publisher, official: server.official, maturity: server.maturity, source: server.source,
+    id, publisher: server.publisher, official: server.official, provenance: server.provenance ?? (server.official ? 'vendor_official' : 'third_party'), maturity: server.maturity, source: server.source,
+    ...(server.transport ? { transport: server.transport } : {}),
     authentication: server.authentication, defaultAccess: server.default_access, separatelyBilledApi: server.separately_billed_api === true,
-    // The exact endpoint or pinned launch command a native client would be configured with.
-    ...(server.endpoint ? { endpoint: server.endpoint } : {}), ...(server.endpoint_template ? { endpoint: server.endpoint_template } : {}),
+    // The exact endpoint (or template) or pinned launch command a native client would be configured with, where recorded.
+    ...(server.endpoint ? { endpoint: server.endpoint } : {}), ...(server.endpoint_template ? { endpointTemplate: server.endpoint_template } : {}),
     ...(server.command ? { launch: [server.command, ...(server.args ?? [])] } : {}),
   }));
   console.log(JSON.stringify({ note: MCP_SELECTION_NOTE, profiles, allowSeparatelyBilledApi: allowApi, servers }, null, 2)); return 0;

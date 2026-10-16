@@ -19,6 +19,7 @@ Vendor-official MCP servers and explicitly approved Code Conductor first-party a
 | AWS | Official AWS MCP services/tools | OFF unless AWS profile | AWS docs/resource/tool access constrained by IAM |
 | Google Cloud | Official Google Cloud managed/local MCP tooling | OFF unless GCP profile | GCP service/resource context constrained by IAM and selected toolsets |
 | Perplexity | Official Perplexity MCP | OFF by default | automated external research only when separately billed API use is explicitly enabled |
+
 The context optimizer's MCP transport is **not in the catalog**. Its server exists only in
 a source checkout, not in the packaged extension, and it stays experimental until W-006
 validates it against the official MCP TypeScript SDK (ADR 0007). Use its direct path,
@@ -29,9 +30,9 @@ provenance, so a validated adapter can be listed again.
 
 `cc mcp [--repo <dir>] [--profiles <a,b>] [--allow-api]` lists the servers that match the
 repository's profiles. For each server it shows the publisher, whether it is
-vendor-official, its maturity and source, its authentication, its default access, whether
-it is separately billed, and the exact endpoint or pinned launch command. It is
-**selection only**:
+vendor-official, its provenance, maturity, source and transport, its authentication, its
+default access, whether it is separately billed, and, where the catalog records one, the
+exact endpoint (or endpoint template) or pinned launch command. It is **selection only**:
 
 - Code Conductor starts no MCP server and grants no authority. Each native client
   (Claude Code, Codex, Copilot, Kiro) activates, authenticates and authorizes its own
@@ -71,7 +72,6 @@ profiles:
   application:
     mcp:
       - github
-
 ```
 
 Profiles are additive only when the repository actually needs the additional platform/capability.

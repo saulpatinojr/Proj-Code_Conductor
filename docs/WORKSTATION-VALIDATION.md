@@ -243,8 +243,8 @@ Activate the minimum profile required for the repository. Confirm:
 - authenticated MCPs retain their official IAM/RBAC boundary;
 - write-capable tools are not granted globally by default;
 - Code Conductor first-party MCP adapters require explicit catalog approval;
-- context-optimizer MCP remains experimental until official SDK/current-protocol validation;
-- Perplexity automated MCP/API remains disabled unless explicit separately billed policy is enabled.
+- the context optimizer is used through `cc compress`; its experimental MCP transport is not in the catalog (W-006);
+- Perplexity automated MCP/API stays off unless you list it with `--allow-api` and configure your own key ([`AUTHENTICATION.md`](AUTHENTICATION.md)).
 
 ## 12. First real dry run and dogfood
 
