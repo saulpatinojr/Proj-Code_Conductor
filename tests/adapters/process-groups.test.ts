@@ -1,6 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
-import { spawnIsolated, terminateGroup } from '../../packages/adapters/src/index.js';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { createBuiltinAdapters, spawnIsolated, terminateGroup, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
 
 // /proc/<pid>/stat: "pid (comm) state ppid pgrp ...". A killed process whose new parent
 // does not reap it (common for PID 1 in containers) stays a zombie ("Z"): it is not running.
@@ -30,4 +32,38 @@ describe.skipIf(process.platform === 'win32')('provider process isolation', () =
     for (let attempt = 0; attempt < 50 && alive(grandchild); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
     expect(alive(grandchild)).toBe(false);
   });
+
+  // A fake `codex` on PATH runs the given Node script, so the real SubprocessAdapter is exercised.
+  const cleanups: Array<() => void> = [];
+  afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
+  async function runFakeClient(script: string, timeoutMs: number) {
+    const bin = mkdtempSync(join(tmpdir(), 'cc-fake-client-'));
+    writeFileSync(join(bin, 'client.js'), script);
+    writeFileSync(join(bin, 'codex'), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'client.js')}" "$@"\n`);
+    chmodSync(join(bin, 'codex'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}${delimiter}${path ?? ''}`;
+    cleanups.push(() => { process.env.PATH = path; rmSync(bin, { recursive: true, force: true }); });
+    const request = { task: {}, assignment: { authority: [] }, cwd: bin, timeoutMs, prompt: 'p' } as unknown as HarnessExecutionRequest;
+    const started = Date.now();
+    const outcome = await createBuiltinAdapters().get('codex')!.execute(request);
+    return { outcome, elapsed: Date.now() - started };
+  }
+
+  it('kills a client that ignores SIGTERM after its timeout instead of hanging', async () => {
+    const { outcome, elapsed } = await runFakeClient("process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);", 300);
+    expect(outcome.timedOut).toBe(true);
+    expect(outcome.signal).toBe('SIGKILL');
+    expect(elapsed).toBeLessThan(12_000);
+  }, 20_000);
+
+  it('finishes when a descendant that left the process group keeps the output pipes open', async () => {
+    const script = "const { spawn } = require('node:child_process'); const d = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); d.unref(); console.log(`pid:${d.pid}`);";
+    const { outcome, elapsed } = await runFakeClient(script, 60_000);
+    const escaped = Number(/pid:(\d+)/.exec(outcome.stdout)?.[1]);
+    cleanups.push(() => { try { process.kill(escaped, 'SIGKILL'); } catch { /* already gone */ } });
+    expect(outcome).toMatchObject({ exitCode: 0, timedOut: false });
+    expect(Number.isInteger(escaped)).toBe(true);
+    expect(elapsed).toBeLessThan(12_000);
+  }, 20_000);
 });

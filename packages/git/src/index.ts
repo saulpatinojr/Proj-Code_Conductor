@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
@@ -59,15 +59,21 @@ export function withoutGitLocalEnv(env: NodeJS.ProcessEnv = process.env): NodeJS
 // execute them without approval nor let a hook restage an approved tree. The hooks
 // path must be one nobody can populate: a path name in a shared temporary directory
 // is visible in every git child's argv and could be created by another process or
-// user. /dev/null cannot contain files on POSIX; on Windows %TEMP% is per-user and a
-// freshly created private empty directory is used.
-const NO_HOOKS = process.platform === 'win32' ? mkdtempSync(join(tmpdir(), 'cc-no-hooks-')) : '/dev/null';
+// user. It is therefore an existing non-directory, under which no hook file can ever
+// exist: /dev/null on POSIX, and the running executable itself on Windows.
+const NO_HOOKS = process.platform === 'win32' ? process.execPath : '/dev/null';
 /** The hooks path every Code Conductor git invocation uses (exported for tests). */
 export const DISABLED_HOOKS_PATH = NO_HOOKS;
-const SAFE_GIT = ['-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false'] as const;
+// Replace refs (refs/replace/*) make Git read a substitute for any object, so without
+// --no-replace-objects a listing of a tree could show different files from the tree
+// that `commit-tree` records. Every Code Conductor git call therefore sees the real
+// objects only.
+const SAFE_GIT = ['--no-replace-objects', '-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false'] as const;
+// Large repositories list more than spawnSync's 1 MiB default; output past this fails closed.
+const MAX_GIT_OUTPUT = 256 * 1024 * 1024;
 
 function git(cwd: string, args: string[], allowFailure = false, env: NodeJS.ProcessEnv = withoutGitLocalEnv()): string {
-  const result = spawnSync('git', [...SAFE_GIT, ...args], { cwd, encoding: 'utf8', env, shell: false });
+  const result = spawnSync('git', [...SAFE_GIT, ...args], { cwd, encoding: 'utf8', env, shell: false, maxBuffer: MAX_GIT_OUTPUT });
   if (result.error) {
     throw new Error(`git ${args.join(' ')} failed to start: ${result.error.message}`);
   }
@@ -123,24 +129,55 @@ const CONTENT_EXACT = ['-c', 'core.checkStat=default', '-c', 'core.trustctime=tr
  */
 export function workingTreeState(path: string): WorkingTreeState {
   if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return { revision: 'unversioned', tree: 'unversioned' };
-  const revision = git(path, ['rev-parse', '--verify', '-q', 'HEAD'], true).trim() || 'unborn';
+  // The tree always covers the whole work tree, so work from its top level: path
+  // listings below are then relative to the same directory `update-index` resolves.
+  const top = git(path, ['rev-parse', '--show-toplevel']).trim();
+  const revision = git(top, ['rev-parse', '--verify', '-q', 'HEAD'], true).trim() || 'unborn';
   const directory = mkdtempSync(join(tmpdir(), 'cc-tree-'));
   try {
     const temporaryIndex = join(directory, 'index');
     const env = { ...withoutGitLocalEnv(), GIT_INDEX_FILE: temporaryIndex };
     // Seed with HEAD so tracked files that match .gitignore stay tracked, as they do
     // in the real index. read-tree records no stat data, so `add` re-hashes every file.
-    if (revision !== 'unborn') git(path, ['read-tree', 'HEAD'], false, env);
-    // Sparse checkouts omit skip-worktree paths from disk; carry those bits over so
-    // they are not mistaken for deletions (which an approved commit would then record).
-    const skipped = git(path, ['ls-files', '-t', '-z']).split('\0').filter((entry) => entry.startsWith('S ')).map((entry) => entry.slice(2));
-    if (skipped.length) {
-      const update = spawnSync('git', [...SAFE_GIT, 'update-index', '-z', '--skip-worktree', '--stdin'], { cwd: path, env, input: `${skipped.join('\0')}\0`, encoding: 'utf8', shell: false });
+    if (revision !== 'unborn') git(top, ['read-tree', 'HEAD'], false, env);
+    // Sparse checkouts leave skip-worktree paths off disk; keep those at their HEAD
+    // content so they are not mistaken for deletions (which an approved commit would
+    // then record). Only absent files qualify: a file present on disk is hashed like
+    // any other, so setting the index bit cannot hide an edit from the binding.
+    const skipped = git(top, ['ls-files', '-t', '-z']).split('\0').filter((entry) => entry.startsWith('S ')).map((entry) => entry.slice(2));
+    const atHead = new Set(skipped.length ? git(top, ['ls-files', '-z'], false, env).split('\0') : []);
+    const absent = skipped.filter((file) => atHead.has(file) && !presentOnDisk(join(top, file)));
+    if (absent.length) {
+      const update = spawnSync('git', [...SAFE_GIT, 'update-index', '-z', '--skip-worktree', '--stdin'], { cwd: top, env, input: `${absent.join('\0')}\0`, encoding: 'utf8', shell: false });
       if (update.status !== 0) throw new Error(`git update-index --skip-worktree failed: ${update.stderr || update.error?.message || 'unknown error'}`);
     }
-    git(path, [...CONTENT_EXACT, 'add', '--all'], false, env);
-    return { revision, tree: git(path, ['write-tree'], false, env).trim() };
+    git(top, [...CONTENT_EXACT, 'add', '--all'], false, env);
+    return { revision, tree: git(top, ['write-tree'], false, env).trim() };
   } finally { rmSync(directory, { recursive: true, force: true }); }
+}
+
+function presentOnDisk(path: string): boolean {
+  try { lstatSync(path); return true; } catch { return false; }
+}
+
+/**
+ * Digest of what, outside the work tree, decides which programs Code Conductor's own
+ * Git operations run and which history they see: the effective configuration of every
+ * scope with includes followed (it defines the clean, smudge and process filters that
+ * `git add` runs), plus the grafts, shallow, alternates and info/attributes files. A
+ * provider that rewrote them could make Code Conductor run its programs outside the
+ * provider's own sandbox, or hide commits from the history check. Only the digest is
+ * kept, never the configuration, which can hold credentials.
+ */
+export function gitControlState(path: string): string {
+  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return 'unversioned';
+  const digest = createHash('sha256').update(git(path, ['config', '--list', '--show-scope', '--show-origin', '-z']));
+  const files = git(path, ['rev-parse', '--path-format=absolute', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
+  for (const file of files) {
+    digest.update(`\0${file}\0`);
+    try { digest.update(readFileSync(file)); } catch (error) { digest.update(`unreadable:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`); }
+  }
+  return digest.digest('hex');
 }
 
 export function isSensitiveRepositoryPath(path: string): boolean {
@@ -210,10 +247,30 @@ export function headTree(path: string): string {
   return git(path, ['rev-parse', 'HEAD^{tree}']).trim();
 }
 
-/** Paths that differ between a commit and a tree object (both already in the object store). */
+/**
+ * Paths that differ between a commit and a tree object (both already in the object store).
+ * Submodule pointer changes are always listed, whatever `.gitmodules` says to ignore.
+ */
 export function treeChangedFiles(path: string, from: string, toTree: string): string[] {
-  return git(path, ['diff-tree', '-r', '--name-only', '--no-renames', '-z', from, toTree]).split('\0').filter(Boolean).sort();
+  return git(path, ['diff-tree', '-r', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', from, toTree]).split('\0').filter(Boolean).sort();
 }
+
+export interface CommitHistory { commits: string[]; files: string[] }
+
+/**
+ * Commits on HEAD since `base`, newest first, and every path any of them touched,
+ * including paths a later commit removed again (their content stays in history).
+ */
+export function commitsSince(path: string, base: string): CommitHistory {
+  const commits = git(path, ['rev-list', `${base}..HEAD`]).split('\n').filter(Boolean);
+  if (!commits.length) return { commits, files: [] };
+  const files = git(path, ['log', '-z', '--format=', '--name-only', '--no-renames', '-m', '--ignore-submodules=none', '--no-show-signature', `${base}..HEAD`]).split('\0').filter(Boolean);
+  return { commits, files: [...new Set(files)].sort() };
+}
+
+// Inherited identity variables override -c user.name/user.email, so a commit could
+// otherwise carry the person's own name and email instead of Code Conductor's.
+const IDENTITY_ENV_VARS = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_DATE'] as const;
 
 export function commitAgentChanges(handle: WorktreeHandle, message: string, options: CommitOptions): AgentCommit | undefined {
   if (!options || typeof options.expectedTree !== 'string' || !/^[a-f0-9]{40,64}$/.test(options.expectedTree)) {
@@ -238,7 +295,9 @@ function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTre
   if (headTree(handle.path) === expectedTree) return { sha: head, files, created: false };
   // Code Conductor's own identity; never sign with the person's key on their behalf.
   const identity = ['-c', 'user.name=Code Conductor', '-c', 'user.email=code-conductor@users.noreply.github.com', '-c', 'commit.gpgSign=false'];
-  const sha = git(handle.path, [...identity, 'commit-tree', expectedTree, '-p', head, '-m', message]).trim();
+  const env = withoutGitLocalEnv();
+  for (const name of IDENTITY_ENV_VARS) delete env[name];
+  const sha = git(handle.path, [...identity, 'commit-tree', expectedTree, '-p', head, '-m', message], false, env).trim();
   // Compare-and-swap: refuse if the branch moved since it was read.
   git(handle.path, ['update-ref', '-m', 'code-conductor: approved agent commit', `refs/heads/${handle.branch}`, sha, head]);
   // Bring the index in line with the new commit; the working tree already matches it.

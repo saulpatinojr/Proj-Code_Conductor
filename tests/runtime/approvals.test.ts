@@ -341,6 +341,92 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.results[0]?.changes).toEqual(['agent-output.txt']);
   });
 
+  it('names commits the agent made itself and leaves the merge decision to a person', async () => {
+    class SelfCommitter extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          writeFileSync(join(request.cwd, 'self.txt'), 'agent commit\n');
+          git(request.cwd, 'add', 'self.txt');
+          git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', 'agent commit');
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new SelfCommitter('codex', 'openai') });
+    const builder = outcome.manifest.results[0]!;
+    expect(seen.find((request) => request.action === 'commit')?.summary).toContain('1 commit(s) the agent made itself');
+    expect(builder).toMatchObject({ status: 'completed', recommendation: 'human_required' });
+    expect(builder.risks.join(' ')).toContain('Code Conductor did not approve');
+    expect(builder.evidence.some((item) => item.summary.startsWith('Agent-authored commits'))).toBe(true);
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it('blocks when the agent\'s own history touched a sensitive path, even one it removed again', async () => {
+    class SecretHistory extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          const commit = (message: string): void => { git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', message); };
+          writeFileSync(join(request.cwd, '.env'), 'TOKEN=secret\n');
+          git(request.cwd, 'add', '-f', '.env'); commit('add');
+          git(request.cwd, 'rm', '-q', '.env'); commit('remove');
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new SecretHistory('codex', 'openai') });
+    const builder = outcome.manifest.results[0]!;
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+    expect(builder.status).toBe('blocked');
+    expect(builder.blockers.join(' ')).toContain('touch sensitive repository paths: .env');
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it('stops before running Git under configuration a provider changed, so its filter never runs', async () => {
+    const marker = join(mkdtempSync(join(tmpdir(), 'cc-filter-marker-')), 'ran');
+    temps.push(join(marker, '..'));
+    class ConfigWriter extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          git(request.cwd, 'config', 'filter.agent.clean', `touch '${marker}'; cat`);
+          writeFileSync(join(request.cwd, '.gitattributes'), '* filter=agent\n');
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const gateCalls = { count: 0 };
+    const { outcome, claude } = await run(decideWith(() => true, seen), gateCalls, { codex: new ConfigWriter('codex', 'openai') });
+    const [builder, ...rest] = outcome.manifest.results;
+    expect(existsSync(marker)).toBe(false);
+    expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
+    expect(builder?.blockers.join(' ')).toContain('Git configuration or history files');
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+    expect(rest.length).toBeGreaterThan(0);
+    expect(rest.every((result) => result.status === 'blocked')).toBe(true);
+    expect(claude.calls + gateCalls.count).toBe(0);
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it('leads commit summaries with how many files can change what later runs', async () => {
+    class ConfigFiles extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          for (let index = 0; index < 25; index += 1) writeFileSync(join(request.cwd, `note-${String(index).padStart(2, '0')}.md`), 'n\n');
+          mkdirSync(join(request.cwd, '.claude'), { recursive: true });
+          writeFileSync(join(request.cwd, '.claude', 'settings.json'), '{}\n');
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    await run(decideWith(() => true, seen), { count: 0 }, { codex: new ConfigFiles('codex', 'openai') });
+    const summary = seen.find((request) => request.action === 'commit')?.summary ?? '';
+    expect(summary).toContain('27 changed file(s), 1 of them able to change what later runs (CI, hooks, scripts, dependencies, agent or editor configuration): .claude/settings.json.');
+    expect(summary).toContain('(6 more)');
+  });
+
   it('redacts the prompt wherever an adapter embeds it in its argv', async () => {
     class EmbeddingAdapter extends CountingAdapter {
       invocation(request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: 'fake-embed', args: ['run', `--prompt=${request.prompt}`] }; }

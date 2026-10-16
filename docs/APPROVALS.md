@@ -23,8 +23,10 @@ against the then-current working tree; a refused retry is not started. Repositor
 is identified by HEAD plus the Git tree of every tracked file and every untracked
 non-ignored file. Code Conductor hashes every file into a temporary index seeded from HEAD
 without stat data, so stat-cache settings such as `core.checkStat=minimal` cannot hide an
-edit, and the repository's own index and files are not changed. Paths outside Git can be
-approved, but their content cannot be bound (`unversioned`).
+edit, and the repository's own index and files are not changed. A sparse-checkout
+(skip-worktree) path keeps its HEAD content only while it is absent from disk; a file that
+is present is hashed like any other, so setting that index bit cannot hide an edit. Paths
+outside Git can be approved, but their content cannot be bound (`unversioned`).
 
 ## How a decision is checked
 
@@ -46,14 +48,42 @@ force-adding an ignored file) are never committed. Whether a commit is needed at
 decided by content, not `git status`. An agent edit that preserves size and mtime still
 needs an approved commit, and so do new folders or untracked files hidden by
 `status.showUntrackedFiles=no`. The displayed file list, the sensitive-path check and the
-bound tree all come from the same snapshot. Code Conductor's commits use its own identity
-and are not signed with your key. Code Conductor never runs repository Git hooks (`pre-commit`, `post-checkout`, a
+bound tree all come from the same snapshot. Every Code Conductor Git call ignores replace
+refs (`--no-replace-objects`), so a `refs/replace/*` entry cannot make the listed files
+differ from the tree that is committed, and submodule pointer changes are listed even when
+`.gitmodules` says to ignore them. Code Conductor's commits use its own identity, even
+when `GIT_AUTHOR_*` or `GIT_COMMITTER_*` variables are inherited, and are not signed with
+your key.
+
+Code Conductor never runs repository Git hooks (`pre-commit`, `post-checkout`, a
 husky-style `core.hooksPath`, and so on) or a configured `core.fsmonitor` from its own Git
-operations: every call sets `core.hooksPath=/dev/null` (on Windows, a private empty
-directory under the per-user temporary directory). A hooks path in a shared temporary
-directory would not be safe, because its name is visible in process arguments and could be
-created by another process or user. Hooks and fsmonitor are repository-controlled
-programs, so running them would be unapproved local execution. Every decision is single-use. Nothing reads approval records back as
+operations. Every call points `core.hooksPath` at an existing non-directory, under which
+no hook can exist: `/dev/null` on POSIX, and the running executable on Windows. A hooks
+path in a shared temporary directory would not be safe, because its name is visible in
+process arguments and could be created by another process or user. Hooks and fsmonitor
+are repository-controlled programs, so running them would be unapproved local execution.
+
+Git configuration defines further programs that Code Conductor's own `git add` runs
+(clean and process filters), and grafts or a shallow file change which history Git
+reports. Code Conductor therefore takes a digest of the effective configuration of every
+scope, includes followed, and of `info/attributes`, `info/grafts`, `shallow` and
+`objects/info/alternates` before each provider starts. It checks the digest again before
+a retry, after the provider finishes, and right before committing. If anything changed,
+Code Conductor stops the run without running further Git operations under configuration
+it has not seen. The assignment and every later one are `blocked`, the run is
+`human_required`, and agent changes stay uncommitted. Only the digest is kept, because
+configuration can hold credentials. Tools an agent runs can change shared configuration
+legitimately, for example `husky` setting `core.hooksPath` during `npm install`. Those runs
+stop too, because the change also affects your own checkout.
+
+Commits the agent makes itself happen under its own sandbox, not through an approval
+here. Code Conductor names them in the commit approval, the result's risks and its
+evidence, and checks every path any of them touched, including paths a later commit
+removed again, because their content stays in history. A sensitive path in that history
+blocks the assignment, and Code Conductor commits nothing on top. Agent-made commits
+always make the run `human_required`.
+
+Every decision is single-use. Nothing reads approval records back as
 authority, so a stored record cannot approve a later action, and `cc import` rejects
 manifests that carry approval records.
 
@@ -62,11 +92,21 @@ leaves the agent's changes uncommitted in its worktree for review in native Sour
 Control. The affected assignment is `blocked`, dependent assignments do not run, and the
 run's merge decision is `human_required`.
 
-Provider clients run in their own process group (on POSIX, a new session without a
-controlling terminal). They cannot open the terminal to draw over or type into an approval
-prompt, and anything they leave running is terminated when they exit, or when Code
-Conductor exits or is interrupted. So no lingering process keeps editing the worktree
-while a later approval is pending.
+On POSIX, provider clients run in their own session and process group, without a
+controlling terminal. They cannot open `/dev/tty` or inject keystrokes into the approval
+prompt. Processes they leave in their group are terminated when they exit, or when Code
+Conductor exits or is interrupted. A client that ignores `SIGTERM` after its timeout is
+killed after five seconds. If a descendant keeps the client's output pipes open after the
+client exits, Code Conductor stops reading after five seconds rather than wait for it.
+
+This is containment, not a security boundary. A process running as you can start its own
+session to leave the group. It can also write to your terminal through `/proc`, for
+example to print text that looks like part of a prompt. Approval integrity does not depend
+on containment. What is committed is re-hashed and compared with the approved tree and
+HEAD. Gate commands, however, run
+on the validation worktree as it is on disk, so a process that outlived its client could
+change files between approval and execution (see below). Windows has no process-group
+isolation: only the client process itself is terminated.
 
 ## Using it
 
@@ -77,11 +117,15 @@ exactly those requests. Input typed before the prompt appeared, such as while a 
 was running, therefore cannot answer it. Any other answer, end of input or Ctrl-C denies.
 Displayed values are printed on one line with control, bidirectional-override, zero-width
 and line-separator characters replaced. Other non-ASCII characters are shown as
-`\u{...}` escapes, so look-alike letters cannot disguise a path or recipient. Very long
-values are truncated with a visible marker; the full value is still bound by the digest.
-Commit summaries always name dependency, CI, hook, script and Git-behaviour files, even past
-the display cap. Repository content therefore cannot rewrite, reorder or hide what you
-approve. If the approver itself fails, the action is refused (`missing`) and the run
+`\u{...}` escapes, so look-alike letters cannot disguise a path or recipient. Long values
+are truncated with a visible marker; the full value is still bound by the digest. A commit
+summary starts with the number of changed files and the number that can change what later
+runs. Those files are listed first: CI, Git hooks and hook managers, scripts and
+executables, dependencies and package-manager settings, Git behaviour files, and agent,
+editor or dev-container configuration such as `AGENTS.md`, `.claude/`, `.mcp.json` and
+`.vscode/`. So even a truncated summary says how many such files are behind the cut.
+Repository content therefore cannot rewrite or reorder what you approve. If a summary is
+truncated, review the full diff before approving. If the approver itself fails, the action is refused (`missing`) and the run
 still completes with `human_required`. Dry runs ask nothing because they execute nothing.
 There is intentionally no flag that pre-approves or auto-approves.
 
@@ -102,8 +146,9 @@ stored, only their digests and sizes. Each decision is also appended to the run'
 - No deployment connector exists yet. Any future deploy, PR-creation or other external
   side-effect path must call `ApprovalGate.authorize` before dispatch (#35, #32
   deployment boundary). Native environment protection rules remain authoritative.
-- Commits an agent makes itself inside its isolated worktree happen under that agent's
-  own sandbox. Code Conductor preserves them as evidence; it does not commit them again.
+- Commits an agent makes itself are not approved here, only reported and checked for
+  sensitive paths (see above). Their content is not scanned for secrets yet; that is
+  tracked under #36.
 - Gate commands run in the validation worktree as it is on disk. The approval binds
   tracked and untracked non-ignored content, but not ignored files the agent wrote,
   working trees of nested repositories or submodules (only their commit pointers),
@@ -113,7 +158,10 @@ stored, only their digests and sizes. Each decision is also appended to the run'
   it is tracked under #38.
 - Computing working-tree identity runs `git add`, so clean/process filters configured in
   your Git config (for example Git LFS) run as they would on any `git add`. A repository's
-  `.gitattributes` can select a configured filter but cannot define a new filter program.
+  `.gitattributes` can select a configured filter but cannot define a new filter program,
+  and a provider that defines one stops the run (see above). The check runs at fixed
+  points. A process that outlived its client and changes configuration between a check
+  and the Git operation after it is not detected.
 - `core.hooksPath` disables Git's hook directory. If a future Git release adds hooks
   defined directly in configuration, re-check this boundary before upgrading.
 - Not bound: the environment variables a provider process inherits (`cc doctor` warns

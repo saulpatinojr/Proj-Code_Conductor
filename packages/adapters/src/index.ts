@@ -50,12 +50,15 @@ function commandVersion(command: string): string | undefined {
 }
 
 // Provider clients run in their own session and process group on POSIX. Without a
-// controlling terminal they cannot open /dev/tty to draw over, or type into, the
-// approval prompt in the person's terminal, and any process they leave behind is
-// terminated with the group instead of outliving the run and editing the worktree
-// while a later approval is pending. Groups still alive when Code Conductor exits or
-// is interrupted are terminated too.
+// controlling terminal they cannot open /dev/tty or inject keystrokes into the
+// approval prompt, and the processes they leave behind in their group are terminated
+// with it. This is containment, not a security boundary: a same-user descendant can
+// start its own session to leave the group, and can still reach the person's terminal
+// through /proc. Approval integrity does not rest on it; what is committed is
+// re-verified against the approved tree. Windows has no process-group isolation here.
 const ISOLATE_PROCESS_GROUPS = process.platform !== 'win32';
+// How long a client gets to exit after SIGTERM, and to release its output pipes after exiting.
+const KILL_GRACE_MS = 5000;
 const liveGroups = new Set<number>();
 let reaperInstalled = false;
 
@@ -73,7 +76,16 @@ export function spawnIsolated(command: string, args: readonly string[], options:
       reaperInstalled = true;
       process.once('exit', reapGroups);
       for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-        process.once(signal, () => { reapGroups(); process.kill(process.pid, signal); });
+        const onSignal = (): void => {
+          reapGroups();
+          // Re-raise for the default action only when nothing else handles the signal;
+          // an embedding host (for example an editor extension) decides for itself.
+          if (process.listenerCount(signal) === 1) {
+            process.removeListener(signal, onSignal);
+            process.kill(process.pid, signal);
+          }
+        };
+        process.on(signal, onSignal);
       }
     }
   }
@@ -144,12 +156,29 @@ class SubprocessAdapter implements HarnessAdapter {
       child.stdout!.on('data', (chunk: string) => { stdout = appendTail(stdout, chunk); });
       child.stderr!.on('data', (chunk: string) => { stderr = appendTail(stderr, chunk); });
       child.on('error', reject);
-      const timer = setTimeout(() => { timedOut = true; terminateGroup(child, 'SIGTERM'); }, request.timeoutMs);
-      child.on('close', (exitCode, signal) => {
-        clearTimeout(timer);
+      let escalation: NodeJS.Timeout | undefined;
+      let release: NodeJS.Timeout | undefined;
+      // A client that ignores SIGTERM is killed after a grace period instead of hanging the run.
+      const timer = setTimeout(() => {
+        timedOut = true;
+        terminateGroup(child, 'SIGTERM');
+        escalation = setTimeout(() => terminateGroup(child, 'SIGKILL'), KILL_GRACE_MS);
+      }, request.timeoutMs);
+      let settled = false;
+      const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer); clearTimeout(escalation); clearTimeout(release);
         // The client exited; do not let anything it left running keep touching the worktree.
         terminateGroup(child, 'SIGKILL');
         resolve({ harness: this.id, surface: this.executionSurface, command: this.command, args, exitCode, signal, stdout, stderr, startedAt, finishedAt: new Date().toISOString(), timedOut });
+      };
+      child.on('close', finish);
+      // A descendant that left the process group can keep the output pipes open after
+      // the client exits, so 'close' would never come: stop reading after a grace period.
+      child.on('exit', (exitCode, signal) => {
+        terminateGroup(child, 'SIGKILL');
+        release = setTimeout(() => { child.stdout?.destroy(); child.stderr?.destroy(); finish(exitCode, signal); }, KILL_GRACE_MS);
       });
     });
   }

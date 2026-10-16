@@ -61,13 +61,26 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
    input and Ctrl-C deny. A non-interactive process cannot approve, and a failing approver
    is recorded as `missing`. There is no auto-approve flag.
 5. Each provider start, including a retry, is a separate approval of the then-current
-   tree and exact argv. Code Conductor's own Git operations never run repository hooks or
-   a configured fsmonitor (`core.hooksPath=/dev/null`; a private directory on Windows).
-   An approved commit is created from the approved tree object with `git commit-tree`
-   after re-verifying that the worktree hashes to it and that the branch is still at the
-   approved HEAD. There is no unapproved commit path. Provider clients run in isolated
-   process groups without a controlling terminal, and their leftovers are terminated.
-   `cc import` rejects manifests carrying approvals.
+   tree and exact argv. Code Conductor's own Git operations:
+   - never run repository hooks or a configured fsmonitor (`core.hooksPath` points at an
+     existing non-directory: `/dev/null`, or the running executable on Windows);
+   - ignore replace refs (`--no-replace-objects`), so listings and commits see the same
+     objects;
+   - stop the run when a provider changed Git configuration (which defines the filters
+     `git add` runs) or the grafts, shallow, alternates or info/attributes files. These
+     are checked by digest before a retry, after the provider, and before committing.
+
+   An approved commit is created from the approved tree object with `git commit-tree`,
+   under Code Conductor's own identity. Before that, Code Conductor re-verifies that the
+   worktree hashes to the approved tree and that the branch is still at the approved
+   HEAD. There is no unapproved commit path. Commits the agent made itself are named,
+   their whole history is checked for sensitive paths, and they make the run
+   `human_required`.
+
+   Provider clients run in their own process group without a controlling terminal, and
+   their leftovers in that group are terminated. This is containment, not a boundary
+   against same-user processes, and Windows has none. `cc import` rejects manifests
+   carrying approvals.
 6. `RunManifest.approvals` carries non-secret `ApprovalRecord` evidence. Any non-approved
    record makes the merge decision `human_required`.
 
@@ -117,8 +130,16 @@ diff, and expire. Missing, denied and stale approvals must be rejected.
   - A fallback commit path could commit index-only or racing changes without approval.
   - The displayed file list could come from a stat-cached `git status`.
 
-  All are fixed with regression tests. The hook and
-  stat-hidden-commit tests were mutation-checked: they fail when the fix is reverted.
+  - Replace refs could make the listed files and the sensitive-path check differ from the
+    committed tree.
+  - A skip-worktree bit set on a present file hid its edit from the binding.
+  - Inherited identity variables, `.gitmodules` `ignore = all`, provider-defined filters,
+    and the history of agent-made commits were not covered.
+  - A client ignoring `SIGTERM`, or a descendant holding its pipes, could hang the run.
+
+  All are fixed with regression tests. The hook, stat-hidden-commit, replace-ref,
+  skip-worktree, identity, submodule, configuration-change, agent-history, timeout and
+  pipe-release tests were mutation-checked: they fail when the fix is reverted.
 - `tests/runtime/approvals.test.ts` also covers:
   - retry re-approval and refusal;
   - hooks and a husky-style relative `core.hooksPath`;

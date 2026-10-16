@@ -5,7 +5,7 @@ import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/ad
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, executeGatePlan, planGates, type CommandExecutor, type GateExecution } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, headTree, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isSensitiveRepositoryPath, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -45,18 +45,40 @@ function buildPrompt(task: TaskEnvelope, assignment: AgentAssignment): string {
 
 function sha256(text: string): string { return createHash('sha256').update(text).digest('hex'); }
 
-// Files that can change what later runs (CI, hooks, scripts, dependencies, Git behaviour)
-// are always named in a commit summary, even past the display cap.
-const EXECUTION_RELEVANT = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|Makefile|Dockerfile|\.gitattributes|\.gitmodules|\.gitignore|[^/]+\.(sh|ps1|cmd|bat))$|(^|\/)(\.github|\.husky|scripts)\//;
+// Files that can change what later runs: CI, Git hooks, scripts, dependencies and
+// package-manager settings, Git behaviour, and agent, editor or dev-container
+// configuration that clients load automatically. Matched case-insensitively, because
+// case-insensitive file systems load `.Claude/` as `.claude/`.
+const EXECUTION_RELEVANT_FILES = new Set([
+  'package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
+  '.npmrc', '.yarnrc', '.yarnrc.yml', '.pnpmfile.cjs', '.envrc', 'makefile', 'dockerfile', 'jenkinsfile',
+  '.gitattributes', '.gitmodules', '.gitignore', '.pre-commit-config.yaml', 'lefthook.yml', 'lefthook.yaml', '.lefthook.yml',
+  '.gitlab-ci.yml', 'azure-pipelines.yml', '.mcp.json', 'agents.md', 'claude.md', 'gemini.md', 'apm.yml', 'apm.lock.yaml', 'apm-policy.yml',
+]);
+const EXECUTION_RELEVANT_DIRECTORIES = new Set(['.github', '.husky', '.githooks', 'scripts', '.circleci', '.devcontainer', '.vscode', '.claude', '.codex', '.cursor', '.gemini', '.kiro']);
+const EXECUTABLE = /\.(sh|bash|zsh|ps1|psm1|cmd|bat|exe)$/;
+function executionRelevant(file: string): boolean {
+  const segments = file.toLowerCase().split('/');
+  const leaf = segments.at(-1) ?? '';
+  return EXECUTION_RELEVANT_FILES.has(leaf) || EXECUTABLE.test(leaf) || segments.slice(0, -1).some((segment) => EXECUTION_RELEVANT_DIRECTORIES.has(segment));
+}
+// Leads with the counts, so a truncated display still says how many files can change
+// what later runs; those files are listed before any others.
 function summarizeFiles(files: readonly string[]): string {
-  const shown = [...new Set([...files.filter((file) => EXECUTION_RELEVANT.test(file)), ...files])].slice(0, Math.max(20, files.filter((file) => EXECUTION_RELEVANT.test(file)).length));
-  return `${shown.join(', ')}${files.length > shown.length ? `, … (${files.length - shown.length} more)` : ''}`;
+  const relevant = files.filter(executionRelevant);
+  const others = files.filter((file) => !executionRelevant(file));
+  const shown = others.slice(0, 20);
+  return `${files.length} changed file(s), ${relevant.length} of them able to change what later runs (CI, hooks, scripts, dependencies, agent or editor configuration)${relevant.length ? `: ${relevant.join(', ')}` : ''}. ${others.length ? `Other files: ${shown.join(', ')}${others.length > shown.length ? `, … (${others.length - shown.length} more)` : ''}` : 'No other files'}`;
+}
+function shortList(shas: readonly string[], limit = 10): string {
+  return `${shas.slice(0, limit).map((sha) => sha.slice(0, 12)).join(', ')}${shas.length > limit ? `, … (${shas.length - limit} more)` : ''}`;
 }
 
 function mergeDecision(task: TaskEnvelope, results: AgentResult[], gates: GateExecution[], approvals: readonly ApprovalRecord[]): MergeDecision {
   const evidenceIds = [...new Set([...results.flatMap((r) => r.evidence.map((e) => e.id)), ...gates.flatMap((g) => g.result.evidenceIds)])];
   if (results.some((r) => r.status === 'awaiting_external')) return { decision: 'human_required', rationale: 'One or more assignments require an external/manual platform step.', evidenceIds };
   if (approvals.some((record) => record.status !== 'approved')) return { decision: 'human_required', rationale: 'A required pre-action approval was missing, denied, expired or invalidated by a context change; those actions were not performed.', evidenceIds };
+  if (results.some((r) => r.recommendation === 'human_required')) return { decision: 'human_required', rationale: 'An assignment needs a person to review it before merge, for example commits the agent made itself, which Code Conductor did not approve, or Git configuration changed during the run.', evidenceIds };
   if (results.some((r) => r.status === 'failed' || r.status === 'blocked')) return { decision: 'changes_required', rationale: 'One or more agent assignments failed or are blocked.', evidenceIds };
   if (blockingGateFailure(gates)) return { decision: 'changes_required', rationale: 'A blocking deterministic gate failed.', evidenceIds };
   if (results.some((r) => r.findings.some((f) => f.blocking))) return { decision: 'blocked', rationale: 'An unresolved blocking finding remains.', evidenceIds };
@@ -89,6 +111,9 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   const createdWorktrees: WorktreeHandle[] = [];
   const executedGates: GateExecution[] = [];
   let primaryBuilderWorktree: WorktreeHandle | undefined;
+  // Set when Git configuration or history files changed under a provider; nothing that
+  // would run Git under that configuration happens for the rest of the run.
+  let stopped: string | undefined;
   const save = (): string => store.saveManifest(manifest);
   store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'run.planned', message: `Planned ${plan.assignments.length} assignment(s).` });
   let manifestPath = save();
@@ -96,6 +121,11 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
 
   try {
     for (const assignment of plan.assignments) {
+      if (stopped) {
+        manifest.results.push(blockedResult(assignment, stopped));
+        manifestPath = save();
+        continue;
+      }
       const unmet = assignment.dependsOn.filter((id) => !manifest.results.some((result) => result.assignmentId === id && result.status === 'completed'));
       if (unmet.length) {
         const waiting = externalAwaitingResult(assignment, `Dependencies not completed: ${unmet.join(', ')}`);
@@ -184,7 +214,18 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt to ${recipient}, running in ${cwd} at ${state.revision.slice(0, 12)}. What else it can read is set by that client's own sandbox and permissions, not by Code Conductor.` },
         ];
       });
-      const approval = await authorizeStart(0);
+      // Git configuration defines programs Code Conductor's own `git add` runs (clean and
+      // process filters), and grafts or a shallow file change which history it sees. A
+      // provider that changed them could get its programs run outside its own sandbox,
+      // so they must be as they were before any further Git operation here.
+      let controlBefore = '';
+      let approval: { approved: boolean; blocker: string };
+      try {
+        controlBefore = gitControlState(cwd);
+        approval = await authorizeStart(0);
+      } catch (error) {
+        approval = { approved: false, blocker: `Git configuration in ${cwd} could not be read (${error instanceof Error ? error.message : String(error)}); the provider was not started.` };
+      }
       if (!approval.approved) {
         if (assignmentWorktree) {
           // Nothing ran in the fresh worktree; remove it and its branch rather than leave them behind.
@@ -200,11 +241,18 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         continue;
       }
       if (assignmentWorktree) primaryBuilderWorktree ??= assignmentWorktree;
+      const controlChanged = (): string | undefined => {
+        let changed: boolean;
+        try { changed = gitControlState(cwd) !== controlBefore; } catch { changed = true; }
+        return changed ? `Git configuration or history files (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates) changed after ${recipient} was started in ${cwd}. Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\` and the repository's .git directory before running again. Agent changes are preserved uncommitted.` : undefined;
+      };
       let result: AgentResult | undefined;
       let lastFailure: AgentResult | undefined;
       let lastError: unknown;
       for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
         if (attempt > 0) {
+          stopped = controlChanged();
+          if (stopped) { result = lastFailure; break; }
           const retry = await authorizeStart(attempt);
           if (!retry.approved) {
             result = lastFailure ?? { taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance, provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: assignment.billingChannel, status: 'failed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [lastError instanceof Error ? lastError.message : 'Harness execution failed.'], recommendation: 'changes_required' };
@@ -227,48 +275,78 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         } catch (error) { lastError = error; }
       }
       result ??= { taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance, provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: assignment.billingChannel, status: 'failed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [lastError instanceof Error ? lastError.message : 'Harness execution failed after bounded retry.'], recommendation: 'changes_required' };
+      stopped ??= controlChanged();
+      if (stopped) {
+        result.status = 'blocked';
+        result.recommendation = 'human_required';
+        result.blockers = [...result.blockers, stopped];
+      }
 
-      if (assignmentWorktree && result.status === 'completed') {
+      if (assignmentWorktree && !stopped) {
         const handle = assignmentWorktree;
         try {
-          let expectedTree: string | undefined;
-          let expectedHead: string | undefined;
-          let commitAllowed = true;
-          // Content-exact comparison (not git status), so an edit hidden from the stat
-          // cache still requires an approved commit instead of silently staying out of it.
-          const before = workingTreeState(handle.path);
-          if (before.tree !== headTree(handle.path)) {
-            // Refuse unsafe targets before asking a person to approve a commit that cannot happen.
-            assertAgentWorktree(handle);
-            const approval = await authorize(() => {
-              const state = workingTreeState(handle.path);
-              // Shown files, the sensitive-path check and the bound tree come from one snapshot.
-              const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
-              assertSafeChangedPaths(files);
-              expectedTree = state.tree;
-              expectedHead = state.revision;
-              return [{
-                action: 'commit', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: handle.path, revision: state.revision, recipient: `git:${handle.branch}`,
-                bindings: { tree: state.tree, branch: handle.branch, baseSha: handle.baseSha, files: sha256(files.join('\n')) },
-                summary: `Commit ${files.length} changed file(s) on ${handle.branch} (base ${handle.baseSha.slice(0, 12)}): ${summarizeFiles(files)}. Review the full diff first in native Source Control or with \`git -C ${handle.path} diff ${handle.baseSha}\` and \`git -C ${handle.path} status\`.`,
-              }];
-            });
-            if (!approval.approved) {
-              commitAllowed = false;
-              result.status = 'blocked';
-              result.recommendation = 'human_required';
-              result.blockers.push(`${approval.blocker} Changes are preserved uncommitted in ${handle.path} for review in native Source Control.`);
-            }
+          // Commits the agent made itself, whatever its result, happened under its own
+          // sandbox rather than through a Code Conductor approval. Name them, check every
+          // path they ever touched (a secret committed and then deleted is still in
+          // history), and leave the merge decision to a person.
+          const history = commitsSince(handle.path, handle.baseSha);
+          let ownCommits = '';
+          if (history.commits.length) {
+            ownCommits = ` The branch already carries ${history.commits.length} commit(s) the agent made itself (${shortList(history.commits)}), which this approval does not cover; the file list is the net change since base.`;
+            result.recommendation = 'human_required';
+            result.risks = [...result.risks, `The agent made ${history.commits.length} commit(s) itself on ${handle.branch} (${shortList(history.commits)}) that Code Conductor did not approve; review them before merging.`];
+            result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${history.commits[0]}`, summary: `Agent-authored commits on ${handle.branch} since ${handle.baseSha.slice(0, 12)}: ${shortList(history.commits)}. Paths touched: ${history.files.join(', ')}` });
+            const sensitive = history.files.filter(isSensitiveRepositoryPath);
+            if (sensitive.length) throw new Error(`The agent's own commits on ${handle.branch} touch sensitive repository paths: ${sensitive.join(', ')}. Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
           }
-          const commit = commitAllowed ? commitAgentChanges(handle, `feat(agent): ${assignment.agentId} for ${task.id}`, { expectedTree: expectedTree ?? before.tree, expectedHead: expectedHead ?? before.revision }) : undefined;
-          result.changes = commit?.files ?? [];
-          if (commit) {
-            result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${commit.sha}`, summary: `${commit.created ? 'Committed' : 'Preserved existing commits for'} ${commit.files.length} changed file(s) on ${handle.branch}: ${commit.files.join(', ')}` });
-            store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'worktree.committed', assignmentId: assignment.id, message: `${handle.branch}@${commit.sha}` });
+          if (result.status === 'completed') {
+            let expectedTree: string | undefined;
+            let expectedHead: string | undefined;
+            let commitAllowed = true;
+            // Content-exact comparison (not git status), so an edit hidden from the stat
+            // cache still requires an approved commit instead of silently staying out of it.
+            const before = workingTreeState(handle.path);
+            if (before.tree !== headTree(handle.path)) {
+              // Refuse unsafe targets before asking a person to approve a commit that cannot happen.
+              assertAgentWorktree(handle);
+              const approval = await authorize(() => {
+                const state = workingTreeState(handle.path);
+                // Shown files, the sensitive-path check and the bound tree come from one snapshot.
+                const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
+                assertSafeChangedPaths(files);
+                expectedTree = state.tree;
+                expectedHead = state.revision;
+                return [{
+                  action: 'commit', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: handle.path, revision: state.revision, recipient: `git:${handle.branch}`,
+                  bindings: { tree: state.tree, branch: handle.branch, baseSha: handle.baseSha, files: sha256(files.join('\n')) },
+                  summary: `Commit on ${handle.branch} (base ${handle.baseSha.slice(0, 12)}).${ownCommits} ${summarizeFiles(files)}. Review the full diff first in native Source Control or with \`git -C ${handle.path} diff ${handle.baseSha}\` and \`git -C ${handle.path} status\`.`,
+                }];
+              });
+              if (!approval.approved) {
+                commitAllowed = false;
+                result.status = 'blocked';
+                result.recommendation = 'human_required';
+                result.blockers.push(`${approval.blocker} Changes are preserved uncommitted in ${handle.path} for review in native Source Control.`);
+              }
+            }
+            // Re-check right before Code Conductor's own commit re-hashes the worktree.
+            if (commitAllowed) {
+              stopped = controlChanged();
+              if (stopped) {
+                result.recommendation = 'human_required';
+                throw new Error(stopped);
+              }
+            }
+            const commit = commitAllowed ? commitAgentChanges(handle, `feat(agent): ${assignment.agentId} for ${task.id}`, { expectedTree: expectedTree ?? before.tree, expectedHead: expectedHead ?? before.revision }) : undefined;
+            result.changes = commit?.files ?? [];
+            if (commit) {
+              result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${commit.sha}`, summary: `${commit.created ? 'Committed' : 'Preserved existing commits for'} ${commit.files.length} changed file(s) on ${handle.branch}: ${commit.files.join(', ')}` });
+              store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'worktree.committed', assignmentId: assignment.id, message: `${handle.branch}@${commit.sha}` });
+            }
           }
         } catch (error) {
           result.status = 'blocked';
-          result.recommendation = 'changes_required';
+          if (result.recommendation !== 'human_required') result.recommendation = 'changes_required';
           result.blockers.push(error instanceof Error ? error.message : String(error));
         }
       }

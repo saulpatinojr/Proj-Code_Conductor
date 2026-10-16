@@ -15,6 +15,7 @@ type TerminalOutput = Writable & { isTTY?: boolean };
  * separators are replaced.
  */
 const MAX_DISPLAY = 600;
+const MAX_SUMMARY = 2000;
 function printable(value: string, limit = MAX_DISPLAY): string {
   const safe = value
     .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '?')
@@ -36,7 +37,9 @@ export function describeApprovalRequests(requests: readonly ApprovalRequest[]): 
   const lines = ['', 'Code Conductor pre-action approval required:'];
   for (const request of requests) {
     lines.push(`  • ${request.action}${request.recipient ? ` → ${printable(request.recipient)}` : ''}`);
-    lines.push(`    ${printable(request.summary)}`);
+    // Summaries lead with counts (for example how many changed files can affect later
+    // execution), so even a truncated summary says how much is behind the cut.
+    lines.push(`    ${printable(request.summary, MAX_SUMMARY)}`);
     lines.push(`    repository: ${printable(request.repository)}  revision: ${printable(request.revision)}`);
     for (const [key, value] of Object.entries(request.bindings)) lines.push(`    ${printable(key)}: ${printable(value)}`);
     lines.push(`    approval digest: ${approvalDigest(request)}`);

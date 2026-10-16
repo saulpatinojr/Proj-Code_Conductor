@@ -77,9 +77,10 @@ describe('terminal approver', () => {
 
   it('escapes look-alike characters and truncates very long values with a visible marker', () => {
     const cyrillicA = String.fromCodePoint(0x430);
-    const text = describeApprovalRequests([{ ...request, recipient: `git:cc/p${cyrillicA}ypal`, summary: 'x'.repeat(2000) }]);
+    const text = describeApprovalRequests([{ ...request, recipient: `git:cc/p${cyrillicA}ypal`, summary: 'x'.repeat(2500), bindings: { files: 'y'.repeat(700) } }]);
     expect(text).toContain('git:cc/p\\u{430}ypal');
-    expect(text).toContain('more characters not shown; the full value is bound by the digest');
+    expect(text).toContain('… [500 more characters not shown; the full value is bound by the digest]');
+    expect(text).toContain('… [100 more characters not shown; the full value is bound by the digest]');
     expect(text).toContain('Approving: commit → git:cc/p\\u{430}ypal');
   });
 });
