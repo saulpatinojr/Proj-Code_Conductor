@@ -212,7 +212,7 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it.skipIf(process.platform === 'win32')('refuses a FIFO without waiting on it', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('refuses a FIFO without waiting on it', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-fifo-'));
       execFileSync('mkfifo', [join(root, 'pipe.md')]);
       try {

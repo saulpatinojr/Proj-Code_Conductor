@@ -52,6 +52,14 @@ describe.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('readCheckedFile (descriptor-bound
     expect(() => readCheckedFile(join(workspace, 'docs', 'notes.md'), 'docs/notes.md', 1024)).toThrow(/changed while it was being opened/);
   });
 
+  it('answers a file that vanished or was redirected to nothing like any other change', () => {
+    const { workspace, outside } = layout();
+    // As a concurrent writer leaves it: the checked folder now points at a missing place.
+    rmSync(join(workspace, 'docs'), { recursive: true });
+    symlinkSync(join(outside, 'missing'), join(workspace, 'docs'));
+    expect(() => readCheckedFile(join(workspace, 'docs', 'notes.md'), 'docs/notes.md', 1024)).toThrow(/^Context file changed while it was being opened: docs\/notes\.md$/);
+  });
+
   it('refuses to open a final symlink at all', () => {
     const { workspace, outside } = layout();
     symlinkSync(join(outside, 'notes.md'), join(workspace, 'link.md'));

@@ -43,7 +43,14 @@ export function readCheckedFile(canonical: string, displayPath: string, maxBytes
   requireDescriptorLocation(displayPath);
   let descriptor: number;
   try { descriptor = openSync(canonical, OPEN_FLAGS); }
-  catch (error) { throw new Error(`Context file cannot be opened: ${displayPath} (${(error as NodeJS.ErrnoException).code ?? 'error'})`); }
+  catch (error) {
+    // The path resolved a moment ago, so a missing file or folder now means it changed.
+    // The same answer as a redirected open, so a concurrent writer cannot use it to learn
+    // whether a path outside the workspace exists.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') throw new Error(`Context file changed while it was being opened: ${displayPath}`);
+    throw new Error(`Context file cannot be opened: ${displayPath} (${code ?? 'error'})`);
+  }
   try {
     const location = descriptorLocation(descriptor);
     if (!location || !location.equals(Buffer.from(canonical))) throw new Error(`Context file changed while it was being opened: ${displayPath}`);

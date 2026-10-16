@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { readCheckedFile, requireDescriptorLocation } from './checked-read.js';
@@ -300,11 +300,8 @@ export class ContextOptimizer {
     if (isSensitiveContextPath(canonical)) {
       throw new Error(`Sensitive context file is blocked by policy: ${filePath}`);
     }
-    const stat = statSync(canonical);
-    if (!stat.isFile()) throw new Error(`Context path is not a regular file: ${filePath}`);
-    if (stat.size > this.maxFileBytes) {
-      throw new Error(`Context file exceeds the ${this.maxFileBytes} byte limit: ${filePath}`);
-    }
+    // The file type and size are checked on the opened descriptor (readCheckedFile), not
+    // here by name: a name looked up again could answer for a different file.
     return canonical;
   }
 
