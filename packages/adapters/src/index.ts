@@ -128,18 +128,25 @@ export const BILLING_ROUTING_VARIABLES = [
 ] as const;
 // Git's repository-local variables are removed too, so an inherited GIT_DIR or
 // GIT_INDEX_FILE cannot point the client's own git at another repository.
-// A relative client configuration directory would name a different directory for the
-// sign-in probe (an empty temporary directory) and for the run (the repository), so the
-// repository could supply the run's "user" settings. They are made absolute once, against
-// the directory Code Conductor was started in, as CODE_CONDUCTOR_HOME is.
-const CLIENT_CONFIG_DIRECTORIES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME'] as const;
+// Each directory a client reads its configuration, sign-in or profile from must be the
+// same for the sign-in probe (run in an empty temporary directory) and the run (in the
+// repository); otherwise the repository could supply the run's "user" settings. A
+// relative value is made absolute against the directory Code Conductor started in (on
+// Windows this also gives a root-relative value its drive), and an empty one is removed:
+// Claude Code reads an empty CLAUDE_CONFIG_DIR as the working directory, not as unset.
+const CLIENT_CONFIG_DIRECTORIES = ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_CONFIG_DIR', 'CODEX_HOME', 'HOME', 'USERPROFILE'] as const;
+// XDG base directories must be absolute, and the specification says a relative value is
+// ignored, so one is removed and the client falls back to its default.
+const XDG_BASE_DIRECTORIES = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'] as const;
 export function providerEnvironment(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): NodeJS.ProcessEnv {
   const scrubbed = withoutGitLocalEnv(env);
   for (const name of [...BILLING_CREDENTIAL_VARIABLES, ...BILLING_ROUTING_VARIABLES]) delete scrubbed[name];
   for (const name of CLIENT_CONFIG_DIRECTORIES) {
     const value = scrubbed[name];
-    if (value && !isAbsolute(value)) scrubbed[name] = resolve(cwd, value);
+    if (value === '') delete scrubbed[name];
+    else if (value !== undefined) scrubbed[name] = resolve(cwd, value);
   }
+  for (const name of XDG_BASE_DIRECTORIES) if (scrubbed[name] !== undefined && !isAbsolute(scrubbed[name])) delete scrubbed[name];
   return scrubbed;
 }
 
@@ -176,7 +183,8 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
       // and hooks without a trust prompt, so a repository could switch a subscription run
       // to its own credential or endpoint after the sign-in check, which sees only your
       // user and managed settings (https://code.claude.com/docs/en/permissions, "What
-      // runs before you trust a folder"). CLAUDE.md and skills still load.
+      // runs before you trust a folder"). Only user-level and managed CLAUDE.md, skills
+      // and commands load; the repository's own are not loaded under this flag.
       return writeAllowed
         ? ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'acceptEdits', '--max-turns', '40', request.prompt]
         : ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '20', request.prompt];

@@ -89,11 +89,18 @@ How the checks work:
   prompt, including an `env` block, `apiKeyHelper` and hooks, which could switch a
   subscription run to the repository's own credential or endpoint after the check
   ([what runs before you trust a folder](https://code.claude.com/docs/en/permissions#what-runs-before-you-trust-a-folder)).
-  Your user and managed settings, `CLAUDE.md` and skills still apply. A repository's
-  project skills are still discovered too, and under `claude -p` a skill's hooks and
-  `allowed-tools` apply when the skill is used. A relative `CLAUDE_CONFIG_DIR`,
-  `CODEX_HOME` or `XDG_CONFIG_HOME` is made absolute against the directory Code Conductor
-  was started in, so the probe and the run read the same configuration.
+  Only your user-level and managed settings, `CLAUDE.md`, skills and commands load. The
+  repository's own `CLAUDE.md`, project skills and commands are not loaded under this
+  flag either; the task prompt asks every run to read `AGENTS.md` and the repository's
+  instructions itself
+  ([Claude Code features in the Agent SDK](https://code.claude.com/docs/en/agent-sdk/claude-code-features)).
+- **The probe and the run read the same configuration.** A relative `CLAUDE_CONFIG_DIR`,
+  `ANTHROPIC_CONFIG_DIR`, `CODEX_HOME`, `HOME` or `USERPROFILE` is made absolute against
+  the directory Code Conductor was started in, and an empty one is removed: Claude Code
+  reads an empty `CLAUDE_CONFIG_DIR` as the working directory, which for a run is the
+  repository. A relative XDG base directory (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
+  `XDG_STATE_HOME`, `XDG_CACHE_HOME`) is removed, as the XDG specification says to
+  ignore it.
 - **The same client file throughout.** The version probe, the sign-in probe and the
   launch all run the one file the command resolves to on an absolute `PATH` entry. A
   relative entry such as `node_modules/.bin`, an empty entry, or (on Windows) the working

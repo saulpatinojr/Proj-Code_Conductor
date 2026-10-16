@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -38,8 +38,36 @@ describe('provider client environment', () => {
   });
 
   it('makes relative client configuration directories absolute, so the probe and the run read the same one', () => {
-    const env = providerEnvironment({ PATH: '/usr/bin', CLAUDE_CONFIG_DIR: 'cfg', CODEX_HOME: './codex', XDG_CONFIG_HOME: '/home/me/.config' }, '/work/start');
-    expect(env).toMatchObject({ CLAUDE_CONFIG_DIR: join('/work/start', 'cfg'), CODEX_HOME: join('/work/start', 'codex'), XDG_CONFIG_HOME: '/home/me/.config' });
+    const env = providerEnvironment({ PATH: '/usr/bin', HOME: '/home/me', CLAUDE_CONFIG_DIR: 'cfg', ANTHROPIC_CONFIG_DIR: 'profiles', CODEX_HOME: './codex', XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' }, '/work/start');
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/me', CLAUDE_CONFIG_DIR: join('/work/start', 'cfg'), ANTHROPIC_CONFIG_DIR: join('/work/start', 'profiles'), CODEX_HOME: join('/work/start', 'codex'), XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' });
+  });
+
+  it('removes an empty configuration directory and a relative XDG base directory', () => {
+    // Claude Code reads an empty CLAUDE_CONFIG_DIR as its working directory: the
+    // repository during a run. The XDG specification says a relative value is ignored.
+    const env = providerEnvironment({ PATH: '/usr/bin', CLAUDE_CONFIG_DIR: '', ANTHROPIC_CONFIG_DIR: '', CODEX_HOME: '', HOME: '', XDG_CONFIG_HOME: 'cfg', XDG_DATA_HOME: './data', XDG_STATE_HOME: '', XDG_CACHE_HOME: 'cache' }, '/work/start');
+    expect(env).toEqual({ PATH: '/usr/bin' });
+  });
+
+  it.skipIf(process.platform === 'win32')('gives the sign-in probe and the run the same configuration directories', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'cc-fake-claude-'));
+    const repository = mkdtempSync(join(tmpdir(), 'cc-config-repo-'));
+    temps.push(bin, repository);
+    const log = join(bin, 'seen.log');
+    // Records, per invocation, what the client would use as its configuration directories.
+    writeFileSync(join(bin, 'claude'), `#!/bin/sh\nprintf '%s|%s|%s\\n' "$1" "\${CLAUDE_CONFIG_DIR-unset}" "\${XDG_CONFIG_HOME-unset}" >> '${log}'\n[ "$1" = auth ] && echo '{"loggedIn":true,"authMethod":"claude.ai"}'\nexit 0\n`);
+    chmodSync(join(bin, 'claude'), 0o755);
+    const claude = createBuiltinAdapters().get('claude')!;
+    const request = { cwd: repository, timeoutMs: 5_000, prompt: 'P', task: { id: 'T' }, assignment: { authority: ['observe'] } } as unknown as HarnessExecutionRequest;
+    for (const [configDir, expected] of [['', 'unset'], ['relative-cfg', join(process.cwd(), 'relative-cfg')]] as const) {
+      writeFileSync(log, '');
+      Object.assign(process.env, { PATH: `${bin}${delimiter}${saved.PATH ?? ''}`, CLAUDE_CONFIG_DIR: configDir, XDG_CONFIG_HOME: 'relative-xdg' });
+      await claude.authStatus!();
+      await claude.execute(request).catch(() => undefined);
+      const seen = readFileSync(log, 'utf8').trim().split('\n').map((line) => line.split('|'));
+      expect(seen.map(([first]) => first)).toEqual(['auth', '-p']);
+      for (const [, dir, xdg] of seen) { expect(dir).toBe(expected); expect(xdg).toBe('unset'); }
+    }
   });
 
   it('starts Claude with only user and managed settings, in both modes', () => {
