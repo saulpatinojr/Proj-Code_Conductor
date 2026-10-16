@@ -147,11 +147,13 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
       const mode = assignment?.authority?.includes('modify_worktree') ? 'modify' : 'read';
       const harness = assignment?.harness ?? result.harness;
       const kiro = harness === 'kiro' ? ` Kiro also requires --ack-kiro-policy after you read its current subscription/automation policy${mode === 'modify' ? ', and its read smoke must pass before the modify smoke' : ''}.` : '';
-      actions.push(withCommands({
-        kind: 'validate_harness', title: `Validate ${harness} for ${mode} work`,
+      const action = {
+        kind: 'validate_harness' as const, title: `Validate ${harness} for ${mode} work`,
         detail: `Sign in through the official ${harness} client first, then run the ${mode} smoke test on this workstation.${kiro}`,
-        surface: 'official_client', assignmentId: result.assignmentId, evidenceIds: [],
-      }, [['cc', 'harness-smoke', harness, '--mode', mode]]));
+        surface: 'official_client' as const, assignmentId: result.assignmentId, evidenceIds: [],
+      };
+      // The harness name comes from the run record; only a plain name goes into a command.
+      actions.push(PLAIN_ID.test(harness) ? withCommands(action, [['cc', 'harness-smoke', harness, '--mode', mode]]) : { ...action, detail: `${action.detail} (No command is shown because the harness name is not plain.)` });
       continue;
     }
     if (result.status === 'awaiting_external') {
@@ -159,7 +161,7 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
         actions.push({ kind: 'github_review', title: 'Review the change on GitHub', detail: 'GitHub review (Copilot review, required checks, branch protection) is the native gate. Push the agent branch and open a draft pull request yourself, then review there.', surface: 'github', assignmentId: result.assignmentId, evidenceIds: [] });
       } else {
         const modifies = assignment?.authority?.includes('modify_worktree');
-        const detail = `No supported unattended surface is available for this assignment. Print its exact prompt and run it yourself in the official client.${modifies ? ' It changes files: work in an isolated branch or worktree (for example `git worktree add`), never in a checkout that holds other work (AGENTS.md §6).' : ''} Bring the result back with \`cc import\` if you want it in this run store.`;
+        const detail = `No supported unattended surface is available for this assignment. Print its exact prompt and run it yourself in the official client.${modifies ? ' It changes files: work in an isolated branch or worktree (for example `git worktree add`), never in a checkout that holds other work (AGENTS.md §6).' : ''} To keep the outcome with Code Conductor's evidence, record it as a RunManifest file and bring it in with \`cc import\`.`;
         const action = { kind: 'manual_handoff' as const, title: `Complete ${label(assignment, result)} manually`, detail, surface: 'manual' as const, assignmentId: result.assignmentId, evidenceIds: [] };
         // Only plain identifiers go into a command; anything else could break out of shell quoting.
         actions.push(PLAIN_ID.test(manifest.runId) && PLAIN_ID.test(result.assignmentId)
@@ -208,7 +210,7 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
   if (manifest.mergeDecision?.decision === 'ready' && builder && !gitStopped) {
     actions.push(withCommands({
       kind: 'prepare_pull_request', title: 'Open a draft pull request',
-      detail: 'Deterministic gates and required reviews passed locally. Pushing and opening a pull request are your actions; merge remains a GitHub decision under branch protection and review.',
+      detail: 'Deterministic gates and required reviews passed locally. Pushing and opening a pull request are your actions; merge remains a GitHub decision under branch protection and review. Run gh from inside the agent worktree so it targets this repository.',
       surface: 'github', assignmentId: builder.assignmentId, path: builder.path, evidenceIds: manifest.mergeDecision.evidenceIds,
     }, [['git', '-C', builder.path, 'push', '-u', 'origin', builder.branch], ['gh', 'pr', 'create', '--draft', '--head', builder.branch, '--fill']]));
   } else if (manifest.mergeDecision?.decision === 'human_required' && !actions.some((action) => action.kind === 'approve_interactively' || action.kind === 'decide' || action.kind === 'manual_handoff' || action.kind === 'github_review' || action.kind === 'inspect_git_configuration')) {

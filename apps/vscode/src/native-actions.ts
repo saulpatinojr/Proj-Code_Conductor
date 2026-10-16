@@ -38,7 +38,7 @@ export function nativeOperation(action: NextAction, worktreeRoot: string): Nativ
   }
   if (action.commands?.length) return { type: 'copy_command', text: action.commands.map((argv) => formatCommand(argv)).join('\n') };
   // Run-record text is untrusted: one line each, with control and format characters replaced.
-  return { type: 'show', text: `${printable(action.title)}\n${printable(action.detail, 2000)}` };
+  return { type: 'show', text: `${printable(action.title, 600, false)}\n${printable(action.detail, 2000, false)}` };
 }
 
 export interface SignInHint { instructions: string; command?: string; docs?: string }

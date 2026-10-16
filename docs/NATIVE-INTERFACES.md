@@ -40,7 +40,8 @@ lists what to do next. The same list appears in `cc run` output and in the VS Co
   disclosure decision. On a terminal, control and format characters in the prompt are
   replaced; redirect stdout for the exact bytes. For an assignment that changes files, work
   in an isolated branch or worktree. The command is shown only for plain run and
-  assignment identifiers.
+  assignment identifiers. To keep the outcome with Code Conductor's evidence, record it as
+  a RunManifest file and bring it in with `cc import`.
 - **Fix validation / Resolve findings**: links to the gate and finding evidence.
 - **Open a draft pull request**: shown only when the run is `ready` and the builder
   committed changes.
@@ -50,6 +51,7 @@ VS Code views print each value on one line, with control, bidirectional and zero
 characters replaced. A record therefore cannot rewrite the terminal or add a step or a
 command line. Commands are built by Code Conductor from argument vectors and quoted for
 the shell you paste into: POSIX shells, or PowerShell on Windows (shown as `PS>`).
+cmd.exe is not a supported paste target, because it does not treat single quotes as quoting.
 A command with a value that cannot be shown exactly is left out, and the step says so.
 `cc next --json` includes each command's exact `argv`.
 

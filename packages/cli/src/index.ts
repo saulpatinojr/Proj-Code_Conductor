@@ -17,6 +17,7 @@ import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@cod
 import { githubAuthStatus, pullRequestChecks, pullRequestStatus } from '@code-conductor/github-gate';
 import { ContextOptimizer } from '@code-conductor/context-optimizer';
 import { TerminalApprover } from './approval-prompt.js';
+import { terminalText } from './terminal-text.js';
 
 const VERSION = '0.1.0';
 function hasCommand(command: string): boolean { const probe = process.platform === 'win32' ? 'where' : 'which'; return spawnSync(probe, [command], { stdio: 'ignore' }).status === 0; }
@@ -219,7 +220,9 @@ function nextCommand(args: string[]): number {
     if (!actions.length) console.log(manifest.mergeDecision ? 'No further step is needed from you for this run.' : 'No next action recorded. Dry-run plans execute nothing; use `cc run --execute` from an interactive terminal.');
     const prompt = DEFAULT_SHELL === 'powershell' ? 'PS>' : '$';
     for (const [index, action] of actions.entries()) {
-      console.log(`\n${index + 1}. ${printable(action.title)} [${action.surface}]\n   ${printable(action.detail, 2000)}`);
+      // Titles and details mix Code Conductor's text with record values; control and format
+      // characters are replaced, and non-ASCII (such as its own separators) is kept readable.
+      console.log(`\n${index + 1}. ${printable(action.title, 600, false)} [${action.surface}]\n   ${printable(action.detail, 2000, false)}`);
       if (action.path) console.log(`   path: ${printable(action.path)}`);
       for (const command of action.commands ?? []) console.log(`   ${prompt} ${printable(formatCommand(command), 4000, false)}`);
     }
@@ -240,10 +243,9 @@ function handoff(args: string[]): number {
     if (!process.stdout.isTTY) { process.stdout.write(`${text}\n`); return 0; }
     // On a terminal, untrusted task text must not drive it: each line is shown with
     // control and format characters replaced. Redirect stdout for the exact bytes.
-    const lines = text.split('\n');
-    const shown = lines.map((line) => printable(line, Number.MAX_SAFE_INTEGER, false));
-    console.log(shown.join('\n'));
-    if (shown.some((line, index) => line !== lines[index])) console.error('Some characters were replaced with "?" for display. Redirect the output (cc handoff … > prompt.txt) to get the exact prompt.');
+    const shown = terminalText(text);
+    console.log(shown.text);
+    if (shown.replaced) console.error('Some characters were replaced with "?" for display. Redirect the output (cc handoff … > prompt.txt) to get the exact prompt.');
     return 0;
   } catch (error) { console.error(`ERROR handoff.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
 }

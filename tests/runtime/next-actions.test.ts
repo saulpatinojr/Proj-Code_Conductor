@@ -132,6 +132,14 @@ describe('next actions', () => {
     expect(action?.detail).toContain('isolated branch or worktree');
   });
 
+  it('leaves out the smoke-test command for a harness name that is not plain', () => {
+    const odd = assignment('A-8', 'builder', 'x&calc&rem');
+    const [action] = nextActions(manifest({ assignments: [odd], results: [result(odd, { status: 'blocked', blockers: ['Harness x&calc&rem surface cli has not passed Code Conductor workstation read smoke validation.'] })] }));
+    expect(action?.kind).toBe('validate_harness');
+    expect(action?.commands).toBeUndefined();
+    expect(action?.detail).toContain('harness name is not plain');
+  });
+
   it('reminds that Kiro modify smoke needs its read smoke first', () => {
     const kiro = assignment('A-7', 'builder', 'kiro', ['observe', 'modify_worktree']);
     const [action] = nextActions(manifest({ assignments: [kiro], results: [result(kiro, { status: 'blocked', blockers: ['Harness kiro surface acp has not passed Code Conductor workstation modify smoke validation.'] })] }));

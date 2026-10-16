@@ -111,8 +111,8 @@ function runItems(): ItemSpec[] {
     const decision = manifest.mergeDecision?.decision ?? 'planned';
     return {
       label: name,
-      description: printable(`${decision}${actions[0] ? ` · next: ${actions[0].title}` : ''}`, 200),
-      tooltip: [manifest.task.objective, manifest.mergeDecision?.rationale, ...actions.map((action) => `• ${action.title}`)].filter((line): line is string => Boolean(line)).map((line) => printable(line, 600)).join('\n'),
+      description: `${printable(decision, 40)}${actions[0] ? ` · next: ${printable(actions[0].title, 160, false)}` : ''}`,
+      tooltip: [manifest.task.objective, manifest.mergeDecision?.rationale].filter((line): line is string => Boolean(line)).map((line) => printable(line, 600, false)).concat(actions.map((action) => `• ${printable(action.title, 200, false)}`)).join('\n'),
       icon: decision === 'ready' ? 'pass' : decision === 'planned' ? 'run-all' : decision === 'human_required' ? 'person' : 'warning',
       command: { command: 'codeConductor.nextActions', title: 'Show next actions', arguments: [name] },
     };
@@ -224,7 +224,7 @@ async function performNextAction(context: vscode.ExtensionContext, action: NextA
       // Shown in a modal (non-modal messages do not show their detail) before anything is
       // copied, so the person sees the exact command they will paste.
       const shell = process.platform === 'win32' ? 'PowerShell' : 'a POSIX shell';
-      const choice = await vscode.window.showInformationMessage(`${printable(action.title, 200)}: copy this command for ${shell}? Run it yourself; Code Conductor does not run it for you.`, { detail: printable(operation.text, 4000, false), modal: true }, 'Copy');
+      const choice = await vscode.window.showInformationMessage(`${printable(action.title, 200)}: copy this command for ${shell}? Run it yourself; Code Conductor does not run it for you.`, { detail: operation.text.split('\n').map((line) => printable(line, 2000, false)).join('\n'), modal: true }, 'Copy');
       if (choice === 'Copy') await vscode.env.clipboard.writeText(operation.text);
       return;
     }
@@ -240,8 +240,8 @@ async function showNextActions(context: vscode.ExtensionContext, runId: unknown)
   let actions: NextAction[];
   try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); }
   catch { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`cc next --run ${runId}\` in a terminal.`); return; }
-  if (!actions.length) { await vscode.window.showInformationMessage(`${runId}: ${printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600)}`); return; }
-  const picked = await vscode.window.showQuickPick(actions.map((action) => ({ label: printable(action.title, 200), detail: printable(action.detail, 600), description: action.surface.replace('_', ' '), action })), { placeHolder: `${runId}: ${printable(manifest.mergeDecision?.decision ?? 'planned', 40)}`, matchOnDetail: true });
+  if (!actions.length) { await vscode.window.showInformationMessage(`${runId}: ${printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600, false)}`); return; }
+  const picked = await vscode.window.showQuickPick(actions.map((action) => ({ label: printable(action.title, 200, false), detail: printable(action.detail, 600, false), description: action.surface.replace('_', ' '), action })), { placeHolder: `${runId}: ${printable(manifest.mergeDecision?.decision ?? 'planned', 40)}`, matchOnDetail: true });
   if (picked) await performNextAction(context, picked.action);
 }
 
