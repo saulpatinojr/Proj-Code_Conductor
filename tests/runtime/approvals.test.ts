@@ -461,6 +461,39 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 
+  it.each([['kept', true], ['cleanup requested', false]])('stops before running Git in a repository a provider nested in its worktree, so its filter never runs (worktrees %s)', async (_label, keepWorktrees) => {
+    const marker = join(mkdtempSync(join(tmpdir(), 'cc-nested-marker-')), 'ran');
+    temps.push(join(marker, '..'));
+    class Nester extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          // A committed gitlink to a repository whose own configuration runs a program
+          // whenever Git re-reads its file (status and add enter checked-out submodules).
+          const nested = join(request.cwd, 'vendor-lib');
+          git(request.cwd, 'init', '-q', 'vendor-lib');
+          writeFileSync(join(nested, 'lib.txt'), 'lib\n');
+          git(nested, 'add', 'lib.txt');
+          git(nested, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'lib');
+          git(nested, 'config', 'filter.x.clean', `touch '${marker}'; cat`);
+          writeFileSync(join(nested, '.git', 'info', 'attributes'), '* filter=x\n');
+          git(request.cwd, 'add', 'vendor-lib');
+          git(request.cwd, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'gitlink');
+          const later = new Date(Date.now() + 5000);
+          utimesSync(join(nested, 'lib.txt'), later, later);
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new Nester('codex', 'openai'), keepWorktrees });
+    const builder = outcome.manifest.results[0];
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(outcome.worktrees[0]!.path)).toBe(true);
+    expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
+    expect(builder?.blockers.join(' ')).toContain('repositories nested in the work tree');
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+  });
+
   it('leads commit summaries with how many files can change what later runs', async () => {
     class ConfigFiles extends CountingAdapter {
       override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {

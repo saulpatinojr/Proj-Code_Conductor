@@ -24,7 +24,7 @@ describe('GitHub gate helpers', () => {
       const result = githubAuthStatus(resolve('.'));
       expect(result.ok).toBe(false);
       expect(result.status).toBeNull();
-      expect(result.stderr).toMatch(/ENOENT|spawnSync gh/i);
+      expect(result.stderr).toContain('command `gh` not found on PATH');
     } finally {
       if (originalPath === undefined) delete process.env.PATH;
       else process.env.PATH = originalPath;
@@ -35,13 +35,24 @@ describe('GitHub gate helpers', () => {
     const calls: string[][] = [];
     const run: GhRunner = (_cwd, args) => { calls.push(args); return { ok: true, status: 0, stdout: '{}', stderr: '' }; };
     pullRequestStatus('.', '7', run);
-    expect(calls[0]?.slice(0, 3)).toEqual(['pr', 'view', '7']);
-    expect(calls[0]?.at(-1)).toContain('statusCheckRollup');
+    expect(calls[0]?.slice(0, 3)).toEqual(['pr', 'view', '--json']);
+    expect(calls[0]?.[3]).toContain('statusCheckRollup');
+    // A selector is never read as a gh option.
+    expect(calls[0]?.slice(-2)).toEqual(['--', '7']);
+    pullRequestStatus('.', '--web', run);
+    expect(calls[1]?.slice(-2)).toEqual(['--', '--web']);
   });
 
   it('is ready only when every native signal is green', () => {
     const summary = summarizePullRequest(green);
     expect(summary).toMatchObject({ ready: true, blockers: [], checks: { passed: 2, total: 2 } });
+  });
+
+  it('is never ready with non-passing commit status or an unreported draft state', () => {
+    // GitHub: UNSTABLE is "mergeable with non-passing commit status", which the check list can miss.
+    expect(summarizePullRequest({ ...green, mergeStateStatus: 'UNSTABLE' })).toMatchObject({ ready: false, blockers: ['Merge state is UNSTABLE.'] });
+    const { isDraft: _isDraft, ...unreported } = green;
+    expect(summarizePullRequest(unreported)).toMatchObject({ ready: false, draft: true, blockers: ['Draft state is not reported.'] });
   });
 
   it('reports failed and pending checks, drafts, stale approvals and blocked merge state', () => {

@@ -50,7 +50,7 @@ describe('git helpers', () => {
     const originalPath = process.env.PATH;
     process.env.PATH = '';
     try {
-      expect(() => resolveRepositoryRoot('.')).toThrow(/ENOENT|failed to start|spawnSync git/i);
+      expect(() => resolveRepositoryRoot('.')).toThrow('Git was not found on an absolute PATH entry');
     } finally {
       if (originalPath === undefined) delete process.env.PATH;
       else process.env.PATH = originalPath;

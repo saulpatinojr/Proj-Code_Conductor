@@ -1,10 +1,12 @@
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { createHash, randomUUID } from 'node:crypto';
-import { accessSync, constants, existsSync, readdirSync, statSync } from 'node:fs';
-import { delimiter, isAbsolute, join, relative } from 'node:path';
-import { runIsolated } from '@code-conductor/core/processes';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { isAbsolute, join, relative } from 'node:path';
+import { absolutePathEnvironment, resolveExecutable, runIsolated } from '@code-conductor/core/processes';
 import { gateCommandProblem, loadConfiguration } from '@code-conductor/policy';
 import type { Evidence, GateResult } from '@code-conductor/schemas';
+
+export { absolutePathEnvironment, resolveExecutable, type ResolvedExecutable } from '@code-conductor/core/processes';
 
 export interface GateDefinition {
   id: string;
@@ -76,48 +78,6 @@ const MAX_CAPTURE = 4 * 1024 * 1024;
  */
 async function defaultExecutor(cwd: string, _command: string, args: string[], timeoutMs: number, executable: string): Promise<CommandOutcome> {
   return runIsolated(executable, args, { cwd, env: absolutePathEnvironment(), timeoutMs, maxBytes: MAX_CAPTURE });
-}
-
-/**
- * The environment gate processes see, with PATH reduced to its absolute entries: tools a
- * gate starts itself (for example `#!/usr/bin/env node` in npm) follow the same rule as
- * the gate command, so nothing is found through the current directory or a relative entry.
- */
-export function absolutePathEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const result = { ...env };
-  for (const key of Object.keys(result).filter((name) => name.toUpperCase() === 'PATH')) {
-    result[key] = (result[key] ?? '').split(delimiter).filter((entry) => entry && isAbsolute(entry)).join(delimiter);
-  }
-  return result;
-}
-
-export interface ResolvedExecutable { path?: string; problem?: string }
-
-/**
- * The absolute file a plain command name resolves to, searching absolute PATH entries
- * only: never the current directory, an empty entry or a relative entry, which the
- * repository under validation could control. On Windows only .exe and .com files run
- * without a shell; a batch shim (.cmd/.bat, as npm, pnpm and yarn install) would need
- * cmd.exe and is reported as unsupported instead of being run.
- */
-export function resolveExecutable(command: string, env: NodeJS.ProcessEnv = process.env): ResolvedExecutable {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) return { problem: `\`${command}\` is not a plain command name` };
-  const windows = process.platform === 'win32';
-  const runnable = windows ? ['.exe', '.com'] : [''];
-  let batch: string | undefined;
-  for (const directory of (env.PATH ?? env.Path ?? '').split(delimiter)) {
-    if (!directory || !isAbsolute(directory)) continue;
-    for (const extension of runnable) {
-      const candidate = join(directory, `${command}${extension}`);
-      try {
-        if (!statSync(candidate).isFile()) continue;
-        if (!windows) accessSync(candidate, constants.X_OK);
-        return { path: candidate };
-      } catch { /* keep looking */ }
-    }
-    if (windows) for (const extension of ['.cmd', '.bat']) { try { if (statSync(join(directory, `${command}${extension}`)).isFile()) batch ??= `${command}${extension}`; } catch { /* keep looking */ } }
-  }
-  return { problem: batch ? `\`${command}\` is a batch script (${batch}), which cannot run without cmd.exe; it is not supported as a gate on Windows` : `command \`${command}\` not found on PATH` };
 }
 
 /** Whether a plain command resolves to an executable on an absolute PATH entry (no `which`, no shell). */

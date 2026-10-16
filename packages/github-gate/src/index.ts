@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { resolveExecutable } from '@code-conductor/core/processes';
 
 export interface GitHubCommandResult {
   ok: boolean;
@@ -10,8 +11,12 @@ export interface GitHubCommandResult {
 /** Runs the official GitHub CLI; authentication stays with `gh auth`. */
 export type GhRunner = (cwd: string, args: string[]) => GitHubCommandResult;
 
+// gh is resolved from absolute PATH entries only, so a `gh` in the working directory
+// (on Windows, a bare name is looked up there first) never runs with the person's token.
 export const gh: GhRunner = (cwd, args) => {
-  const result = spawnSync('gh', args, { cwd, encoding: 'utf8', shell: false, timeout: 60_000, windowsHide: true });
+  const executable = resolveExecutable('gh');
+  if (!executable.path) return { ok: false, status: null, stdout: '', stderr: executable.problem ?? 'gh not found' };
+  const result = spawnSync(executable.path, args, { cwd, encoding: 'utf8', shell: false, timeout: 60_000, windowsHide: true });
   const stderr = [result.stderr || '', result.error?.message || ''].filter(Boolean).join('\n');
   return { ok: result.status === 0, status: result.status, stdout: result.stdout || '', stderr };
 };
@@ -26,7 +31,8 @@ export function githubAuthStatus(cwd: string, run: GhRunner = gh): GitHubCommand
 const PR_FIELDS = 'number,url,state,isDraft,headRefName,headRefOid,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,reviews';
 
 export function pullRequestStatus(cwd: string, selector?: string, run: GhRunner = gh): GitHubCommandResult {
-  return run(cwd, ['pr', 'view', ...(selector ? [selector] : []), '--json', PR_FIELDS]);
+  // After --, a selector that starts with a dash is a selector, never a gh option.
+  return run(cwd, ['pr', 'view', '--json', PR_FIELDS, ...(selector ? ['--', selector] : [])]);
 }
 
 export interface CheckSummary { name: string; state: 'passed' | 'failed' | 'pending'; url?: string }
@@ -69,18 +75,19 @@ export function summarizePullRequest(value: unknown): PullRequestSummary {
   const failed = checks.filter((item) => item.state === 'failed');
   const pending = checks.filter((item) => item.state === 'pending');
   const summary: PullRequestSummary = {
-    number: typeof pr.number === 'number' ? pr.number : 0, url: text(pr.url), state: text(pr.state), draft: pr.isDraft === true,
+    number: typeof pr.number === 'number' ? pr.number : 0, url: text(pr.url), state: text(pr.state), draft: pr.isDraft !== false,
     head: text(pr.headRefName), headSha, base: text(pr.baseRefName), mergeState: text(pr.mergeStateStatus) || 'UNKNOWN', reviewDecision: text(pr.reviewDecision) || 'NONE',
     checks: { passed: checks.length - failed.length - pending.length, failed, pending, total: checks.length }, reviews, ready: false, blockers: [],
   };
   if (summary.state !== 'OPEN') summary.blockers.push(`Pull request is ${summary.state || 'in an unknown state'}.`);
-  if (summary.draft) summary.blockers.push('Pull request is a draft.');
+  if (summary.draft) summary.blockers.push(pr.isDraft === true ? 'Pull request is a draft.' : 'Draft state is not reported.');
   if (!checks.length) summary.blockers.push('No checks reported for the head commit.');
   if (failed.length) summary.blockers.push(`${failed.length} check(s) failed: ${failed.map((item) => item.name).join(', ')}.`);
   if (pending.length) summary.blockers.push(`${pending.length} check(s) pending: ${pending.map((item) => item.name).join(', ')}.`);
   if (summary.reviewDecision !== 'APPROVED') summary.blockers.push(`Review decision is ${summary.reviewDecision}.`);
   if (reviews.some((review) => review.state === 'APPROVED' && review.stale === true)) summary.blockers.push('An approval was given on an earlier commit; re-review the current head.');
-  if (!['CLEAN', 'HAS_HOOKS', 'UNSTABLE'].includes(summary.mergeState)) summary.blockers.push(`Merge state is ${summary.mergeState}.`);
+  // UNSTABLE is "mergeable with non-passing commit status", which a check list can miss.
+  if (!['CLEAN', 'HAS_HOOKS'].includes(summary.mergeState)) summary.blockers.push(`Merge state is ${summary.mergeState}.`);
   summary.ready = summary.blockers.length === 0;
   return summary;
 }

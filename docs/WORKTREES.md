@@ -23,7 +23,8 @@ repository hooks. Before asking, it refuses two kinds of change:
 
 - **Sensitive paths**, such as `.env`, private keys and Terraform state, anywhere in the
   change set.
-- **New credential-looking strings** in changed files: private keys (including PGP) and
+- **New credential-looking strings** in changed files, or in the names of new files and
+  directories: private keys (including PGP) and
   AWS, GitHub, GitLab, npm, Slack, Google, Anthropic, OpenAI, Perplexity, Hugging Face,
   Stripe and Azure storage key formats. Every changed file is read in full, whether text,
   binary or UTF-16 (with a byte-order mark), and whatever its name. Compressed content
@@ -82,6 +83,34 @@ clean filters its configuration defines. So nothing is checked or removed in two
 
 A worktree that was never used, because its start was not approved, is removed together
 with its empty branch, unless Git configuration had already changed.
+
+## Nested repositories
+
+Git enters a repository nested in a work tree: `git status`, `git add` and `git diff` run
+inside a checked-out submodule, under that repository's own configuration, filters
+included. An agent could therefore plant a repository whose configuration runs its
+program the moment Code Conductor checks the worktree, outside the provider's sandbox.
+So:
+
+- New agent worktrees never get submodules checked out (`submodule.recurse=false`).
+- The control state compared during a run includes every nested repository Git would
+  enter (a checked-out gitlink, or an untracked repository that `git add --all` would
+  record as one) and its configuration. They are listed with `git ls-files` and
+  `git ls-tree`, which never enter them. One that appears or changes stops the run like
+  any other configuration change. Nesting deeper than three levels is reported as
+  unreadable and stops the run too.
+- `cc worktrees` and cleanup keep a worktree that contains one (`KEEP … nested Git
+  repository`), without checking its content.
+- `git status` runs with `--ignore-submodules=all` everywhere, and a push never recurses
+  into submodules.
+
+Repositories nested in your own checkout before a run (your submodules) are yours:
+their configuration is part of the run's starting state, and changing it during the run
+stops the run.
+
+Every Code Conductor Git call uses `git` from an absolute `PATH` entry, never one found in
+the worktree it runs in: on Windows a bare program name is looked up in the working
+directory first, and on POSIX an empty or relative `PATH` entry does the same.
 
 ## Provider environment
 

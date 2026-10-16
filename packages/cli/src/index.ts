@@ -381,18 +381,19 @@ async function pullRequestCommand(args: string[]): Promise<number> {
   }
   try {
     const manifest = storedManifest(store, runId);
-    if (!args.includes('--create')) {
+    const preview = !args.includes('--create');
+    if (preview && args.includes('--json')) { const plan = planPullRequest(manifest, options); console.log(terminalSafeJson(plan)); return plan.refusals.length ? 1 : 0; }
+    if (!preview && !hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
+    // The preview is shown before --create asks too: the approval names the text only by its digest.
+    if (!args.includes('--json')) {
       const plan = planPullRequest(manifest, options);
-      if (args.includes('--json')) { console.log(terminalSafeJson(plan)); return plan.refusals.length ? 1 : 0; }
       // Run records and Git output are untrusted text: one line each, with control and format characters replaced.
-      console.log(`Draft pull request preview for run ${printable(plan.runId)}, assignment ${printable(plan.assignmentId)}:\n  push ${plan.head} (${plan.commits.length} commit(s), ${plan.files.length} file(s)) to ${printable(plan.remote)} ${printable(plan.pushUrl)} as ${printable(plan.branch)}\n  open a draft in ${printable(plan.repository || 'an unrecognized repository')} into ${printable(plan.base)}: ${printable(plan.title)}`);
+      console.log(`Draft pull request ${preview ? 'preview' : 'to approve'} for run ${printable(plan.runId)}, assignment ${printable(plan.assignmentId)}:\n  push ${plan.head} (${plan.commits.length} commit(s), ${plan.files.length} file(s)) to ${printable(plan.remote)} ${printable(plan.pushUrls.join(', '))} as ${printable(plan.branch)}, and nothing else\n  open a draft in ${printable(plan.repository || 'an unrecognized repository')} into ${printable(plan.base)}: ${printable(plan.title)}`);
       if (plan.uncommitted.length) console.log(`  not included (uncommitted): ${printable(plan.uncommitted.join(', '), 2000)}`);
-      console.log(`\n${terminalText(plan.body).text}\n`);
+      console.log(`\n${terminalText(plan.body).text}\n\nPull request text sha256 ${plan.textDigest.slice(0, 16)}${plan.redacted ? `; ${plan.redacted} credential-looking string(s) replaced` : ''}.`);
       if (plan.refusals.length) { console.log(`REFUSED:\n${plan.refusals.map((item) => `  - ${printable(item, 2000)}`).join('\n')}`); return 1; }
-      console.log('Nothing was pushed. Re-run with --create in an interactive terminal to push and open this draft after approving it.');
-      return 0;
+      if (preview) { console.log('Nothing was pushed. Re-run with --create in an interactive terminal to push and open this draft after approving it.'); return 0; }
     }
-    if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
     const outcome = await openDraftPullRequest(manifest, options, { gh, approver: new TerminalApprover(), store });
     if (args.includes('--json')) console.log(terminalSafeJson({ status: outcome.status, url: outcome.url, blocker: outcome.blocker, approvals: outcome.approvals }));
     else if (outcome.status === 'created') console.log(`Draft pull request opened: ${printable(outcome.url ?? '(gh did not print a URL)')}\nCheck it with: cc github-gate --pr ${printable(outcome.url ?? outcome.plan?.branch ?? '')}`);

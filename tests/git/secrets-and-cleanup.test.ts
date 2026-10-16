@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { agentWorktreeRemovalProblem, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
+import { agentWorktreeRemovalProblem, gitControlState, gitHead, nestedRepositories, pushCommit, redactUrl, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
 import { rewriteKeepingTimes } from '../runtime/fixtures.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -178,5 +178,90 @@ describe('explicit worktree cleanup', () => {
     removeCleanAgentWorktree(handle.path, root, handle.branch);
     expect(existsSync(handle.path)).toBe(false);
     expect(git(join(base, 'repo'), 'branch', '--list', handle.branch)).toContain(handle.branch);
+  });
+});
+
+describe('repositories nested in an agent worktree (#35 review)', () => {
+  // A repository inside the worktree whose own configuration runs a program whenever Git
+  // re-reads its file; `committed` records it as a gitlink, as a submodule would be.
+  function nest(worktree: string, committed: boolean, marker: string): void {
+    const nested = join(worktree, 'vendor-lib');
+    git(worktree, 'init', '-q', 'vendor-lib');
+    writeFileSync(join(nested, 'lib.txt'), 'lib\n');
+    git(nested, 'add', 'lib.txt'); commit(nested, 'lib');
+    git(nested, 'config', 'filter.x.clean', `touch '${marker}'; cat`);
+    writeFileSync(join(nested, '.git', 'info', 'attributes'), '* filter=x\n');
+    if (committed) { git(worktree, 'add', 'vendor-lib'); commit(worktree, 'gitlink'); }
+    const later = new Date(Date.now() + 5000);
+    utimesSync(join(nested, 'lib.txt'), later, later);
+  }
+
+  it.each([['committed as a gitlink', true], ['untracked', false]])('lists a nested repository (%s) without entering it, and never removes its worktree', (_label, committed) => {
+    const { base, root, handle } = setup();
+    const marker = join(base, 'nested-filter-ran');
+    nest(handle.path, committed, marker);
+    expect(nestedRepositories(handle.path)).toEqual(['vendor-lib']);
+    expect(agentWorktreeRemovalProblem(handle.path, root, handle.branch)).toContain('a nested Git repository (vendor-lib), which Code Conductor runs no Git in');
+    expect(() => removeCleanAgentWorktree(handle.path, root, handle.branch)).toThrow('nested Git repository');
+    expect(existsSync(handle.path)).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('ignores gitlinks that are not checked out and repositories Git ignores', () => {
+    const { handle } = setup();
+    git(handle.path, 'update-index', '--add', '--cacheinfo', `160000,${handle.baseSha},empty-submodule`);
+    writeFileSync(join(handle.path, '.gitignore'), 'cache/\n');
+    mkdirSync(join(handle.path, 'cache'));
+    git(join(handle.path, 'cache'), 'init', '-q', 'tool');
+    expect(nestedRepositories(handle.path)).toEqual([]);
+  });
+
+  it('counts a nested repository and its configuration as control state', () => {
+    const { base, handle } = setup();
+    const before = gitControlState(handle.path);
+    nest(handle.path, true, join(base, 'unused'));
+    const nested = gitControlState(handle.path);
+    expect(nested?.worktree).not.toBe(before?.worktree);
+    expect(nested?.shared).toBe(before?.shared);
+    git(join(handle.path, 'vendor-lib'), 'config', 'core.sshCommand', 'planted');
+    expect(gitControlState(handle.path)?.worktree).not.toBe(nested?.worktree);
+  });
+});
+
+describe('Git processes and pushes (#35 review)', () => {
+  it.skipIf(process.platform === 'win32')('never runs a git found through a relative or empty PATH entry', () => {
+    const { base, handle } = setup();
+    const marker = join(base, 'planted-git-ran');
+    writeFileSync(join(handle.path, 'git'), `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
+    chmodSync(join(handle.path, 'git'), 0o755);
+    const saved = process.env.PATH;
+    try {
+      for (const path of [`.${delimiter}${saved ?? ''}`, `${delimiter}${saved ?? ''}`]) {
+        process.env.PATH = path;
+        expect(gitHead(handle.path)).toBe(handle.baseSha);
+      }
+    } finally { process.env.PATH = saved; }
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('pushes over HTTPS or SSH only, unless told otherwise', () => {
+    const { base, handle } = setup();
+    const remote = join(base, 'remote.git');
+    git(base, 'init', '-q', '--bare', remote);
+    expect(() => pushCommit(handle.path, remote, handle.baseSha, handle.branch)).toThrow(/transport 'file' not allowed/);
+    expect(git(remote, 'for-each-ref')).toBe('');
+    pushCommit(handle.path, remote, handle.baseSha, handle.branch, ['file']);
+    expect(git(remote, 'for-each-ref', '--format=%(refname)')).toBe(`refs/heads/${handle.branch}`);
+  });
+
+  it('shows remote URLs without credentials, even when they cannot be parsed', () => {
+    const token = ['ghp', '_', 'z'.repeat(36)].join('');
+    expect(redactUrl(`https://user:${token}@github.com/octo/widgets.git`)).toBe('https://github.com/octo/widgets.git');
+    expect(redactUrl(`https://github.com/octo/widgets.git?access_token=${token}#frag`)).toBe('https://github.com/octo/widgets.git');
+    expect(redactUrl('https://user:pa#ss@github.com/octo/widgets.git')).toBe('https://[redacted]@github.com/octo/widgets.git');
+    expect(redactUrl('https://user:secret@github.com:99999/octo/widgets.git')).toBe('https://[redacted]@github.com:99999/octo/widgets.git');
+    expect(redactUrl(`${token}@github.com:octo/widgets.git`)).toBe('[redacted]@github.com:octo/widgets.git');
+    expect(redactUrl(`/srv/${token}/widgets.git`)).toBe('/srv/[redacted GitHub token]/widgets.git');
+    expect(redactUrl('git@github.com:octo/widgets.git')).toBe('[redacted]@github.com:octo/widgets.git');
   });
 });
