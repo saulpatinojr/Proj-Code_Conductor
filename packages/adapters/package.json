@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.4.0",
+    "@agentclientprotocol/sdk": "1.8.0",
     "@code-conductor/schemas": "0.1.0",
     "zod": "4.6.5"
   }
