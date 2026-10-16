@@ -63,6 +63,16 @@ export class RunStore {
     return target;
   }
 
+  /** Stored run ids, newest manifest first. */
+  listRunIds(): string[] {
+    if (!existsSync(this.root)) return [];
+    return readdirSync(this.root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(this.root, entry.name, 'manifest.json')))
+      .map((entry) => ({ name: entry.name, mtime: statSync(join(this.root, entry.name, 'manifest.json')).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+      .map((entry) => entry.name);
+  }
+
   /** Most recently written run manifest, if any. */
   latestRunId(): string | undefined {
     let entries;

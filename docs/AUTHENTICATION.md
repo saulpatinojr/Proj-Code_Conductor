@@ -57,7 +57,7 @@ AWS                  authenticated / unavailable
 GCP                  authenticated / unavailable
 ```
 
-Potential billing-changing environment variables should trigger warnings, for example API-key variables for AI providers when repository policy is `subscription_first` and `allow_separately_billed_api: false`.
+Potential billing-changing environment variables should trigger warnings, for example API-key variables for AI providers when repository policy is `subscription_first` and `allow_separately_billed_api: false`. Code Conductor also removes these variables from the environment of the provider clients it starts (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `PERPLEXITY_API_KEY`, `KIRO_API_KEY`), so subscription clients are not silently switched to metered API billing ([`WORKTREES.md`](WORKTREES.md)).
 
 The diagnostic MUST print variable names/status only, never secret values.
 

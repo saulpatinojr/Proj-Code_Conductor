@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/pol
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, printable, importRunManifest, nextActions, planTask, parseAgentResult, type NextAction } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
-import { defaultWorktreeRoot } from '@code-conductor/git';
+import { defaultWorktreeRoot, gitChangedFiles, removeCleanAgentWorktree } from '@code-conductor/git';
 import { assertContract, type RunManifest } from '@code-conductor/schemas';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
@@ -101,7 +101,7 @@ function doctor(root: string): number {
   }
 
   for (const [key, record] of Object.entries(state.harnesses)) console.log(`TRUST ${key}: read=${Boolean(record.readValidatedAt || record.modifyValidatedAt)} modify=${Boolean(record.modifyValidatedAt)} version=${record.clientVersion ?? 'unknown'}`);
-  for (const variable of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY']) if (process.env[variable]) console.log(`WARN billing.api_credential_detected: ${variable} is set; subscription-first policy may be bypassed. Value is intentionally not displayed.`);
+  for (const variable of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY']) if (process.env[variable]) console.log(`WARN billing.api_credential_detected: ${variable} is set in this shell; Code Conductor removes it from provider processes (subscription-first), but other tools may still use it. Value is intentionally not displayed.`);
   if (hasCommand('gh')) console.log(`${githubAuthStatus(root).ok ? 'OK' : 'WARN'} github-auth`);
   if (hasCommand('apm')) { console.log(`${apmTargets(root).ok ? 'OK' : 'WARN'} apm-targets`); console.log(`${apmLockPresent(root) ? 'OK' : 'WARN'} apm-lock`); }
   const inventory = inventoryNativeCustomizations(root);
@@ -230,6 +230,33 @@ function nextCommand(args: string[]): number {
   } catch (error) { console.error(`ERROR next.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
 }
 
+function worktreesCommand(args: string[]): number {
+  const store = new RunStore();
+  const root = defaultWorktreeRoot();
+  const removeClean = args.includes('--remove-clean');
+  const only = getOption(args, '--run');
+  const seen = new Set<string>();
+  let failures = 0;
+  for (const runId of only ? [only] : store.listRunIds()) {
+    let manifest: RunManifest;
+    try { manifest = storedManifest(store, runId); } catch { continue; }
+    for (const record of manifest.worktrees ?? []) {
+      if (seen.has(record.path) || !existsSync(record.path)) continue;
+      seen.add(record.path);
+      const dirty = (() => { try { return gitChangedFiles(record.path).length > 0; } catch { return true; } })();
+      if (removeClean && !dirty) {
+        try { removeCleanAgentWorktree(record.path, root); console.log(`REMOVED ${record.path} (branch ${record.branch} and its commits kept)`); }
+        catch (error) { failures += 1; console.log(`KEPT ${record.path}: ${error instanceof Error ? error.message : String(error)}`); }
+        continue;
+      }
+      console.log(`${dirty ? 'DIRTY' : 'CLEAN'} ${record.path} branch=${record.branch} base=${record.baseSha.slice(0, 12)} run=${manifest.runId}`);
+    }
+  }
+  if (!seen.size) console.log('No Code Conductor agent worktrees recorded in stored runs.');
+  else if (!removeClean) console.log('Worktrees are kept until you remove them. `cc worktrees --remove-clean` removes only clean ones and keeps their branches; review dirty ones in Source Control first.');
+  return failures ? 1 : 0;
+}
+
 function handoff(args: string[]): number {
   const runId = getOption(args, '--run'); const assignmentId = getOption(args, '--assignment');
   if (!runId || !assignmentId) { console.error('Usage: cc handoff --run <runId> --assignment <assignmentId>'); return 2; }
@@ -281,7 +308,7 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.'); }
+function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (clean/dirty, branch, base). Worktrees are kept by default; --remove-clean removes only clean ones and keeps their branches and commits.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
@@ -296,6 +323,7 @@ switch (command) {
   case 'import': exitCode = importRun(args); break;
   case 'next': exitCode = nextCommand(args); break;
   case 'handoff': exitCode = handoff(args); break;
+  case 'worktrees': exitCode = worktreesCommand(args); break;
   case 'apm-audit': exitCode = apmCheck(args[0]); break;
   case 'github-gate': exitCode = githubGate(args); break;
   case 'context-stats': exitCode = contextStats(); break;

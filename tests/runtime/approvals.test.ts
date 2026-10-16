@@ -496,4 +496,36 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.results.at(-1)?.blockers[0]).toContain('Unknown gate profile: no-such-profile');
     expect(outcome.manifest.mergeDecision?.decision).toBe('changes_required');
   });
+
+  it('refuses to commit new credential-looking content and preserves it uncommitted', async () => {
+    class LeakyBuilder extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') writeFileSync(join(request.cwd, 'deploy.ts'), `export const key = '${['AKIA', 'Q3EXAMPLEKEY12345'].join('').slice(0, 20)}';\n`);
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new LeakyBuilder('codex', 'openai') });
+    const worktree = outcome.worktrees[0]!;
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+    expect(outcome.manifest.results[0]?.status).toBe('blocked');
+    expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain('deploy.ts:1 AWS access key id');
+    expect(git(worktree.path, 'rev-parse', 'HEAD')).toBe(worktree.baseSha);
+    expect(git(worktree.path, 'status', '--porcelain')).toContain('deploy.ts');
+  });
+
+  it('cleans up only clean worktrees on request and still returns the run outcome', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'cc-cleanup-test-'));
+    temps.push(temp);
+    const adapters = new Map<string, HarnessAdapter>([['codex', new CountingAdapter('codex', 'openai')], ['claude', new CountingAdapter('claude', 'anthropic')]]);
+    const outcome = await executeTask(resolve('.'), createTask('cleanup run', 'R1', resolve('.')), {
+      execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp), isHarnessTrusted: () => true,
+      // Refuse the commit so the builder worktree stays dirty and must be retained.
+      approver: decideWith((request) => request.action !== 'commit'), keepWorktrees: false,
+      gateExecutor: () => ({ status: 0, stdout: '', stderr: '' }),
+    });
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+    expect(outcome.worktrees).toHaveLength(1);
+    expect(git(outcome.worktrees[0]!.path, 'status', '--porcelain')).toContain('agent-output.txt');
+  });
 });

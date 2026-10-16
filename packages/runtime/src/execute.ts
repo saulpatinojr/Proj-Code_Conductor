@@ -6,7 +6,7 @@ import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/ad
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, scanForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -74,6 +74,11 @@ function summarizeFiles(files: readonly string[]): string {
   const others = files.filter((file) => !executionRelevant(file));
   const shown = others.slice(0, 20);
   return `${files.length} changed file(s), ${relevant.length} of them able to change what later runs (CI, hooks, scripts, dependencies, agent or editor configuration)${relevant.length ? `: ${relevant.join(', ')}` : ''}. ${others.length ? `Other files: ${shown.join(', ')}${others.length > shown.length ? `, … (${others.length - shown.length} more)` : ''}` : 'No other files'}`;
+}
+const MAX_SCANNED_COMMITS = 20;
+// Location and kind only, never the matched value.
+function describeSecrets(secrets: ReadonlyArray<{ path: string; line: number; kind: string }>): string {
+  return `${secrets.slice(0, 10).map((item) => `${item.path}:${item.line} ${item.kind}`).join('; ')}${secrets.length > 10 ? `; and ${secrets.length - 10} more` : ''}`;
 }
 function shortList(shas: readonly string[], limit = 10): string {
   return `${shas.slice(0, limit).map((sha) => sha.slice(0, 12)).join(', ')}${shas.length > limit ? `, … (${shas.length - limit} more)` : ''}`;
@@ -338,6 +343,12 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${history.commits[0]}`, summary: `Agent-authored commits on ${handle.branch} since ${handle.baseSha.slice(0, 12)}: ${shortList(history.commits)}. Paths touched: ${history.files.join(', ')}` });
             const sensitive = history.files.filter(isSensitiveRepositoryPath);
             if (sensitive.length) throw new Error(`The agent's own commits on ${handle.branch} touch sensitive repository paths: ${sensitive.join(', ')}. Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
+            // Each commit is compared with the base, so a credential added and removed again
+            // is still found. Long histories are bounded to the branch head.
+            const scanned = history.commits.length <= MAX_SCANNED_COMMITS ? history.commits : history.commits.slice(0, 1);
+            if (scanned.length < history.commits.length) result.risks = [...result.risks, `Only the head of ${handle.branch} was scanned for credentials; its ${history.commits.length} agent commits exceed the ${MAX_SCANNED_COMMITS}-commit scan bound.`];
+            const secrets = [...new Map(scanned.flatMap((commit) => scanForNewSecrets(handle.path, handle.baseSha, commit, history.files)).map((item) => [`${item.path}:${item.line}:${item.kind}`, item])).values()];
+            if (secrets.length) throw new Error(`The agent's own commits on ${handle.branch} add credential-looking strings (${describeSecrets(secrets)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
           }
           // An agent can also move its branch away from the base (for example reset to an
           // older commit); the net file list then includes undoing the base's own changes.
@@ -364,6 +375,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
                 // Shown files, the sensitive-path check and the bound tree come from one snapshot.
                 const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
                 assertSafeChangedPaths(files);
+                const secrets = scanForNewSecrets(handle.path, handle.baseSha, state.tree, files);
+                if (secrets.length) throw new Error(`possible credentials in changed files (${describeSecrets(secrets)}). Remove them, or commit yourself after review if they are not secrets`);
                 expectedTree = state.tree;
                 expectedHead = state.revision;
                 return [{
@@ -412,12 +425,20 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     return { plan, manifest, manifestPath, pendingExternal, worktrees: createdWorktrees };
   } finally {
     // Keep modifying worktrees by default so agent changes and commits cannot be
-    // silently discarded. Cleanup must be an explicit caller choice.
+    // silently discarded. Cleanup is an explicit caller choice, removes only clean
+    // worktrees (branches and their commits stay), and never hides the run outcome.
     if (options.keepWorktrees === false) {
-      for (const handle of createdWorktrees) worktrees.remove(handle, false, false);
-      // Removed worktrees are no longer offered for review.
-      manifest.worktrees = (manifest.worktrees ?? []).filter((record) => existsSync(record.path));
-      save();
+      for (const handle of [...createdWorktrees]) {
+        try {
+          worktrees.remove(handle, false, false);
+          createdWorktrees.splice(createdWorktrees.indexOf(handle), 1);
+          manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== handle.path);
+          store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'worktree.removed', message: `${handle.path} (branch ${handle.branch} kept)` });
+        } catch (error) {
+          store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'worktree.retained', message: `${handle.path}: ${error instanceof Error ? error.message : String(error)}` });
+        }
+      }
+      try { store.saveManifest(manifest); } catch { /* The outcome is still returned to the caller. */ }
     }
   }
 }

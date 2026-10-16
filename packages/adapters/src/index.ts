@@ -3,6 +3,7 @@ import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
 import { KILL_GRACE_MS, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
+import { withoutGitLocalEnv } from '@code-conductor/git';
 
 export type HarnessExecutionSurface = 'cli' | 'acp' | 'platform' | 'manual' | 'ide' | 'local' | 'mcp_api';
 
@@ -55,6 +56,17 @@ function commandVersion(command: string): string | undefined {
 // @code-conductor/core/processes for what this does and does not contain).
 export { spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
 
+// Subscription-first billing (D-019/D-056 policy): separately billed API credentials are
+// not passed to provider clients, so a stray key cannot silently switch a subscription
+// client to metered API billing. Git's repository-local variables are removed so an
+// inherited GIT_DIR/GIT_INDEX_FILE cannot point the client's own git at another repository.
+export const BILLING_CREDENTIAL_VARIABLES = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY', 'KIRO_API_KEY'] as const;
+export function providerEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const scrubbed = withoutGitLocalEnv(env);
+  for (const name of BILLING_CREDENTIAL_VARIABLES) delete scrubbed[name];
+  return scrubbed;
+}
+
 function appendTail(current: string, next: string, limit = 256 * 1024): string {
   const combined = current + next;
   return combined.length <= limit ? combined : combined.slice(combined.length - limit);
@@ -101,7 +113,7 @@ class SubprocessAdapter implements HarnessAdapter {
     const args = argsFor(this.id, request);
     const startedAt = new Date().toISOString();
     return new Promise((resolve, reject) => {
-      const child = spawnIsolated(this.command, args, { cwd: request.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+      const child = spawnIsolated(this.command, args, { cwd: request.cwd, env: providerEnvironment(), stdio: ['ignore', 'pipe', 'pipe'], shell: false });
       let stdout = '';
       let stderr = '';
       let timedOut = false;
@@ -163,7 +175,7 @@ export class KiroAcpAdapter implements HarnessAdapter {
   constructor(options: KiroAcpAdapterOptions = {}) {
     this.command = options.command ?? 'kiro-cli';
     this.args = options.args ?? ['acp'];
-    this.env = options.env ?? process.env;
+    this.env = options.env ?? providerEnvironment();
   }
 
   available(): boolean { return commandExists(this.command); }

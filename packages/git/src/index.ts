@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 export interface WorktreeHandle {
   repositoryRoot: string;
@@ -213,6 +213,61 @@ export function isSensitiveRepositoryPath(path: string): boolean {
   if (normalized.includes('/.terraform/')) return true;
   if (/^(credentials|credentials\..+|id_rsa|id_ed25519)$/.test(leaf)) return true;
   return false;
+}
+
+export interface SecretFinding { path: string; line: number; kind: string }
+
+// High-confidence credential formats only; a match is reported by location and kind,
+// never by value. Matches already present in the base revision are not new and are
+// not reported here.
+const SECRET_PATTERNS: Array<[string, RegExp]> = [
+  ['private key', /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----/g],
+  ['AWS access key id', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
+  ['GitHub token', /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b/g],
+  ['Slack token', /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g],
+  ['Google API key', /\bAIza[0-9A-Za-z_-]{35}\b/g],
+  ['Anthropic API key', /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g],
+  ['OpenAI API key', /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}\b/g],
+  ['Stripe live key', /\b[rs]k_live_[0-9A-Za-z]{24,}\b/g],
+  ['Azure storage account key', /AccountKey=[A-Za-z0-9+/]{40,}={0,2}/g],
+];
+const MAX_SCAN_BYTES = 1048576;
+
+function blobText(path: string, spec: string): string | undefined {
+  const result = spawnSync('git', [...SAFE_GIT, 'cat-file', 'blob', spec], { cwd: path, env: withoutGitLocalEnv(), maxBuffer: MAX_SCAN_BYTES + 1, shell: false });
+  if (result.status !== 0 || !result.stdout || result.stdout.length > MAX_SCAN_BYTES || result.stdout.includes(0)) return undefined;
+  return result.stdout.toString('utf8');
+}
+
+/** New credential-looking strings in files that differ between a commit and a tree (bounded; text files up to 1 MiB). */
+export function scanForNewSecrets(path: string, base: string, tree: string, files: readonly string[]): SecretFinding[] {
+  const findings: SecretFinding[] = [];
+  for (const file of files) {
+    const after = blobText(path, `${tree}:${file}`);
+    if (after === undefined) continue;
+    const before = blobText(path, `${base}:${file}`) ?? '';
+    for (const [kind, pattern] of SECRET_PATTERNS) {
+      for (const match of after.matchAll(pattern)) {
+        if (before.includes(match[0])) continue;
+        findings.push({ path: file, line: after.slice(0, match.index).split('\n').length, kind });
+      }
+    }
+  }
+  return findings;
+}
+
+/** Remove a clean Code Conductor agent worktree (its branch, and so its commits, are kept). */
+export function removeCleanAgentWorktree(path: string, root: string): void {
+  const resolved = resolve(path);
+  const offset = relative(resolve(root), resolved);
+  if (!offset || offset.startsWith('..') || isAbsolute(offset)) throw new Error(`Refusing to remove ${path}: not under the Code Conductor worktree root.`);
+  const branch = git(resolved, ['symbolic-ref', '-q', '--short', 'HEAD'], true).trim();
+  if (!branch.startsWith('cc/')) throw new Error(`Refusing to remove ${path}: it does not have a Code Conductor agent branch checked out.`);
+  if (gitChangedFiles(resolved).length || workingTreeState(resolved).tree !== headTree(resolved)) throw new Error(`Refusing to remove ${path}: it has uncommitted changes.`);
+  const common = resolve(resolved, git(resolved, ['rev-parse', '--git-common-dir']).trim());
+  const repository = dirname(common);
+  git(repository, ['worktree', 'remove', resolved]);
+  git(repository, ['worktree', 'prune']);
 }
 
 export function assertSafeChangedPaths(files: string[]): void {
