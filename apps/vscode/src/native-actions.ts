@@ -28,7 +28,12 @@ function within(root: string, path: string): boolean {
   } catch { return false; }
 }
 
-export function nativeOperation(action: NextAction, worktreeRoot: string): NativeOperation {
+/**
+ * With `runtime` (the bundled cc.js of the installed extension), copied `cc` commands
+ * name it explicitly: an extension install puts no `cc` on PATH, and on most POSIX
+ * systems `cc` is the C compiler.
+ */
+export function nativeOperation(action: NextAction, worktreeRoot: string, runtime?: string): NativeOperation {
   if (action.kind === 'review_changes' && action.path && isAbsolute(action.path) && within(worktreeRoot, action.path)) {
     return { type: 'open_source_control', path: action.path };
   }
@@ -36,7 +41,7 @@ export function nativeOperation(action: NextAction, worktreeRoot: string): Nativ
   if (action.commands?.length === 1 && first?.[0] === 'cc' && READ_ONLY_CLI.has(first[1] ?? '') && first.slice(1).every((arg) => PLAIN_CLI_ARGUMENT.test(arg))) {
     return { type: 'run_cli', args: first.slice(1) };
   }
-  if (action.commands?.length) return { type: 'copy_command', text: action.commands.map((argv) => formatCommand(argv)).join('\n') };
+  if (action.commands?.length) return { type: 'copy_command', text: action.commands.map((argv) => formatCommand(runtime && argv[0] === 'cc' ? ['node', runtime, ...argv.slice(1)] : argv)).join('\n') };
   // Run-record text is untrusted: one line each, with control and format characters replaced.
   return { type: 'show', text: `${printable(action.title, 600, false)}\n${printable(action.detail, 2000, false)}` };
 }

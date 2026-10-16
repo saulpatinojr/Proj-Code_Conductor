@@ -205,7 +205,7 @@ function startupTooltip(mode: StartupMode, discovery?: LocalDiscovery): string {
 }
 
 async function performNextAction(context: vscode.ExtensionContext, action: NextAction): Promise<void> {
-  const operation = nativeOperation(action, defaultWorktreeRoot());
+  const operation = nativeOperation(action, defaultWorktreeRoot(), join(context.extensionPath, 'dist', 'cc.js'));
   switch (operation.type) {
     case 'open_source_control':
       try {

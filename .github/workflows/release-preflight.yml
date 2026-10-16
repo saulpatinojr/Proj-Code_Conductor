@@ -74,6 +74,14 @@ jobs:
           fi
           printf '%s\n' 'Validation-only publisher; not a Marketplace release.' > VALIDATION_ONLY.txt
           sha256sum "${packages[@]}" > SHA256SUMS
+      - name: Install the package outside the checkout and run it against an unrelated folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          install="$RUNNER_TEMP/vsix-install"
+          mkdir -p "$install"
+          unzip -q "$RUNNER_TEMP"/vsix-preflight/*.vsix -d "$install"
+          node scripts/smoke-vscode-bundle.mjs --extension "$install/extension"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vsix-preflight-${{ github.run_id }}

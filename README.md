@@ -66,6 +66,10 @@ The user's larger legacy agent/skill library is tracked as a dedicated migration
 
 ## Quick start
 
+To use Code Conductor in your own repositories, install the VS Code extension from a
+release `.vsix`; no clone or build is needed. Prerequisites, compatibility, updates and
+uninstalling are in [`docs/INSTALL.md`](docs/INSTALL.md).
+
 Prerequisites for repository development are Git, Node.js 22+ (Node 24 recommended), GitHub CLI, and APM 0.30.0. Subscription-backed execution additionally requires the official vendor clients/surfaces described in [`docs/WORKSTATION-VALIDATION.md`](docs/WORKSTATION-VALIDATION.md).
 
 ```bash

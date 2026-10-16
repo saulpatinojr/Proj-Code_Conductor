@@ -27,6 +27,8 @@ describe('native operations for next actions', () => {
     expect(nativeOperation(action({ commands: [['cc', 'handoff', '--run', '$(evil)']] }), ROOT)).toMatchObject({ type: 'copy_command' });
     expect(nativeOperation(action({ commands: [['git', 'push'], ['gh', 'pr', 'create']] }), ROOT)).toEqual({ type: 'copy_command', text: 'git push\ngh pr create' });
     expect(nativeOperation(action({ commands: [['cc', 'run', '--objective', "it's"]] }), ROOT)).toEqual({ type: 'copy_command', text: formatCommand(['cc', 'run', '--objective', "it's"]) });
+    // From an installed extension, copied cc commands run its bundled runtime: no cc is on PATH.
+    expect(nativeOperation(action({ commands: [['cc', 'worktrees', '--remove-clean'], ['git', 'status']] }), ROOT, '/ext dir/dist/cc.js')).toEqual({ type: 'copy_command', text: `${formatCommand(['node', '/ext dir/dist/cc.js', 'worktrees', '--remove-clean'])}\ngit status` });
     expect(nativeOperation(action({}), ROOT)).toEqual({ type: 'show', text: 'Title\nDetail' });
     expect(nativeOperation(action({ title: 'T\x1b[2J', detail: 'line\nforged' }), ROOT)).toEqual({ type: 'show', text: 'T?[2J\nline?forged' });
   });
