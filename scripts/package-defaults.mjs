@@ -10,21 +10,30 @@ const files = Object.fromEntries(names.map((name) => [`${name}.yaml`, readFileSy
 const manifest = JSON.stringify({ version: 1, files: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')])) }, null, 2) + '\n';
 
 const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+const refuse = (target) => { throw new Error(`Refusing to write generated files: ${target} is not a plain directory inside the repository (its parent is missing, or it or a parent is a symlink or a file). Fix that and build again.`); };
+
 /**
- * The generated folder `target` (relative to the repository), created if missing. It is
- * pruned and rewritten in place, so it must be a plain directory at exactly that place:
- * a symlinked folder, or a symlinked parent, would point the deletes and writes anywhere.
- * Nothing is touched otherwise.
+ * Generated folders (relative to the repository) and the files each holds. Each is pruned
+ * and rewritten in place, so it must be a plain directory at exactly that place: a
+ * symlinked folder, or a symlinked parent, would point the deletes and writes anywhere.
  */
-function generatedDirectory(target) {
+const generated = {
+  'packages/policy/defaults': { ...files, 'manifest.json': manifest },
+  'apps/vscode/defaults': { ...files, 'manifest.json': manifest },
+  // Contract validation reads this relative to its compiled module or the bundled CLI.
+  'apps/vscode/schema': { 'contracts.schema.json': readFileSync(join(root, 'packages/schemas/schema/contracts.schema.json')) },
+};
+
+/** Checks a generated folder without creating or changing anything. */
+function checkGeneratedDirectory(target) {
   const destination = join(root, target);
-  const refuse = () => { throw new Error(`Refusing to write generated files: ${target} is not a plain directory inside the repository (its parent is missing, or it or a parent is a symlink). Fix that and build again.`); };
-  try { if (!same(realpathSync(dirname(destination)), join(realRoot, dirname(target)))) refuse(); } catch (error) { if (error.code) refuse(); throw error; }
-  mkdirSync(destination, { recursive: true });
+  try { if (!same(realpathSync(dirname(destination)), join(realRoot, dirname(target)))) refuse(target); } catch (error) { if (error.code) refuse(target); throw error; }
+  const entry = lstatSync(destination, { throwIfNoEntry: false });
   // A symlink, or a symlinked folder above it, resolves somewhere else.
-  if (!same(realpathSync(destination), join(realRoot, target))) refuse();
+  if (entry && (!entry.isDirectory() || !same(realpathSync(destination), join(realRoot, target)))) refuse(target);
   return destination;
 }
+
 /**
  * Writes a generated file by replacing the directory entry (a temporary file renamed over
  * it), so a symlink or a hard link there is replaced, never written through.
@@ -33,20 +42,20 @@ function writeGenerated(path, bytes) {
   const entry = lstatSync(path, { throwIfNoEntry: false });
   if (entry?.isFile() && entry.nlink === 1 && readFileSync(path).equals(Buffer.from(bytes))) return;
   if (entry?.isDirectory()) rmSync(path, { recursive: true, force: true });
-  const temporary = `${path}.${process.pid}.tmp`;
+  // Stale temporary files were pruned with the rest; 'wx' refuses one planted meanwhile.
+  const temporary = `${path}.tmp`;
   writeFileSync(temporary, bytes, { flag: 'wx' });
   renameSync(temporary, path);
 }
 
-// Every generated folder is checked before any of them is changed.
-const [policyDefaults, extensionDefaults, schemaDirectory] = ['packages/policy/defaults', 'apps/vscode/defaults', 'apps/vscode/schema'].map(generatedDirectory);
-for (const destination of [policyDefaults, extensionDefaults]) {
-  // Build output only: anything not generated now (a renamed default, a stray file) is
-  // removed, so packaging can never pick it up. rmSync removes a symlink, not its target.
-  const expected = new Set([...Object.keys(files), 'manifest.json']);
-  for (const entry of readdirSync(destination)) if (!expected.has(entry)) rmSync(join(destination, entry), { recursive: true, force: true });
-  for (const [name, bytes] of [...Object.entries(files), ['manifest.json', manifest]]) writeGenerated(join(destination, name), bytes);
-}
-
-// Contract validation reads this relative to its compiled module or the bundled CLI.
-writeGenerated(join(schemaDirectory, 'contracts.schema.json'), readFileSync(join(root, 'packages/schemas/schema/contracts.schema.json')));
+// Every generated folder is checked before anything is created or changed.
+const destinations = Object.keys(generated).map(checkGeneratedDirectory);
+Object.entries(generated).forEach(([target, contents], index) => {
+  const destination = destinations[index];
+  mkdirSync(destination, { recursive: true });
+  if (!same(realpathSync(destination), join(realRoot, target))) refuse(target);
+  // Build output only: anything not generated now (a renamed default, a stray or
+  // leftover temporary file) is removed. rmSync removes a symlink, not its target.
+  for (const entry of readdirSync(destination)) if (!Object.hasOwn(contents, entry)) rmSync(join(destination, entry), { recursive: true, force: true });
+  for (const [name, bytes] of Object.entries(contents)) writeGenerated(join(destination, name), bytes);
+});

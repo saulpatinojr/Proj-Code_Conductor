@@ -43,6 +43,26 @@ describe.skipIf(process.platform === 'win32')('scripts/package-defaults.mjs', ()
     expect(run().status).toBe(0);
     expect(readFileSync(join(outside, 'folder', 'inner.txt'), 'utf8')).toBe('keep me too\n');
     expect(readFileSync(join(repo, 'packages/policy/defaults/risk.yaml'), 'utf8')).toBe(readFileSync(resolve('config/risk.yaml'), 'utf8'));
+    expect(lstatSync(join(outside, 'sentinel.txt')).nlink).toBe(1);
+    expect(readFileSync(join(repo, 'apps/vscode/schema/contracts.schema.json'), 'utf8')).toBe(readFileSync(resolve('packages/schemas/schema/contracts.schema.json'), 'utf8'));
+  });
+
+  it('replaces a hard link even with identical content, a folder at a file name, and leftover temporary files', () => {
+    const { repo, outside, run } = scratch();
+    expect(run().status).toBe(0);
+    const defaults = join(repo, 'apps/vscode/defaults');
+    // Identical content would otherwise be left alone, still linked to the file elsewhere.
+    writeFileSync(join(outside, 'roles-copy.yaml'), readFileSync(join(defaults, 'roles.yaml')));
+    rmSync(join(defaults, 'roles.yaml'));
+    linkSync(join(outside, 'roles-copy.yaml'), join(defaults, 'roles.yaml'));
+    rmSync(join(defaults, 'gates.yaml'));
+    mkdirSync(join(defaults, 'gates.yaml'));
+    writeFileSync(join(repo, 'apps/vscode/schema/contracts.schema.json.tmp'), 'left behind\n');
+    expect(run().status).toBe(0);
+    expect(lstatSync(join(defaults, 'roles.yaml')).nlink).toBe(1);
+    expect(lstatSync(join(outside, 'roles-copy.yaml')).nlink).toBe(1);
+    expect(lstatSync(join(defaults, 'gates.yaml')).isFile()).toBe(true);
+    expect(readdirSync(join(repo, 'apps/vscode/schema'))).toEqual(['contracts.schema.json']);
     expect(readdirSync(defaults).sort()).toEqual([...NAMES.map((name) => `${name}.yaml`), 'manifest.json'].sort());
     expect(lstatSync(join(defaults, 'roles.yaml')).isFile()).toBe(true);
     expect(readFileSync(join(defaults, 'roles.yaml'), 'utf8')).toBe(readFileSync(resolve('config/roles.yaml'), 'utf8'));
@@ -63,7 +83,17 @@ describe.skipIf(process.platform === 'win32')('scripts/package-defaults.mjs', ()
     expect(result.stderr).toMatch(/is not a plain directory inside the repository/);
     expect(readdirSync(outside)).toEqual(['sentinel.txt']);
     expect(existsSync(join(repo, 'config/roles.yaml'))).toBe(true);
-    // All folders are checked first: nothing was generated anywhere.
-    expect(existsSync(join(repo, 'packages/policy/defaults/manifest.json'))).toBe(false);
+    // All folders are checked first: nothing was created or generated anywhere.
+    if (!link.startsWith('packages/policy')) expect(existsSync(join(repo, 'packages/policy/defaults'))).toBe(false);
+    expect(existsSync(join(repo, 'apps/vscode/schema/contracts.schema.json'))).toBe(false);
+  });
+
+  it('refuses a file where a generated folder belongs, with the same message', () => {
+    const { repo, run } = scratch();
+    writeFileSync(join(repo, 'apps/vscode/defaults'), 'not a folder\n');
+    const result = run();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/apps\/vscode\/defaults is not a plain directory inside the repository/);
+    expect(existsSync(join(repo, 'packages/policy/defaults'))).toBe(false);
   });
 });
