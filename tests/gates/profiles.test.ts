@@ -129,6 +129,36 @@ describe('declarative gate profiles', () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32')('gives gate processes only absolute PATH entries, so tools they start come from there too', async () => {
+    const root = workspace();
+    const trusted = join(workspace(), 'trusted');
+    mkdirSync(trusted);
+    mkdirSync(join(root, 'bin'));
+    // Like npm's `#!/usr/bin/env node`: the tool itself starts an interpreter found on PATH.
+    writeFileSync(join(trusted, 'cc-fake-env-tool'), '#!/usr/bin/env cc-fake-interp\n');
+    for (const [directory, label] of [[trusted, 'TRUSTED'], [join(root, 'bin'), 'PLANTED']] as const) {
+      writeFileSync(join(directory, 'cc-fake-interp'), `#!/bin/sh\necho ${label}\n`);
+      chmodSync(join(directory, 'cc-fake-interp'), 0o755);
+    }
+    chmodSync(join(trusted, 'cc-fake-env-tool'), 0o755);
+    const original = process.env.PATH;
+    process.env.PATH = `bin${delimiter}${trusted}${delimiter}${original ?? ''}`;
+    try {
+      const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'cc-fake-env-tool', args: [], blocking: true }] } } };
+      const [result] = await executeGatePlan(root, planGates(root, ['fake'], config));
+      expect(result?.evidence.summary).toContain('TRUSTED');
+      expect(result?.evidence.summary).not.toContain('PLANTED');
+    } finally { process.env.PATH = original; }
+  });
+
+  it('rejects inline interpreter code, package executors and file-writing Terraform forms', () => {
+    for (const [command, args] of [['node', ['-e', 'x']], ['python3', ['-c', 'x']], ['perl', ['-e', 'x']], ['npm', ['exec', 'x']], ['pnpm', ['dlx', 'x']], ['yarn', ['dlx', 'x']], ['setsid', ['x']], ['stdbuf', ['-o0', 'x']], ['terraform', ['fmt']], ['terraform', ['plan', '-generate-config-out=x.tf']]] as const) {
+      expect(forbiddenGateReason({ id: 'x', command, args: [...args] }), `${command} ${args.join(' ')}`).toBeDefined();
+    }
+    expect(forbiddenGateReason({ id: 'x', command: 'node', args: ['packages/cli/dist/index.js', 'validate', '.'] })).toBeUndefined();
+    expect(forbiddenGateReason({ id: 'x', command: 'npm', args: ['run', 'typecheck'] })).toBeUndefined();
+  });
+
   it('keeps the packaged catalog policy-clean', () => {
     expect(validateGateCatalog(loadGateConfig(workspace()))).toEqual([]);
   });

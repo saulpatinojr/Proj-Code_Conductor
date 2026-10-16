@@ -118,6 +118,8 @@ export function runIsolated(command: string, args: readonly string[], options: {
     // A descendant can keep the pipes open after the command exits, so 'close' would not
     // come: terminate the group at once and stop reading after a grace period.
     child.on('exit', (status) => {
+      // It exited in time: no timeout verdict, and no later signal to a group that is gone.
+      clearTimeout(timer); clearTimeout(escalation);
       terminateGroup(child, 'SIGKILL');
       release = setTimeout(() => { child.stdout?.destroy(); child.stderr?.destroy(); finish(status); }, KILL_GRACE_MS);
     });

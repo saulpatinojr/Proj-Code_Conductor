@@ -75,7 +75,20 @@ const MAX_CAPTURE = 4 * 1024 * 1024;
  * @code-conductor/core/processes.
  */
 async function defaultExecutor(cwd: string, _command: string, args: string[], timeoutMs: number, executable: string): Promise<CommandOutcome> {
-  return runIsolated(executable, args, { cwd, timeoutMs, maxBytes: MAX_CAPTURE });
+  return runIsolated(executable, args, { cwd, env: absolutePathEnvironment(), timeoutMs, maxBytes: MAX_CAPTURE });
+}
+
+/**
+ * The environment gate processes see, with PATH reduced to its absolute entries: tools a
+ * gate starts itself (for example `#!/usr/bin/env node` in npm) follow the same rule as
+ * the gate command, so nothing is found through the current directory or a relative entry.
+ */
+export function absolutePathEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const result = { ...env };
+  for (const key of Object.keys(result).filter((name) => name.toUpperCase() === 'PATH')) {
+    result[key] = (result[key] ?? '').split(delimiter).filter((entry) => entry && isAbsolute(entry)).join(delimiter);
+  }
+  return result;
 }
 
 export interface ResolvedExecutable { path?: string; problem?: string }

@@ -194,8 +194,13 @@ type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?:
 // command wrappers could run anything, so a gate names the tool itself. Terraform and
 // OpenTofu gates are limited to an allowlist of read-only subcommands (plan still runs
 // provider plugins; see the terraform-plan disclosure in config/gates.yaml).
-const GATE_WRAPPERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'csh', 'tcsh', 'fish', 'cmd', 'powershell', 'pwsh', 'env', 'sudo', 'doas', 'su', 'xargs', 'nohup', 'nice', 'timeout', 'time', 'exec', 'eval', 'busybox', 'npx', 'terragrunt']);
+const GATE_WRAPPERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'csh', 'tcsh', 'fish', 'cmd', 'powershell', 'pwsh', 'env', 'sudo', 'doas', 'su', 'xargs', 'nohup', 'nice', 'timeout', 'time', 'exec', 'eval', 'busybox', 'npx', 'terragrunt', 'setsid', 'stdbuf', 'chroot', 'unshare', 'nsenter', 'script']);
 const TERRAFORM_ALLOWED = new Set(['fmt', 'validate', 'plan', 'version']);
+// Interpreters may run a script file from the repository, never inline code.
+const INTERPRETERS = new Set(['node', 'python', 'python3', 'perl', 'ruby', 'deno', 'bun', 'php']);
+const INLINE_CODE = /^(-e|-c|-p|-r|--eval|--print|--command)(=|$)/;
+// Package-manager subcommands that download and run arbitrary packages.
+const PACKAGE_EXECUTORS: Record<string, Set<string>> = { npm: new Set(['exec', 'x']), pnpm: new Set(['dlx', 'exec']), yarn: new Set(['dlx', 'exec']) };
 
 /** Why a gate command may never run, or undefined. Shared by `cc validate` and the gate planner. */
 export function gateCommandProblem(command: unknown, args: readonly unknown[] = []): { code: string; message: string } | undefined {
@@ -207,8 +212,12 @@ export function gateCommandProblem(command: unknown, args: readonly unknown[] = 
   if (name === 'terraform' || name === 'tofu') {
     const subcommand = values.find((arg) => !arg.startsWith('-'));
     if (!subcommand || !TERRAFORM_ALLOWED.has(subcommand)) return { code: 'gates.infrastructure_change', message: `${command} ${subcommand ?? '(no subcommand)'} is not one of ${[...TERRAFORM_ALLOWED].join(', ')}; gates may only check formatting, validate or plan` };
-    if (subcommand === 'plan' && values.some((arg) => /^-?-out(=|$)/.test(arg))) return { code: 'gates.infrastructure_change', message: 'a saved plan file can hold secrets and be applied later; plan gates never write one' };
+    if (subcommand === 'plan' && values.some((arg) => /^-?-(out|generate-config-out)(=|$)/.test(arg))) return { code: 'gates.infrastructure_change', message: 'plan gates never write files: a saved plan can hold secrets and be applied later' };
+    if (subcommand === 'fmt' && !values.includes('-check')) return { code: 'gates.infrastructure_change', message: 'fmt rewrites files unless -check is given; gates only check' };
   }
+  if (INTERPRETERS.has(name) && values.some((arg) => INLINE_CODE.test(arg))) return { code: 'gates.wrapper', message: `${command} with inline code could run anything; a gate runs a script file` };
+  const executors = PACKAGE_EXECUTORS[name];
+  if (executors && values.some((arg) => !arg.startsWith('-') && executors.has(arg))) return { code: 'gates.wrapper', message: `${command} ${values.find((arg) => executors.has(arg))} downloads and runs arbitrary packages` };
   return undefined;
 }
 

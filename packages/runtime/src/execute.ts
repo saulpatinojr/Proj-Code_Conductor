@@ -5,7 +5,7 @@ import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, Mer
 import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
-import { blockingGateFailure, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
+import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
 import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
@@ -182,13 +182,17 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           const disclosures = [...new Set(runnable.flatMap((item) => (item.gate.disclosure ? [item.gate.disclosure] : [])))];
           // In an agent worktree, dependencies, .terraform and build output exist only because
           // something in this run created them, possibly the agent; they are ignored by Git.
+          // An explicit choice replaces detection; say what that leaves out.
+          const chosen = new Set(gatePlan.map((item) => item.profile));
+          const dropped = gatePlan.some((item) => item.explicit) ? detectGateProfiles(validationRoot).filter((name) => !chosen.has(name)) : [];
+          const skipped = dropped.length ? ` Detected profile(s) not run because you chose others: ${dropped.join(', ')}.` : '';
           const untrusted = validationRoot === primaryBuilderWorktree?.path ? ' Prerequisites such as installed dependencies, .terraform or build output in this agent worktree were created during the run, possibly by the agent, and are not bound by this approval.' : '';
           const approval = await authorize(() => {
             const state = workingTreeState(validationRoot);
             return [{
               action: 'local_execution', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: validationRoot, revision: state.revision, recipient: 'local:deterministic-gates',
               bindings: { tree: state.tree, commands: sha256(JSON.stringify(gatePlan.map((item) => [item.profile, item.gate.id, item.gate.command, item.executable ?? null, item.gate.args ?? [], item.timeoutMs, item.missing]))), selection: gatePlan.some((item) => item.explicit) ? 'explicit' : 'detected' },
-              summary: `Run ${runnable.length} deterministic gate command(s) from the target repository in ${validationRoot}, with your environment: ${commands.join('; ')}${runnable.length < gatePlan.length ? ` (${gatePlan.length - runnable.length} gate(s) with missing prerequisites will not run and count as blocking failures)` : ''}.${disclosures.map((text) => ` ${text}`).join('')}${untrusted}`,
+              summary: `Run ${runnable.length} deterministic gate command(s) from the target repository in ${validationRoot}, with your environment: ${commands.join('; ')}${runnable.length < gatePlan.length ? ` (${gatePlan.length - runnable.length} gate(s) with missing prerequisites will not run and count as blocking failures)` : ''}.${skipped}${disclosures.map((text) => ` ${text}`).join('')}${untrusted}`,
             }];
           });
           if (!approval.approved) {

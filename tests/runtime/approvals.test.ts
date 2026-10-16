@@ -478,7 +478,7 @@ describe('pre-action approval enforcement (#44)', () => {
     });
     expect(detected.manifest.mergeDecision?.decision).toBe('ready');
     const gateRequest = seen.find((request) => request.recipient === 'local:deterministic-gates');
-    expect(gateRequest?.summary).toMatch(/ \[\/[^\]]+\]/);
+    expect(gateRequest?.summary).toMatch(/ \[[^\]]*[\\/][^\]]+\]/);
     expect(gateRequest?.summary).toContain('not bound by this approval');
   });
 

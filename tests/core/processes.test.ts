@@ -33,6 +33,12 @@ describe('bounded isolated runs', () => {
     expect(outcome.sha256).toBe(digest(Buffer.from('é'.repeat(4096)), Buffer.alloc(0)));
   });
 
+  it.skipIf(process.platform === 'win32')('does not report a timeout for a command that exited in time while a descendant holds the pipes', async () => {
+    const script = "const { spawn } = require('node:child_process'); spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }).unref();";
+    const outcome = await runIsolated(process.execPath, ['-e', script], { cwd: scratch(), timeoutMs: 1500, maxBytes: 1024 });
+    expect(outcome).toMatchObject({ status: 0, timedOut: false });
+  }, 20_000);
+
   it.skipIf(process.platform === 'win32')('terminates isolated runs when Code Conductor is interrupted', async () => {
     const root = scratch();
     const processes = pathToFileURL(resolve('packages/core/dist/processes.js')).href;

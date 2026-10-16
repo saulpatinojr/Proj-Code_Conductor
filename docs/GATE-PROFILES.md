@@ -22,7 +22,9 @@ they run only after a pre-action approval of the exact command plan
 
 Choose profiles for a run with `cc run --gate-profiles terraform,terraform-plan ...`.
 Otherwise profiles are detected from repository markers. An unknown name stops the
-validator with the list of available profiles. Readiness never passes vacuously:
+validator with the list of available profiles. An explicit choice replaces detection,
+and the approval summary names any detected profile it leaves out. Readiness never
+passes vacuously:
 - when nothing applies, it is blocked (`no-applicable-gates`);
 - advisory gates alone, for example `--gate-profiles terraform-plan`, never establish it
   (`no-blocking-gate-passed`). Choose a blocking profile too, as in the example above.
@@ -41,7 +43,8 @@ Tools are resolved without a shell or `which`, from **absolute** `PATH` entries 
 The current directory, empty entries and relative entries are never searched, because
 the repository under validation could put a binary there. The resolved absolute file is
 what runs. It is shown in the approval summary and the evidence, and bound by the
-approval digest. On Windows only `.exe` and `.com` files run. Batch shims such as
+approval digest. Gate processes also see only the absolute `PATH` entries, so tools a gate
+starts itself (npm's `#!/usr/bin/env node`, for example) follow the same rule. On Windows only `.exe` and `.com` files run. Batch shims such as
 `npm.cmd`, `pnpm.cmd` or `yarn.cmd` would need `cmd.exe`, so those gates report an
 unsupported prerequisite instead of running.
 
@@ -82,9 +85,13 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   reviewing the configuration the agent changed.
 - No gate applies changes. Terraform and OpenTofu gates may only use `fmt`, `validate`,
   `plan` (never with `-out`, because a saved plan can hold secrets and be applied later)
-  or `version`. Shells and command wrappers (`sh`, `bash`, `cmd`, `pwsh`, `env`, `sudo`,
-  `npx`, `terragrunt`, …) cannot be gate commands, because they could run anything.
-  Neither can auto-approve flags. Command names are compared case-insensitively and
+  or `version`; `fmt` only with `-check`, and `plan` never with `-generate-config-out`.
+  Shells and command wrappers (`sh`, `bash`, `cmd`, `pwsh`, `env`, `sudo`, `setsid`,
+  `npx`, `terragrunt`, …), interpreters with inline code (`node -e`, `python -c`) and
+  package executors (`npm exec`, `pnpm dlx`, `yarn dlx`) cannot be gate commands,
+  because they could run anything. Neither can auto-approve flags. The allowlist governs
+  the packaged catalog, which only maintainers change; gates themselves still run the
+  repository's own scripts, which is why they are approved first. Command names are compared case-insensitively and
   without `.exe`/`.cmd` extensions. The planner refuses such gates, and `cc validate`
   rejects them in the catalog (`gates.infrastructure_change`, `gates.wrapper`,
   `gates.auto_approve`, `gates.command`). Production apply belongs to a native pipeline
