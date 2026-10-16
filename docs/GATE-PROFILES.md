@@ -88,17 +88,20 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
 
   | Tool | Allowed |
   |---|---|
-  | `npm`, `pnpm`, `yarn` | `test`, or `run <script>`, with nothing else |
-  | `node` | a script file in the repository as the first argument (relative, no `..`); no options or inline code |
-  | `terraform`, `tofu` | at most one `-chdir=<repository subfolder>`, then `fmt` (only with `-check`; `-recursive`, `-diff`, `-no-color`), `validate` (`-no-color`, `-json`), `plan` (`-input=false`, `-lock=false`, `-no-color`, `-refresh=false`, `-detailed-exitcode`, `-compact-warnings`) or `version` (`-json`); no paths, no `-out` or `-generate-config-out`, no other flags |
-  | `ansible-lint` | `--offline`, `--nocolor`, `--parseable`, `-p`, `-q`, `--strict`; never `--fix` |
+  | `npm`, `pnpm`, `yarn` | `test`, or `run <script>`, with nothing else (not `run env`, the package manager's own command) |
+  | `node` | a script file the repository holds as the first argument (relative, no `..`, nothing under `node_modules` or a hidden folder such as `.yarn`); no options or inline code |
+  | `terraform`, `tofu` | at most one `-chdir=<repository subfolder>`, then `fmt` (only with `-check`; `-recursive`, `-diff`, `-no-color`), `validate` (`-no-color`, `-json`), `plan` (needs `-input=false` and `-lock=false`; may add `-no-color`, `-refresh=false`, `-detailed-exitcode`, `-compact-warnings`) or `version` (`-json`); no paths, no `-out` or `-generate-config-out`, no other flags |
+  | `ansible-lint` | `--offline` (required: without it, ansible-lint installs what `requirements.yml` names), then `--nocolor`, `--parseable`, `-p`, `-q`, `--strict`; never `--fix` |
 
   Shells, wrappers (`env`, `sudo`, `setsid`, `npx`, `pnpx`, `bunx`, `terragrunt`, …),
   other interpreters and package executors are not gate tools, because they could run
   anything; neither are auto-approve flags. Supporting another tool means describing its
   shape in `gateCommandProblem` (`packages/policy`). The rules govern the packaged
   catalog, which only maintainers change; gates themselves still run the repository's
-  own scripts, which is why they are approved first. Command names are compared
+  own scripts, which is why they are approved first. A shape fixes the command line, not
+  what the tool reads: a tool still follows the repository's own configuration (an
+  `.ansible-lint` file can turn on fixes without `--fix`), and gates inherit your
+  environment, so variables you set, such as `TF_CLI_ARGS`, apply to them. Command names are compared
   case-insensitively and without `.exe`/`.cmd` extensions. The planner refuses other
   gates, and `cc validate` rejects them in the catalog (`gates.tool`, `gates.shape`,
   `gates.infrastructure_change`, `gates.auto_approve`, `gates.command`). Production apply belongs to a native pipeline

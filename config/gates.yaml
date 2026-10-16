@@ -110,6 +110,6 @@ profiles:
     gates:
       - id: ansible-lint
         command: ansible-lint
-        args: []
+        args: [--offline]
         blocking: true
         remediation: Install ansible-lint yourself (for example `pipx install ansible-lint`).

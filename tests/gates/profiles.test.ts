@@ -69,7 +69,7 @@ describe('declarative gate profiles', () => {
     }
     expect(forbiddenGateReason({ id: 'x', command: 'tofu', args: ['apply'] })).toBeDefined();
     expect(forbiddenGateReason({ id: 'x', command: 'helm', args: ['upgrade', '--auto-approve'] })).toBeDefined();
-    expect(forbiddenGateReason({ id: 'x', command: 'terraform', args: ['plan', '-input=false'] })).toBeUndefined();
+    expect(forbiddenGateReason({ id: 'x', command: 'terraform', args: ['plan', '-input=false', '-lock=false'] })).toBeUndefined();
     const config = { version: 1, profiles: { bad: { gates: [{ id: 'deploy', command: 'terraform', args: ['apply', '-auto-approve'] }] } } };
     expect(() => planGates(workspace(), ['bad'], config)).toThrow(/not allowed/);
     expect(validateGateCatalog(config).map((issue) => issue.code)).toEqual(['gates.auto_approve']);
@@ -121,7 +121,7 @@ describe('declarative gate profiles', () => {
       const original = process.env.PATH;
       process.env.PATH = `bin${delimiter}${trusted}${delimiter}${original ?? ''}`;
       try {
-        const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'ansible-lint', args: [], blocking: true }] } } };
+        const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'ansible-lint', args: ['--offline'], blocking: true }] } } };
         const plan = planGates(root, ['fake'], config);
         expect(plan[0]?.executable).toBe(join(trusted, 'ansible-lint'));
         const [result] = await executeGatePlan(root, plan);
@@ -146,7 +146,7 @@ describe('declarative gate profiles', () => {
     const original = process.env.PATH;
     process.env.PATH = `bin${delimiter}${trusted}${delimiter}${original ?? ''}`;
     try {
-      const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'ansible-lint', args: [], blocking: true }] } } };
+      const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'ansible-lint', args: ['--offline'], blocking: true }] } } };
       const [result] = await executeGatePlan(root, planGates(root, ['fake'], config));
       expect(result?.evidence.summary).toContain('TRUSTED');
       expect(result?.evidence.summary).not.toContain('PLANTED');
@@ -158,26 +158,45 @@ describe('declarative gate profiles', () => {
       // Interpreter inline code and loaders.
       ['node', ['-pe', 'x']], ['node', ['--import', 'data:text/javascript,x']], ['node', ['--loader', 'data:x']], ['node', ['--eval=x']], ['nodejs', ['-e', 'x']],
       ['node', ['/abs/script.js']], ['node', ['../outside.js']], ['node', ['scripts/../../x.js']], ['node', ['script.sh']],
+      // Installed dependencies' command line programs, and scripts in hidden folders.
+      ['node', ['node_modules/vite/bin/vite.js', 'build', '--config', '/tmp/outside.mjs']], ['node', ['node_modules/npm/bin/npx-cli.js', '--yes', 'x']],
+      ['node', ['packages/app/Node_Modules/x/cli.js']], ['node', ['node_modules\\x\\cli.js']], ['node', ['.yarn/releases/yarn-4.0.0.cjs', 'dlx', 'x']], ['node', ['.git/hooks/x.js']], ['node', ['tools/.cache/x.mjs']],
       ['python3', ['-cx']], ['python3', ['-Ic', 'x']], ['python3', ['-m', 'timeit', 'x']], ['python3.12', ['-c', 'x']], ['py', ['-c', 'x']],
       ['perl', ['-E', 'x']], ['perl', ['-le', 'x']], ['ruby', ['-le', 'x']], ['php', ['-B', 'x']], ['deno', ['eval', 'x']],
       // Package executors and other subcommands that run packages.
-      ['npm', ['exe', '--call=x']], ['npm', ['EXEC', 'x']], ['npm', ['init', 'x']], ['npm', ['create', 'x']], ['npm', ['explore', 'x']], ['npm', ['run', 'x', '--', '-y']], ['npm', ['--prefix', '/x', 'test']], ['npm', ['run', '$(x)']],
+      ['npm', ['run', 'env']], ['yarn', ['run', 'env']], ['npm', ['exe', '--call=x']], ['npm', ['EXEC', 'x']], ['npm', ['init', 'x']], ['npm', ['create', 'x']], ['npm', ['explore', 'x']], ['npm', ['run', 'x', '--', '-y']], ['npm', ['--prefix', '/x', 'test']], ['npm', ['run', '$(x)']],
       ['yarn', ['node', '-e', 'x']], ['yarnpkg', ['dlx', 'x']], ['pnpx', ['x']], ['bunx', ['x']], ['bun', ['x', 'y']], ['corepack', ['npm', 'exec', 'x']],
       // Wrappers.
       ...['flock', 'ionice', 'taskset', 'setarch', 'chrt', 'prlimit', 'runuser', 'setpriv', 'strace', 'watch', 'xvfb-run', 'wsl', 'forfiles', 'conhost'].map((command): [string, string[]] => [command, ['terraform', 'apply']]),
       // Terraform forms that would write despite -check, or take other options.
       ['terraform', ['fmt', '-check', '-check=false']], ['terraform', ['fmt', '.', '-check']], ['terraform', ['fmt', '--', '-check']], ['terraform', ['fmt', '-write=true', '-check']],
       ['terraform', ['plan', '-var-file=x', '-input=false']], ['terraform', ['validate', 'dir']], ['tofu', ['plan', '-out=x']],
+      // Plan without -lock=false takes the state lock; without -input=false it can prompt.
+      ['terraform', ['plan']], ['terraform', ['plan', '-input=false']], ['tofu', ['plan', '-lock=false']],
+      // Names on Object.prototype are not subcommands.
+      ['terraform', ['hasOwnProperty']], ['terraform', ['constructor', '-x']], ['terraform', ['__proto__']], ['terraform', ['-chdir=x', 'valueOf']], ['tofu', ['isPrototypeOf']],
       // ansible-lint fixes files.
       ['ansible-lint', ['--fix']], ['ansible-lint', ['--write']], ['ansible-lint', ['playbook.yml']],
+      // Without --offline, ansible-lint installs what requirements.yml names.
+      ['ansible-lint', []], ['ansible-lint', ['--strict']],
     ];
     for (const [command, args] of refused) expect(forbiddenGateReason({ id: 'x', command, args }), `${command} ${args.join(' ')}`).toBeDefined();
     // The shapes the packaged catalog uses.
-    for (const [command, args] of [['npm', ['run', 'typecheck']], ['npm', ['test']], ['pnpm', ['test']], ['yarn', ['test']], ['NPM.CMD', ['test']], ['node', ['packages/cli/dist/index.js', 'validate', '.']], ['ansible-lint', []], ['tofu', ['fmt', '-check', '-recursive']]] as Array<[string, string[]]>) {
+    for (const [command, args] of [['npm', ['run', 'typecheck']], ['npm', ['test']], ['pnpm', ['test']], ['yarn', ['test']], ['NPM.CMD', ['test']], ['node', ['packages/cli/dist/index.js', 'validate', '.']], ['node', ['./scripts/check.mjs']], ['ansible-lint', ['--offline']], ['tofu', ['fmt', '-check', '-recursive']], ['terraform', ['plan', '-input=false', '-lock=false', '-no-color']], ['npm', ['run', 'environment']]] as Array<[string, string[]]>) {
       expect(forbiddenGateReason({ id: 'x', command, args }), `${command} ${args.join(' ')}`).toBeUndefined();
     }
     expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'node', args: ['-pe', 'x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.shape']);
     expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'pnpx', args: ['x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.tool']);
+    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'terraform', args: ['constructor', '-x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.infrastructure_change']);
+    // A string where the list belongs is refused, by the validator and the planner alike.
+    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'ansible-lint', args: '--fix' }] } } }).map((issue) => issue.code)).toEqual(['gates.command']);
+    expect(forbiddenGateReason({ id: 'x', command: 'ansible-lint', args: '--fix' as unknown as string[] })).toMatch(/args must be a list of strings/);
+  });
+
+  it('never plans a dependency\'s command line program as a gate', () => {
+    const root = workspace({ 'package.json': '{}' });
+    const config = { version: 1, profiles: { probe: { gates: [{ id: 'vite', command: 'node', args: ['node_modules/vite/bin/vite.js', 'build', '--config', '/tmp/outside.mjs'], blocking: true }] } } };
+    expect(() => planGates(root, ['probe'], config)).toThrow(/Gate probe\/vite is not allowed: .*nothing under node_modules/);
   });
 
   it('rejects inline interpreter code, package executors and file-writing Terraform forms', () => {
