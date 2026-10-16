@@ -13,7 +13,7 @@ export type NativeOperation =
   | { type: 'run_cli'; args: string[] }
   | { type: 'show'; text: string };
 
-/** Read-only `cc` commands the extension may start in a task terminal on the person's click. */
+/** Read-only `ccon` commands the extension may start in a task terminal on the person's click. */
 const READ_ONLY_CLI = new Set(['handoff', 'next']);
 const PLAIN_ARGUMENT = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 /** A plain value or flag such as `--run`; never shell syntax, spaces or substitutions. */
@@ -29,19 +29,18 @@ function within(root: string, path: string): boolean {
 }
 
 /**
- * With `runtime` (the bundled cc.js of the installed extension), copied `cc` commands
- * name it explicitly: an extension install puts no `cc` on PATH, and on most POSIX
- * systems `cc` is the C compiler.
+ * With `runtime` (the bundled ccon.js of the installed extension), copied `ccon` commands
+ * name it explicitly: an extension install puts nothing on PATH.
  */
 export function nativeOperation(action: NextAction, worktreeRoot: string, runtime?: string): NativeOperation {
   if (action.kind === 'review_changes' && action.path && isAbsolute(action.path) && within(worktreeRoot, action.path)) {
     return { type: 'open_source_control', path: action.path };
   }
   const [first] = action.commands ?? [];
-  if (action.commands?.length === 1 && first?.[0] === 'cc' && READ_ONLY_CLI.has(first[1] ?? '') && first.slice(1).every((arg) => PLAIN_CLI_ARGUMENT.test(arg))) {
+  if (action.commands?.length === 1 && first?.[0] === 'ccon' && READ_ONLY_CLI.has(first[1] ?? '') && first.slice(1).every((arg) => PLAIN_CLI_ARGUMENT.test(arg))) {
     return { type: 'run_cli', args: first.slice(1) };
   }
-  if (action.commands?.length) return { type: 'copy_command', text: action.commands.map((argv) => formatCommand(runtime && argv[0] === 'cc' ? ['node', runtime, ...argv.slice(1)] : argv)).join('\n') };
+  if (action.commands?.length) return { type: 'copy_command', text: action.commands.map((argv) => formatCommand(runtime && argv[0] === 'ccon' ? ['node', runtime, ...argv.slice(1)] : argv)).join('\n') };
   // Run-record text is untrusted: one line each, with control and format characters replaced.
   return { type: 'show', text: `${printable(action.title, 600, false)}\n${printable(action.detail, 2000, false)}` };
 }

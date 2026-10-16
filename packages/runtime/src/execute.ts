@@ -231,7 +231,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
 
       const adapter = adapters.get(assignment.harness);
       if (!adapter || !adapter.available()) {
-        // A person completes it with `cc handoff`, which prints the same packet.
+        // A person completes it with `ccon handoff`, which prints the same packet.
         const manualCwd = primaryBuilderWorktree?.path ?? root;
         stopped = assignment.dependsOn.length ? controlChange(manualCwd, 'before preparing a manual handoff') : undefined;
         if (stopped) { manifest.results.push(blockedResult(assignment, stopped)); save(); continue; }
@@ -267,7 +267,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         let auth: ClientAuthStatus;
         try { auth = await adapter.authStatus!(); } catch { auth = { state: 'unknown', billing: 'unknown', command: [adapter.command ?? assignment.harness] }; }
         const command = `\`${auth.command.join(' ')}\``;
-        if (auth.state !== 'authenticated') return `Harness ${assignment.harness} ${CLIENT_NOT_SIGNED_IN}: ${command} ${auth.state === 'unauthenticated' ? 'reports that it is not signed in' : 'did not report a sign-in state Code Conductor recognises'}. Sign in with the official client (\`cc doctor\` shows how), then run the task again. The provider was not started.`;
+        if (auth.state !== 'authenticated') return `Harness ${assignment.harness} ${CLIENT_NOT_SIGNED_IN}: ${command} ${auth.state === 'unauthenticated' ? 'reports that it is not signed in' : 'did not report a sign-in state Code Conductor recognises'}. Sign in with the official client (\`ccon doctor\` shows how), then run the task again. The provider was not started.`;
         if (assignment.billingChannel === 'subscription' && auth.billing !== 'subscription') return `Harness ${assignment.harness} ${auth.billing === 'separately_billed' ? 'would use' : 'may use'} ${CLIENT_BILLS_SEPARATELY} (${auth.method ?? 'unrecognised method'}, from ${command}) for an assignment billed to the subscription (subscription_first). Sign in with your subscription in the official client, or remove that credential from the client's own configuration. The provider was not started.`;
         return undefined;
       })() : undefined;
@@ -322,7 +322,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           : await authorizeStart(0);
       if (!approval.approved) {
         // A configuration change found while the approval was rebuilt is recorded as such, so
-        // `cc next` and `cc worktrees` run no Git for this run either.
+        // `ccon next` and `ccon worktrees` run no Git for this run either.
         let blocker = stopped && !approval.blocker.includes(GIT_CONTROL_CHANGED) ? `${stopped} The provider was not started.` : approval.blocker;
         if (assignmentWorktree) {
           // Nothing ran in the fresh worktree; remove it and its branch rather than leave them
@@ -483,7 +483,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   } finally {
     // Keep modifying worktrees by default so agent changes and commits cannot be
     // silently discarded. Cleanup is an explicit caller choice and applies the same rule
-    // as `cc worktrees --remove-clean`: only a content-clean worktree on its own agent
+    // as `ccon worktrees --remove-clean`: only a content-clean worktree on its own agent
     // branch is removed (branches and their commits stay). Removal runs Git in the
     // worktree, so nothing is removed once Git configuration changed. It never hides or
     // changes the run outcome.

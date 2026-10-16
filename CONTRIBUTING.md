@@ -41,7 +41,7 @@ For TypeScript changes:
 npm ci --ignore-scripts
 npm run typecheck
 npm test
-npm run cc:validate
+npm run ccon:validate
 ```
 
 For APM source, manifest, or policy changes:

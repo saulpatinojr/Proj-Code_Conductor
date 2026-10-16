@@ -35,7 +35,7 @@ function setup() {
   return { home, repo, manager, cli, store };
 }
 
-describe('cc worktrees', () => {
+describe('ccon worktrees', () => {
   it('lists clean and dirty worktrees by content and removes only clean ones, keeping branches', () => {
     const { repo, manager, cli, store } = setup();
     const clean = manager.create(repo, 'T-1', 'clean');

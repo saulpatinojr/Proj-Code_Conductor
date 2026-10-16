@@ -13,7 +13,7 @@ Describe the problem, the change, and why this approach was chosen.
 - [ ] `npm ci --ignore-scripts`
 - [ ] `npm run typecheck`
 - [ ] `npm test`
-- [ ] `npm run cc:validate`
+- [ ] `npm run ccon:validate`
 - [ ] APM audit completed when `.apm/`, `apm.yml`, `apm.lock.yaml`, or `apm-policy.yml` changed
 - [ ] Generated APM projections and lockfile are current when canonical pack source changed
 - [ ] Relevant workstation/harness smoke validation completed for execution-boundary changes

@@ -22,5 +22,5 @@ compilation:
   source_attribution: true
 
 scripts:
-  doctor: "cc doctor"
-  validate: "cc validate"
+  doctor: "ccon doctor"
+  validate: "ccon validate"

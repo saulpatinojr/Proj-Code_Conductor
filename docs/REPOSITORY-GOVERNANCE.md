@@ -75,7 +75,7 @@ back so this document can be checked against the live state (#3).
    - require conversation resolution;
    - require the status checks above, and require branches to be up to date;
    - optionally, request Copilot code review automatically. It needs a Copilot plan
-     that includes code review, and it skips draft pull requests (which `cc pr --create`
+     that includes code review, and it skips draft pull requests (which `ccon pr --create`
      opens) unless **Review draft pull requests** is on.
 2. **Settings → Rules → New tag ruleset** for **all tags**: restrict creation, updates
    and deletion, and add **Repository admin** to the bypass list, so that you can still

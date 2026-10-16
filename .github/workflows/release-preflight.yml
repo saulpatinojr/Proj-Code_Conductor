@@ -67,7 +67,7 @@ jobs:
           test "${#packages[@]}" -eq 1
           unzip -Z1 "${packages[0]}" > PACKAGE_FILES.txt
           grep -Fxq 'extension/dist/extension.js' PACKAGE_FILES.txt
-          grep -Fxq 'extension/dist/cc.js' PACKAGE_FILES.txt
+          grep -Fxq 'extension/dist/ccon.js' PACKAGE_FILES.txt
           if grep -Eq '(^|/)node_modules/|(^|/)\.git/' PACKAGE_FILES.txt; then
             echo 'Unexpected dependency tree or Git internals in VSIX' >&2
             exit 1

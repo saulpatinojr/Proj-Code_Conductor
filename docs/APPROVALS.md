@@ -95,7 +95,7 @@ reset or rewrote so that it no longer descends from its base is flagged too. Eit
 makes the run `human_required`.
 
 Every decision is single-use. Nothing reads approval records back as
-authority, so a stored record cannot approve a later action, and `cc import` rejects
+authority, so a stored record cannot approve a later action, and `ccon import` rejects
 manifests that carry approval records.
 
 A refused provider start removes the fresh, unused agent worktree. A refused commit
@@ -121,7 +121,7 @@ isolation: only the client process itself is terminated.
 
 ## Using it
 
-`cc run --execute` prompts in the invoking terminal on stderr. Stdout keeps the JSON
+`ccon run --execute` prompts in the invoking terminal on stderr. Stdout keeps the JSON
 result. The prompt shows the action, recipient, repository, revision, every bound value and
 the approval digest, then asks you to type a six-character confirmation code derived from
 exactly those requests. Input typed before the prompt appeared, such as while a provider
@@ -140,7 +140,7 @@ truncated, review the full diff before approving. If the approver itself fails, 
 still completes with `human_required`. Dry runs ask nothing because they execute nothing.
 There is intentionally no flag that pre-approves or auto-approves.
 
-`cc harness-smoke` is unchanged: it is itself an explicit, single-action command with a
+`ccon harness-smoke` is unchanged: it is itself an explicit, single-action command with a
 fixed, documented smoke prompt and remains the trust step that must pass before any
 execution is offered.
 
@@ -162,7 +162,7 @@ stored, only their digests and sizes. Each decision is also appended to the run'
 - No deployment connector exists yet. Any future deploy or other external side-effect
   path must call `ApprovalGate.authorize` before dispatch (#32 deployment boundary).
   Native environment protection rules remain authoritative. Draft pull-request creation
-  (`cc pr --create`, #35) already does: it asks for a `context_disclosure` approval bound
+  (`ccon pr --create`, #35) already does: it asks for a `context_disclosure` approval bound
   to the exact push and pull-request text ([`GITHUB.md`](GITHUB.md)).
 - Commits an agent makes itself are not approved here, only reported and checked (see
   above and [`WORKTREES.md`](WORKTREES.md)). Every file version they introduced is
@@ -182,7 +182,7 @@ stored, only their digests and sizes. Each decision is also appended to the run'
   and the Git operation after it is not detected.
 - `core.hooksPath` disables Git's hook directory. If a future Git release adds hooks
   defined directly in configuration, re-check this boundary before upgrading.
-- Not bound: the environment variables a provider process inherits (`cc doctor` warns
+- Not bound: the environment variables a provider process inherits (`ccon doctor` warns
   about API-key variables that would bypass subscription billing), and ignored files such
   as `.env`, which a provider with repository access may still be able to read. Keep
   secrets out of repositories you hand to an agent.

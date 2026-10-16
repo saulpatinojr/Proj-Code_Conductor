@@ -103,7 +103,7 @@ function runItems(): ItemSpec[] {
   if (!existsSync(runs)) return [{ label: 'No runs yet', description: 'Use Code Conductor: Plan Task', icon: 'history' }];
   return readdirSync(runs, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().slice(0, 20).map((name) => {
     const manifest = storedManifest(name);
-    const unavailable = { label: name, description: 'manifest unavailable or too large · use cc next', icon: 'run-all' };
+    const unavailable = { label: name, description: 'manifest unavailable or too large · use ccon next', icon: 'run-all' };
     if (!manifest) return unavailable;
     // One malformed run must not break the whole view.
     let actions: NextAction[];
@@ -205,7 +205,7 @@ function startupTooltip(mode: StartupMode, discovery?: LocalDiscovery): string {
 }
 
 async function performNextAction(context: vscode.ExtensionContext, action: NextAction): Promise<void> {
-  const operation = nativeOperation(action, defaultWorktreeRoot(), join(context.extensionPath, 'dist', 'cc.js'));
+  const operation = nativeOperation(action, defaultWorktreeRoot(), join(context.extensionPath, 'dist', 'ccon.js'));
   switch (operation.type) {
     case 'open_source_control':
       try {
@@ -236,10 +236,10 @@ async function performNextAction(context: vscode.ExtensionContext, action: NextA
 async function showNextActions(context: vscode.ExtensionContext, runId: unknown): Promise<void> {
   if (typeof runId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(runId)) return;
   const manifest = storedManifest(runId);
-  if (!manifest) { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`cc next --run ${runId}\` in a terminal.`); return; }
+  if (!manifest) { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`); return; }
   let actions: NextAction[];
   try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); }
-  catch { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`cc next --run ${runId}\` in a terminal.`); return; }
+  catch { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`); return; }
   if (!actions.length) { await vscode.window.showInformationMessage(`${runId}: ${printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600, false)}`); return; }
   const picked = await vscode.window.showQuickPick(actions.map((action) => ({ label: printable(action.title, 200, false), detail: printable(action.detail, 600, false), description: action.surface.replace('_', ' '), action })), { placeHolder: `${runId}: ${printable(manifest.mergeDecision?.decision ?? 'planned', 40)}`, matchOnDetail: true });
   if (picked) await performNextAction(context, picked.action);
@@ -257,7 +257,7 @@ async function showSignIn(root: string | undefined, harnessId: unknown): Promise
 }
 
 async function runCli(context: vscode.ExtensionContext, root: string, args: string[], title: string): Promise<void> {
-  const runtime = join(context.extensionPath, 'dist', 'cc.js');
+  const runtime = join(context.extensionPath, 'dist', 'ccon.js');
   if (!existsSync(runtime)) {
     await vscode.window.showErrorMessage('Code Conductor runtime bundle is missing. Reinstall the extension; customer repositories should never build the runtime themselves.');
     return;

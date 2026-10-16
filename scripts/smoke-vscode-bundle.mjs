@@ -17,10 +17,10 @@ import assert from 'node:assert/strict';
 // apps/vscode/package.json.)
 const SHIPPED = [
   /^package\.json$/, /^readme\.md$/i, /^changelog\.md$/i, /^license(\.txt)?$/i,
-  /^dist\/(extension|cc)\.js$/, /^defaults\/[a-z-]+\.yaml$/, /^defaults\/manifest\.json$/,
+  /^dist\/(extension|ccon)\.js$/, /^defaults\/[a-z-]+\.yaml$/, /^defaults\/manifest\.json$/,
   /^schema\/contracts\.schema\.json$/, /^media\/[a-z-]+\.svg$/,
 ];
-const REQUIRED = ['package.json', 'dist/extension.js', 'dist/cc.js', 'defaults/manifest.json', 'schema/contracts.schema.json'];
+const REQUIRED = ['package.json', 'dist/extension.js', 'dist/ccon.js', 'defaults/manifest.json', 'schema/contracts.schema.json'];
 
 // Directory entries are not followed: a symlink or other special file is reported as such,
 // so it never passes as one of the allowed names.
@@ -52,7 +52,7 @@ try {
     cpSync(installed, extension, { recursive: true });
   } else {
     mkdirSync(join(extension, 'dist'), { recursive: true });
-    cpSync(resolve('apps/vscode/dist/cc.js'), join(extension, 'dist', 'cc.js'));
+    cpSync(resolve('apps/vscode/dist/ccon.js'), join(extension, 'dist', 'ccon.js'));
     cpSync(resolve('apps/vscode/defaults'), join(extension, 'defaults'), { recursive: true });
     cpSync(resolve('apps/vscode/schema'), join(extension, 'schema'), { recursive: true });
     writeFileSync(join(extension, 'package.json'), '{"type":"module"}\n');
@@ -62,16 +62,16 @@ try {
   // A fresh home: nothing from this machine's Code Conductor, Git or Node configuration.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(CODE_CONDUCTOR_|GIT_|NODE_OPTIONS$|NODE_PATH$|XDG_)/i.test(name)));
   Object.assign(env, { HOME: temporary, USERPROFILE: temporary, APPDATA: join(temporary, 'AppData', 'Roaming'), LOCALAPPDATA: join(temporary, 'AppData', 'Local'), CODE_CONDUCTOR_HOME: join(temporary, '.code-conductor') });
-  const cc = (...args) => execFileSync(process.execPath, [join(extension, 'dist', 'cc.js'), ...args], { cwd: workspace, encoding: 'utf8', timeout: 15000, maxBuffer: 1048576, env });
+  const ccon = (...args) => execFileSync(process.execPath, [join(extension, 'dist', 'ccon.js'), ...args], { cwd: workspace, encoding: 'utf8', timeout: 15000, maxBuffer: 1048576, env });
 
-  const result = JSON.parse(cc('workspace-validate', workspace));
+  const result = JSON.parse(ccon('workspace-validate', workspace));
   assert.equal(result.ok, true);
   assert.equal(result.mode, 'workspace');
   assert.equal(result.sources.length, 7);
   if (installed) {
     // The runtime reports the version the package declares, and read-only commands work without any run.
-    assert.equal(cc('version').trim(), JSON.parse(readFileSync(join(extension, 'package.json'), 'utf8')).version);
-    assert.match(cc('worktrees'), /No Code Conductor agent worktrees recorded/);
+    assert.equal(ccon('version').trim(), JSON.parse(readFileSync(join(extension, 'package.json'), 'utf8')).version);
+    assert.match(ccon('worktrees'), /No Code Conductor agent worktrees recorded/);
   }
   assert.deepEqual(readdirSync(workspace), []);
   console.log(`${installed ? 'Installed VSIX' : 'Standalone bundled'} runtime/defaults: PASS (no source tree, node_modules, APM, or repository scaffolding).`);

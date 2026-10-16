@@ -34,7 +34,7 @@ function fakeClaude(): { root: string; log: string; env: NodeJS.ProcessEnv; setV
   };
 }
 
-describe.skipIf(process.platform === 'win32')('cc harness-smoke', () => {
+describe.skipIf(process.platform === 'win32')('ccon harness-smoke', () => {
   it('records no trust when the client changes during the smoke test', () => {
     const client = fakeClaude();
     client.setVersion('1.0.0 (Claude Code)');

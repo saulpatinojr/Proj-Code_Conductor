@@ -10,7 +10,7 @@ Deliver a working orchestration system for VS Code that coordinates existing sub
 
 VS Code is the primary operator UI. A thin Code Conductor extension exposes Team, Runs, Gates, Connections, Packs, and Usage views and deep-links into native agent sessions, terminals, diffs, Source Control, and GitHub PR tooling.
 
-Code Conductor v0.x does not require a standalone desktop application. An optional thin `cc` CLI/TUI uses the same versioned core/runtime as the extension.
+Code Conductor v0.x does not require a standalone desktop application. An optional thin `ccon` CLI/TUI uses the same versioned core/runtime as the extension.
 
 The production VS Code package must contain or reliably resolve the compiled Code Conductor runtime required by normal users. Customer repositories must not need this source repository or an `npm run build` step.
 
@@ -214,7 +214,7 @@ Code Conductor must not store consumer OAuth tokens or impersonate vendor client
 - Antigravity: official Google sign-in/keyring flow.
 - Perplexity: Pro consumer login for manual mode; official API key only for explicitly enabled MCP automation.
 
-`cc doctor` detects relevant client/surface availability, auth status where safely discoverable, conflicting API-key environment variables, repository trust, Git state, APM state, MCP health, deterministic tools, and sandbox capability. It never prints secret values.
+`ccon doctor` detects relevant client/surface availability, auth status where safely discoverable, conflicting API-key environment variables, repository trust, Git state, APM state, MCP health, deterministic tools, and sandbox capability. It never prints secret values.
 
 ## Surface-aware execution decision
 
@@ -300,9 +300,9 @@ Do not create empty scaffolding merely to make the tree look complete; create di
 
 ### Phase 2 — Local execution — implemented baseline, workstation validation next
 
-- CLI `cc`
-- `cc doctor`
-- `cc validate`
+- CLI `ccon`
+- `ccon doctor`
+- `ccon validate`
 - Git/worktree manager
 - Codex adapter
 - Claude adapter
@@ -358,7 +358,7 @@ Remaining work is live installed-client/subscription/authority validation, not r
 The architecture/runtime/product foundations above are merged. Execute the live release-readiness path in this order:
 
 1. sync/verify current `main` and install/activate the packaged extension on the target workstation;
-2. run `cc doctor` and validate first-run discovery plus warm lazy startup;
+2. run `ccon doctor` and validate first-run discovery plus warm lazy startup;
 3. authenticate supported subscription-backed clients using official mechanisms;
 4. smoke-test the selected Codex/Claude/Kiro surfaces in read mode, then isolated modify mode; Kiro ACP remains fail-closed until current subscription-policy and authority behavior are proven;
 5. verify only the MCP/reference and deterministic-tool profiles required by the scenario;
@@ -397,7 +397,7 @@ A clean workstation must be able to:
 - restart VS Code with fast lazy warm-start behavior and no unnecessary provider/MCP/APM launches;
 - verify APM targets for repositories that package agent packs (APM is optional for basic provider handoffs, I07);
 - authenticate supported official clients through their native boundaries;
-- run `cc doctor` with surface-aware/provider/tool status;
+- run `ccon doctor` with surface-aware/provider/tool status;
 - safely prepare bounded context;
 - repeat that in a second, unrelated repository that has no Code Conductor files;
 - execute an R1/R2 task using independent roles and the approved provider surfaces;

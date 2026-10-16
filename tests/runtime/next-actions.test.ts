@@ -35,8 +35,8 @@ describe('next actions', () => {
     }), { worktreeRoot: ROOT });
     expect(actions).toHaveLength(1);
     expect(actions[0]).toMatchObject({ kind: 'approve_interactively', surface: 'terminal', assignmentId: 'A-1' });
-    expect(formatCommand(actions[0]!.commands![0]!, 'posix')).toBe("cc run --repo /work/repo --risk R1 --objective 'Fix the '\\''flaky'\\'' test' --execute");
-    expect(formatCommand(actions[0]!.commands![0]!, 'powershell')).toBe("cc run --repo /work/repo --risk R1 --objective 'Fix the ''flaky'' test' --execute");
+    expect(formatCommand(actions[0]!.commands![0]!, 'posix')).toBe("ccon run --repo /work/repo --risk R1 --objective 'Fix the '\\''flaky'\\'' test' --execute");
+    expect(formatCommand(actions[0]!.commands![0]!, 'powershell')).toBe("ccon run --repo /work/repo --risk R1 --objective 'Fix the ''flaky'' test' --execute");
   });
 
   const record = (overrides: Partial<ApprovalRecord>): ApprovalRecord => ({ requestDigest: 'f'.repeat(64), action: 'local_execution', runId: 'CC-1', taskId: 'T-1', assignmentId: 'A-1', recipient: 'openai/codex@cli', revision: 'b'.repeat(40), status: 'denied', approver: 'interactive-terminal', requestedAt: '2026-10-16T00:00:00Z', decidedAt: '2026-10-16T00:00:05Z', summary: 's', ...overrides });
@@ -44,7 +44,7 @@ describe('next actions', () => {
   it('distinguishes a person declining from a missing approver', () => {
     const [action] = nextActions(manifest({ results: [result(builder, { status: 'blocked' })], approvals: [record({})] }));
     expect(action).toMatchObject({ kind: 'decide', title: 'You declined local_execution → openai/codex@cli', surface: 'terminal' });
-    expect(action?.commands?.[0]?.slice(0, 2)).toEqual(['cc', 'run']);
+    expect(action?.commands?.[0]?.slice(0, 2)).toEqual(['ccon', 'run']);
   });
 
   it('points a refused commit at native review of the kept changes, not a paid re-run', () => {
@@ -64,12 +64,12 @@ describe('next actions', () => {
 
   it('points an untrusted harness at official sign-in and the smoke test for its authority', () => {
     const [action] = nextActions(manifest({ results: [result(builder, { status: 'blocked', blockers: ['Harness codex surface cli has not passed Code Conductor workstation modify smoke validation.'] })] }));
-    expect(action).toMatchObject({ kind: 'validate_harness', surface: 'official_client', commands: [['cc', 'harness-smoke', 'codex', '--mode', 'modify']] });
+    expect(action).toMatchObject({ kind: 'validate_harness', surface: 'official_client', commands: [['ccon', 'harness-smoke', 'codex', '--mode', 'modify']] });
   });
 
   it('points a client that is not signed in, or signed in with metered billing, at its official sign-in', () => {
     const signIn = nextActions(manifest({ results: [result(builder, { status: 'blocked', recommendation: 'changes_required', blockers: [`Harness codex ${CLIENT_NOT_SIGNED_IN}: \`codex login status\` reports that it is not signed in.`] })] }));
-    expect(signIn).toEqual([expect.objectContaining({ kind: 'validate_harness', title: 'Sign in to codex in its official client', surface: 'official_client', commands: [['cc', 'doctor']] })]);
+    expect(signIn).toEqual([expect.objectContaining({ kind: 'validate_harness', title: 'Sign in to codex in its official client', surface: 'official_client', commands: [['ccon', 'doctor']] })]);
     const billing = nextActions(manifest({ results: [result(reviewer, { status: 'blocked', recommendation: 'changes_required', blockers: [`Harness claude would use ${CLIENT_BILLS_SEPARATELY} (api_key).`] })] }));
     expect(billing[0]).toMatchObject({ kind: 'validate_harness', title: 'Use your subscription sign-in for claude' });
   });
@@ -79,7 +79,7 @@ describe('next actions', () => {
     const research = assignment('A-4', 'researcher', 'perplexity');
     const actions = nextActions(manifest({ assignments: [builder, gatekeeper, research], results: [result(gatekeeper, { status: 'awaiting_external' }), result(research, { status: 'awaiting_external' })] }));
     expect(actions.map((action) => [action.kind, action.surface])).toEqual([['github_review', 'github'], ['manual_handoff', 'manual']]);
-    expect(actions[1]?.commands).toEqual([['cc', 'handoff', '--run', 'CC-1', '--assignment', 'A-4']]);
+    expect(actions[1]?.commands).toEqual([['ccon', 'handoff', '--run', 'CC-1', '--assignment', 'A-4']]);
   });
 
   it('surfaces failing gates and blocking findings with their evidence', () => {
@@ -199,12 +199,12 @@ describe('formatCommand', () => {
   });
 
   it('quotes for PowerShell, doubling every kind of single quote', () => {
-    expect(formatCommand(['cc', 'handoff', '--run', "import-x'; Start-Process calc; #"], 'powershell')).toBe("cc handoff --run 'import-x''; Start-Process calc; #'");
+    expect(formatCommand(['ccon', 'handoff', '--run', "import-x'; Start-Process calc; #"], 'powershell')).toBe("ccon handoff --run 'import-x''; Start-Process calc; #'");
     expect(formatCommand(['git', '-C', 'C:\\Users\\me\\wt', 'status'], 'powershell')).toBe('git -C C:\\Users\\me\\wt status');
     expect(formatCommand(['echo', 'a\u2019b', '@splat', 'x y'], 'powershell')).toBe("echo 'a\u2019\u2019b' '@splat' 'x y'");
     // The bundled runtime of an installed extension, under a profile folder with a space.
-    expect(formatCommand(['node', 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\cc.js', 'next'], 'powershell'))
-      .toBe("node 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\cc.js' next");
+    expect(formatCommand(['node', 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\ccon.js', 'next'], 'powershell'))
+      .toBe("node 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\ccon.js' next");
   });
 });
 

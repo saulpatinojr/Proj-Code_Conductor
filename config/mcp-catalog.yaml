@@ -100,4 +100,4 @@ servers:
 # The context optimizer's experimental MCP transport is not listed: its server exists only
 # in a source checkout, not in the packaged extension, and stays out of the catalog until
 # W-006 validates it against the official MCP TypeScript SDK (ADR 0007). Its direct path,
-# `cc compress`, is supported.
+# `ccon compress`, is supported.

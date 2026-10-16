@@ -449,7 +449,7 @@ describe('pre-action approval enforcement (#44)', () => {
     const { outcome, claude, events } = await run(decideWith(() => true, seen), gateCalls, { codex: new ConfigWriter('codex', 'openai'), keepWorktrees });
     const [builder, ...rest] = outcome.manifest.results;
     expect(existsSync(marker)).toBe(false);
-    // Cleanup would run Git in the worktree; it is kept, and so is its record for `cc next`.
+    // Cleanup would run Git in the worktree; it is kept, and so is its record for `ccon next`.
     expect(existsSync(outcome.worktrees[0]!.path)).toBe(true);
     expect(outcome.manifest.worktrees).toHaveLength(1);
     if (!keepWorktrees) expect(events()).toContain('worktree.retained');

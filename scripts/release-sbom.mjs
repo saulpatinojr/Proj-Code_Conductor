@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 // Writes the CycloneDX SBOM of what the VS Code package bundles: npm's dependency graph of
-// the two bundled workspaces (the extension and the cc runtime), development dependencies
+// the two bundled workspaces (the extension and the ccon runtime), development dependencies
 // marked as such. It then checks that the SBOM lists every package esbuild actually put in
 // a bundle (apps/vscode/dist/bundled-packages.json, written by build-vscode.mjs), so a
 // package npm leaves out fails the release instead of going unlisted.

@@ -10,19 +10,19 @@ Use an up-to-date VS Code installation, Git, Node 22+ (24 recommended), GitHub C
 
 Install Code Conductor from a release `.vsix` ([`INSTALL.md`](INSTALL.md)) after verifying it ([`RELEASE.md`](RELEASE.md#verify-a-package)). For a pull-request build, use the `vsix-preflight-<run>` artifact of the Release preflight workflow instead, which is packaged under a validation-only publisher. The installation must work in an ordinary repository without the Code Conductor source tree or a local `npm run build`. Validation that uses this repository's own build instead must say so in its evidence.
 
-**How commands are written here.** The extension does not put `cc` on `PATH` ([`INSTALL.md`](INSTALL.md#run-cc-commands-yourself)). Set the path of its bundled runtime once, then run each command through `node`.
+**How commands are written here.** The extension does not put `ccon` on `PATH` ([`INSTALL.md`](INSTALL.md#run-cc-commands-yourself)). Set the path of its bundled runtime once, then run each command through `node`.
 
 bash or zsh:
 
 ```bash
-CC_JS="$HOME/.vscode/extensions/<publisher>.code-conductor-vscode-<version>/dist/cc.js"
+CC_JS="$HOME/.vscode/extensions/<publisher>.code-conductor-vscode-<version>/dist/ccon.js"
 node "$CC_JS" <command>
 ```
 
 PowerShell:
 
 ```powershell
-$CC_JS = "$env:USERPROFILE\.vscode\extensions\<publisher>.code-conductor-vscode-<version>\dist\cc.js"
+$CC_JS = "$env:USERPROFILE\.vscode\extensions\<publisher>.code-conductor-vscode-<version>\dist\ccon.js"
 node $CC_JS <command>
 ```
 
@@ -77,11 +77,11 @@ Then run Doctor from the installed extension, either with **Code Conductor: Doct
 node "$CC_JS" doctor .
 ```
 
-In a development checkout, `npm run cc:doctor` builds and runs the same command.
+In a development checkout, `npm run ccon:doctor` builds and runs the same command.
 
 Missing optional tool commands are not failures when the active repository profile does not require them.
 
-`cc doctor` should evolve under #10/#15 to report, without secrets:
+`ccon doctor` should evolve under #10/#15 to report, without secrets:
 
 - provider name and official auth boundary;
 - available native IDE surface;
@@ -226,7 +226,7 @@ Restart/reload VS Code and verify that normal startup:
 Use VS Code's own measurement. Do not time it by hand.
 
 1. Run **Developer: Show Running Extensions**. Record Code Conductor's activation time for a first run (new workspace), for a warm start (reload with nothing changed), and for a start after a configuration change.
-2. Right after a warm start, open **Developer: Open Process Explorer** and check every child process of the extension host. None may be a Claude, Codex, `kiro-cli`, MCP or APM process started by Code Conductor: its command line names `dist/cc.js` or one of those clients. The native Claude Code and Codex extensions share the extension host and may start their own processes, so a name alone does not decide it. If it is unclear, repeat the warm start with Code Conductor disabled and compare. A name search with `pgrep` or `Get-Process` is not enough: it also finds the native extensions' and terminals' own processes.
+2. Right after a warm start, open **Developer: Open Process Explorer** and check every child process of the extension host. None may be a Claude, Codex, `kiro-cli`, MCP or APM process started by Code Conductor: its command line names `dist/ccon.js` or one of those clients. The native Claude Code and Codex extensions share the extension host and may start their own processes, so a name alone does not decide it. If it is unclear, repeat the warm start with Code Conductor disabled and compare. A name search with `pgrep` or `Get-Process` is not enough: it also finds the native extensions' and terminals' own processes.
 3. Repeat the warm start while offline. The views should show cached state, and no error should block activation.
 
 **Initial budget, to be confirmed by this first baseline:**
@@ -243,7 +243,7 @@ Activate the minimum profile required for the repository. Confirm:
 - authenticated MCPs retain their official IAM/RBAC boundary;
 - write-capable tools are not granted globally by default;
 - Code Conductor first-party MCP adapters require explicit catalog approval;
-- the context optimizer is used through `cc compress`; its experimental MCP transport is not in the catalog (W-006). On Linux and WSL, `cc compress <file>` reads a workspace file; on Windows and macOS it refuses with the reason, because the opened file's location cannot be verified there (ADR 0007);
+- the context optimizer is used through `ccon compress`; its experimental MCP transport is not in the catalog (W-006). On Linux and WSL, `ccon compress <file>` reads a workspace file; on Windows and macOS it refuses with the reason, because the opened file's location cannot be verified there (ADR 0007);
 - Perplexity automated MCP/API stays off unless you list it with `--allow-api` and configure your own key ([`AUTHENTICATION.md`](AUTHENTICATION.md)).
 
 ## 12. First real dry run and dogfood
@@ -283,12 +283,12 @@ For the v0.1 release candidate, attach non-secret evidence to #4 as a checklist:
 - [ ] the package: version, `sha256sum -c SHA256SUMS` and `gh attestation verify` output ([`RELEASE.md`](RELEASE.md#verify-a-package));
 - [ ] OS, VS Code version, and whether the workspace is local, WSL, SSH or a container;
 - [ ] installed provider and tool versions (section 4);
-- [ ] `cc doctor` output, showing installed, signed in, healthy and trusted for each client;
-- [ ] `cc harness-smoke` read and modify results for each client and version (Kiro with `--ack-kiro-policy`);
+- [ ] `ccon doctor` output, showing installed, signed in, healthy and trusted for each client;
+- [ ] `ccon harness-smoke` read and modify results for each client and version (Kiro with `--ack-kiro-policy`);
 - [ ] measured first-run, warm-start and changed-configuration activation times, and the process check (section 10);
 - [ ] the minimum MCP and tool profiles used;
 - [ ] the R1 and R2 run IDs, their structured results and their deterministic gates;
-- [ ] the worktree and draft pull request: the `cc pr` preview, the PR URL, and `cc github-gate` output before and after re-review;
+- [ ] the worktree and draft pull request: the `ccon pr` preview, the PR URL, and `ccon github-gate` output before and after re-review;
 - [ ] the final readiness decision, and who made it.
 
 Never paste tokens, email addresses, `config.json` contents or `~/.code-conductor/runs` evidence that holds repository content.

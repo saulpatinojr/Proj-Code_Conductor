@@ -138,7 +138,7 @@ function label(assignment: AgentAssignment | undefined, result: AgentResult): st
 }
 
 function runCommand(manifest: RunManifest): string[] {
-  return ['cc', 'run', '--repo', manifest.task.repository ?? '.', '--risk', manifest.task.risk, '--objective', manifest.task.objective, ...(manifest.task.specializations?.length ? ['--specializations', manifest.task.specializations.join(',')] : []), '--execute'];
+  return ['ccon', 'run', '--repo', manifest.task.repository ?? '.', '--risk', manifest.task.risk, '--objective', manifest.task.objective, ...(manifest.task.specializations?.length ? ['--specializations', manifest.task.specializations.join(',')] : []), '--execute'];
 }
 
 function approvalAction(manifest: RunManifest, result: AgentResult, assignment: AgentAssignment | undefined, record: ApprovalRecord): NextAction {
@@ -191,7 +191,7 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
         surface: 'official_client' as const, assignmentId: result.assignmentId, evidenceIds: [],
       };
       // The harness name comes from the run record; only a plain name goes into a command.
-      actions.push(PLAIN_ID.test(harness) ? withCommands(action, [['cc', 'harness-smoke', harness, '--mode', mode]]) : { ...action, detail: `${action.detail} (No command is shown because the harness name is not plain.)` });
+      actions.push(PLAIN_ID.test(harness) ? withCommands(action, [['ccon', 'harness-smoke', harness, '--mode', mode]]) : { ...action, detail: `${action.detail} (No command is shown because the harness name is not plain.)` });
       continue;
     }
     if (result.status === 'blocked' && (blockers.includes(CLIENT_NOT_SIGNED_IN) || blockers.includes(CLIENT_BILLS_SEPARATELY))) {
@@ -201,9 +201,9 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
         kind: 'validate_harness', title: billing ? `Use your subscription sign-in for ${harness}` : `Sign in to ${harness} in its official client`,
         detail: billing
           ? 'The client is signed in with a credential billed separately from your subscription, so Code Conductor did not start it. Sign in with your subscription in the official client, or remove that credential from the client\'s own configuration, then run the task again.'
-          : 'The official client did not report a sign-in, so Code Conductor did not start it. `cc doctor` shows each client\'s official sign-in command and documentation. Sign in there, then run the task again.',
+          : 'The official client did not report a sign-in, so Code Conductor did not start it. `ccon doctor` shows each client\'s official sign-in command and documentation. Sign in there, then run the task again.',
         surface: 'official_client', assignmentId: result.assignmentId, evidenceIds: [],
-      }, [['cc', 'doctor']]));
+      }, [['ccon', 'doctor']]));
       continue;
     }
     if (result.status === 'awaiting_external') {
@@ -211,11 +211,11 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
         actions.push({ kind: 'github_review', title: 'Review the change on GitHub', detail: 'GitHub review (Copilot review, required checks, branch protection) is the native gate. Push the agent branch and open a draft pull request yourself, then review there.', surface: 'github', assignmentId: result.assignmentId, evidenceIds: [] });
       } else {
         const modifies = assignment?.authority?.includes('modify_worktree');
-        const detail = `No supported unattended surface is available for this assignment. Print its exact prompt and run it yourself in the official client.${modifies ? ' It changes files: work in an isolated branch or worktree (for example `git worktree add`), never in a checkout that holds other work (AGENTS.md §6).' : ''} To keep the outcome with Code Conductor's evidence, record it as a RunManifest file and bring it in with \`cc import\`.`;
+        const detail = `No supported unattended surface is available for this assignment. Print its exact prompt and run it yourself in the official client.${modifies ? ' It changes files: work in an isolated branch or worktree (for example `git worktree add`), never in a checkout that holds other work (AGENTS.md §6).' : ''} To keep the outcome with Code Conductor's evidence, record it as a RunManifest file and bring it in with \`ccon import\`.`;
         const action = { kind: 'manual_handoff' as const, title: `Complete ${label(assignment, result)} manually`, detail, surface: 'manual' as const, assignmentId: result.assignmentId, evidenceIds: [] };
         // Only plain identifiers go into a command; anything else could break out of shell quoting.
         actions.push(PLAIN_ID.test(manifest.runId) && PLAIN_ID.test(result.assignmentId)
-          ? withCommands(action, [['cc', 'handoff', '--run', manifest.runId, '--assignment', result.assignmentId]])
+          ? withCommands(action, [['ccon', 'handoff', '--run', manifest.runId, '--assignment', result.assignmentId]])
           : { ...action, detail: `${detail} (No command is shown because the run or assignment identifier is not plain.)` });
       }
       continue;

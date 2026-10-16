@@ -38,7 +38,7 @@ sign nor write:
    preflight on every pull request (see [`INSTALL.md`](INSTALL.md#validation)).
 4. It writes:
    - the CycloneDX SBOM (`code-conductor-<version>.cdx.json`). This is npm's dependency
-     graph of the two bundled workspaces, the extension and the `cc` runtime, with
+     graph of the two bundled workspaces, the extension and the `ccon` runtime, with
      development dependencies marked. The workflow fails if the SBOM does not list
      every package esbuild put in a bundle;
    - `SHA256SUMS` for the package and the SBOM.

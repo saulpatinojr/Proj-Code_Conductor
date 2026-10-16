@@ -13,7 +13,7 @@ and your branches are never modified. Code Conductor refuses to commit anywhere 
 not its own agent worktree on its own agent branch (#48).
 
 The run manifest records each worktree's path, branch and base (`RunManifest.worktrees`).
-`cc next` and the VS Code Runs view open it in native Source Control.
+`ccon next` and the VS Code Runs view open it in native Source Control.
 
 ## Commits
 
@@ -52,12 +52,12 @@ place.
 Worktrees and branches are **kept** by default, so agent work is never silently
 discarded.
 
-- `cc worktrees [--run <runId>]` lists recorded worktrees with their branch, base and run:
+- `ccon worktrees [--run <runId>]` lists recorded worktrees with their branch, base and run:
   `CLEAN` when removing it loses nothing, otherwise `KEEP` and the reason.
-- `cc worktrees --remove-clean` removes only `CLEAN` worktrees. **Branches, and so the
+- `ccon worktrees --remove-clean` removes only `CLEAN` worktrees. **Branches, and so the
   agent's commits, are kept.** Delete a branch yourself with Git once it is merged or no
   longer needed.
-- `cc run --cleanup-worktrees` applies the same rule at the end of a run. Kept worktrees
+- `ccon run --cleanup-worktrees` applies the same rule at the end of a run. Kept worktrees
   are reported in the run's events, and cleanup never hides or changes the run's outcome.
 
 A worktree is clean only when all of the following hold:
@@ -75,11 +75,11 @@ never prunes other worktrees, including your own whose directory is temporarily 
 **When no Git runs at all.** Checking or removing a worktree runs Git in it, including any
 clean filters its configuration defines. So nothing is checked or removed in two cases:
 
-- **The run stopped because Git configuration or history files changed.** `cc worktrees`
+- **The run stopped because Git configuration or history files changed.** `ccon worktrees`
   prints `INSPECT` and the `git -C <path> config --list --show-origin` command to start
   with. A run with `--cleanup-worktrees` keeps the worktree.
 - **The run has no recorded outcome**, because it is still running or was interrupted.
-  `cc worktrees` prints `ACTIVE`.
+  `ccon worktrees` prints `ACTIVE`.
 
 A worktree that was never used, because its start was not approved, is removed together
 with its empty branch, unless Git configuration had already changed.
@@ -99,7 +99,7 @@ So:
   `git ls-tree`, which never enter them. One that appears or changes stops the run like
   any other configuration change. Nesting deeper than three levels is reported as
   unreadable and stops the run too.
-- `cc worktrees` and cleanup keep a worktree that contains one (`KEEP … nested Git
+- `ccon worktrees` and cleanup keep a worktree that contains one (`KEEP … nested Git
   repository`), without checking its content.
 - `git status` runs with `--ignore-submodules=all` everywhere, and a push never recurses
   into submodules.
@@ -144,7 +144,7 @@ Claude Code ranks all of these above a subscription `/login`
 **Git's repository-local variables** (`GIT_DIR`, `GIT_INDEX_FILE`, ...), so a client's own
 Git commands cannot be redirected to another repository.
 
-`cc doctor` warns when any of the billing variables is set in your shell.
+`ccon doctor` warns when any of the billing variables is set in your shell.
 
 Kept on purpose:
 

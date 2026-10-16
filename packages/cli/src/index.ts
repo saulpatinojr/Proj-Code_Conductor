@@ -94,7 +94,7 @@ async function doctor(root: string): Promise<number> {
       const record = state.harnesses[`${id}@${adapter.executionSurface}`];
       const trusted = workstation.isTrusted(id, mode, adapter.executionSurface, version);
       if (trusted) console.log(`OK trusted ${id} ${mode}: smoke test passed for ${printable(version ?? '')}`);
-      else console.log(`INFO trusted ${id} ${mode}: ${record?.clientVersion && record.clientVersion !== version && (record.readValidatedAt || record.modifyValidatedAt) ? `smoke test passed for ${printable(record.clientVersion)}, not the installed version; ` : ''}run \`cc harness-smoke ${id} --mode ${mode}\``);
+      else console.log(`INFO trusted ${id} ${mode}: ${record?.clientVersion && record.clientVersion !== version && (record.readValidatedAt || record.modifyValidatedAt) ? `smoke test passed for ${printable(record.clientVersion)}, not the installed version; ` : ''}run \`ccon harness-smoke ${id} --mode ${mode}\``);
     }
   }
   console.log('INFO authentication stays in each official client; Code Conductor runs only its documented status command and never reads or stores credentials.');
@@ -123,13 +123,13 @@ async function doctor(root: string): Promise<number> {
   if (hasCommand('apm')) { console.log(`${apmTargets(root).ok ? 'OK' : 'WARN'} apm-targets`); console.log(`${apmLockPresent(root) ? 'OK' : 'WARN'} apm-lock`); }
   const inventory = inventoryNativeCustomizations(root);
   const count = (kind: string, scope: string): number => inventory.entries.filter((entry) => entry.kind === kind && entry.scope === scope).length;
-  console.log(`INFO native-inventory: project agents=${count('agent', 'project')} skills=${count('skill', 'project')}; user agents=${count('agent', 'user')} skills=${count('skill', 'user')}${inventory.truncated ? ' (truncated)' : ''}. Details: cc agents`);
+  console.log(`INFO native-inventory: project agents=${count('agent', 'project')} skills=${count('skill', 'project')}; user agents=${count('agent', 'user')} skills=${count('skill', 'user')}${inventory.truncated ? ' (truncated)' : ''}. Details: ccon agents`);
   if (inventory.unmanagedProjectPaths.length) console.log(`INFO native-inventory.unmanaged: ${inventory.unmanagedProjectPaths.length} project file(s) not recorded in apm.lock.yaml (informational; apm audit is authoritative): ${inventory.unmanagedProjectPaths.join(', ')}`);
   let configStatus = 0;
   try {
     for (const name of ['roles', 'risk', 'capabilities', 'authorities', 'gates', 'mcp-catalog', 'references'] as const) loadConfiguration(root, name);
     console.log('OK packaged runtime configuration (not source-repository scaffold validation)');
-    if (isCodeConductorSource(root)) console.log('INFO source-repository: run `cc validate .` for the strict Code Conductor configuration/scaffold check.');
+    if (isCodeConductorSource(root)) console.log('INFO source-repository: run `ccon validate .` for the strict Code Conductor configuration/scaffold check.');
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); configStatus = 1; }
   return missingRequired || configStatus !== 0 ? 1 : 0;
 }
@@ -159,7 +159,7 @@ async function run(args: string[]): Promise<number> {
 
 async function harnessSmoke(args: string[]): Promise<number> {
   const harness = args[0]; const mode = (getOption(args, '--mode') ?? 'read') as HarnessTrustMode;
-  if (!harness || !['read', 'modify'].includes(mode)) { console.error('Usage: cc harness-smoke <codex|claude|kiro> --mode <read|modify> [--ack-kiro-policy]'); return 2; }
+  if (!harness || !['read', 'modify'].includes(mode)) { console.error('Usage: ccon harness-smoke <codex|claude|kiro> --mode <read|modify> [--ack-kiro-policy]'); return 2; }
   if (harness === 'antigravity') { console.error('BLOCKED: Antigravity unattended smoke is disabled pending current permission/sandbox revalidation.'); return 1; }
   const adapter = createBuiltinAdapters().get(harness);
   if (!adapter?.available()) { console.error(`ERROR: harness ${harness} is not available.`); return 1; }
@@ -194,7 +194,7 @@ async function harnessSmoke(args: string[]): Promise<number> {
   if (inside.length) { console.error(`BLOCKED: ${harness} would read its user configuration from inside the repository: ${printable(inside.join(', '), 2000)}. The repository could then supply the client's settings (hooks, environment, credential helper). Point it outside the repository.`); return 1; }
   if (adapter.authStatus) {
     const auth = await adapter.authStatus();
-    if (auth.state !== 'authenticated') { console.error(`BLOCKED: ${harness} is not signed in (\`${formatCommand(auth.command)}\` reported ${auth.state}). Sign in with the official client first; \`cc doctor\` shows how.`); return 1; }
+    if (auth.state !== 'authenticated') { console.error(`BLOCKED: ${harness} is not signed in (\`${formatCommand(auth.command)}\` reported ${auth.state}). Sign in with the official client first; \`ccon doctor\` shows how.`); return 1; }
     if (auth.billing !== 'subscription') { console.error(`BLOCKED: ${harness} is signed in with ${printable(auth.method ?? 'an unrecognised method')}, which ${auth.billing === 'separately_billed' ? 'is billed separately from your subscription' : 'Code Conductor cannot confirm as subscription billing'}. Sign in with your subscription first.`); return 1; }
   }
 
@@ -256,7 +256,7 @@ function nextCommand(args: string[]): number {
     // step or a command line. Only Code Conductor starts a `$` line, with argv it built
     // and quoted for this platform's shell (nextActions drops commands it cannot show exactly).
     console.log(`Run ${printable(manifest.runId)}: ${manifest.mergeDecision ? `${printable(manifest.mergeDecision.decision)} — ${printable(manifest.mergeDecision.rationale)}` : 'planned (not executed)'}`);
-    if (!actions.length) console.log(manifest.mergeDecision ? 'No further step is needed from you for this run.' : 'No next action recorded. Dry-run plans execute nothing; use `cc run --execute` from an interactive terminal.');
+    if (!actions.length) console.log(manifest.mergeDecision ? 'No further step is needed from you for this run.' : 'No next action recorded. Dry-run plans execute nothing; use `ccon run --execute` from an interactive terminal.');
     const prompt = DEFAULT_SHELL === 'powershell' ? 'PS>' : '$';
     for (const [index, action] of actions.entries()) {
       // Titles and details mix Code Conductor's text with record values; control and format
@@ -279,7 +279,7 @@ function worktreesCommand(args: string[]): number {
   for (const runId of only ? [only] : store.listRunIds()) {
     let manifest: RunManifest;
     try { manifest = storedManifest(store, runId); } catch { continue; }
-    // Only records naming an agent branch and an existing directory under the root, as for `cc next`.
+    // Only records naming an agent branch and an existing directory under the root, as for `ccon next`.
     const stopped = stoppedForGitControl(manifest);
     for (const record of recordedAgentWorktrees(manifest, root)) {
       if (seen.has(record.path)) continue;
@@ -304,7 +304,7 @@ function worktreesCommand(args: string[]): number {
     }
   }
   if (!seen.size) console.log('No Code Conductor agent worktrees recorded in stored runs.');
-  else if (!removeClean) console.log('Worktrees are kept until you remove them. `cc worktrees --remove-clean` removes only CLEAN ones (ignored files in them are deleted too) and keeps their branches; review the others in Source Control first.');
+  else if (!removeClean) console.log('Worktrees are kept until you remove them. `ccon worktrees --remove-clean` removes only CLEAN ones (ignored files in them are deleted too) and keeps their branches; review the others in Source Control first.');
   return failures ? 1 : 0;
 }
 
@@ -338,7 +338,7 @@ function runsCommand(args: string[]): number {
 
 function handoff(args: string[]): number {
   const runId = getOption(args, '--run'); const assignmentId = getOption(args, '--assignment');
-  if (!runId || !assignmentId) { console.error('Usage: cc handoff --run <runId> --assignment <assignmentId>'); return 2; }
+  if (!runId || !assignmentId) { console.error('Usage: ccon handoff --run <runId> --assignment <assignmentId>'); return 2; }
   try {
     const manifest = storedManifest(new RunStore(), runId);
     const assignment = manifest.assignments.find((item) => item.id === assignmentId);
@@ -362,14 +362,14 @@ function handoff(args: string[]): number {
     // control and format characters replaced. Redirect stdout for the exact bytes.
     const shown = terminalText(text);
     console.log(shown.text);
-    if (shown.replaced) console.error('Some characters were replaced with "?" for display. Redirect the output (cc handoff … > prompt.txt) to get the exact prompt.');
+    if (shown.replaced) console.error('Some characters were replaced with "?" for display. Redirect the output (ccon handoff … > prompt.txt) to get the exact prompt.');
     return 0;
   } catch (error) { console.error(`ERROR handoff.unavailable: ${printable(error instanceof Error ? error.message : String(error))}`); return 1; }
 }
 
 function importRun(args: string[]): number {
   const file = args.find((value) => !value.startsWith('--') && args[args.indexOf(value) - 1] !== '--source');
-  if (!file) { console.error('Usage: cc import <run-manifest.json> [--source <label>] [--force]'); return 2; }
+  if (!file) { console.error('Usage: ccon import <run-manifest.json> [--source <label>] [--force]'); return 2; }
   try {
     const outcome = importRunManifest(resolve(file), { source: getOption(args, '--source') ?? 'external', force: args.includes('--force') });
     console.log(JSON.stringify(outcome, null, 2));
@@ -448,7 +448,7 @@ async function pullRequestCommand(args: string[]): Promise<number> {
     }
     const outcome = await openDraftPullRequest(manifest, options, { gh, approver: new TerminalApprover(), store });
     if (args.includes('--json')) console.log(terminalSafeJson({ status: outcome.status, url: outcome.url, blocker: outcome.blocker, approvals: outcome.approvals }));
-    else if (outcome.status === 'created') console.log(`Draft pull request opened: ${printable(outcome.url ?? '(gh did not print a URL)')}\nCheck it with: cc github-gate --pr ${printable(outcome.url ?? outcome.plan?.branch ?? '')}`);
+    else if (outcome.status === 'created') console.log(`Draft pull request opened: ${printable(outcome.url ?? '(gh did not print a URL)')}\nCheck it with: ccon github-gate --pr ${printable(outcome.url ?? outcome.plan?.branch ?? '')}`);
     else console.error(`REFUSED: ${printable(outcome.blocker ?? 'not approved', 4000)}`);
     return outcome.status === 'created' ? 0 : 1;
   } catch (error) { console.error(`ERROR pr.unavailable: ${printable(error instanceof Error ? error.message : String(error), 2000)}`); return 1; }
@@ -469,7 +469,7 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|pr|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. A provider starts only when its smoke test passed for the installed client version and its official client reports a subscription sign-in (codex login status, claude auth status, kiro-cli whoami); cc doctor shows installed, signed-in, healthy and trusted separately. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory), and reads files only on Linux (including WSL), where the opened file\'s location can be verified. Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nmcp [--repo <dir>] [--profiles <a,b>] [--allow-api] prints, as JSON, the MCP servers selected for the repository\'s profiles (detected unless --profiles is given). Selection only: Code Conductor starts none, and each native client activates and authorizes its own. Separately billed servers are listed only with --allow-api.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.\n\ngithub-gate [--repo <dir>] [--pr <number|url|branch>] [--json] summarizes native GitHub state for a pull request (checks, reviews, stale approvals, merge state) read-only, and exits 0 only when every signal is green.\n\npr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>] [--create] previews the draft pull request for a run\'s agent branch. With --create it asks in this terminal, then pushes that exact commit (never forced, no hooks) with your own Git credentials and opens a draft with gh. Branches whose history touches sensitive paths or adds credential-looking strings are refused.'); }
+function usage(): void { console.log('Usage: ccon <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|pr|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. A provider starts only when its smoke test passed for the installed client version and its official client reports a subscription sign-in (codex login status, claude auth status, kiro-cli whoami); ccon doctor shows installed, signed-in, healthy and trusted separately. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory), and reads files only on Linux (including WSL), where the opened file\'s location can be verified. Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nmcp [--repo <dir>] [--profiles <a,b>] [--allow-api] prints, as JSON, the MCP servers selected for the repository\'s profiles (detected unless --profiles is given). Selection only: Code Conductor starts none, and each native client activates and authorizes its own. Separately billed servers are listed only with --allow-api.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.\n\ngithub-gate [--repo <dir>] [--pr <number|url|branch>] [--json] summarizes native GitHub state for a pull request (checks, reviews, stale approvals, merge state) read-only, and exits 0 only when every signal is green.\n\npr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>] [--create] previews the draft pull request for a run\'s agent branch. With --create it asks in this terminal, then pushes that exact commit (never forced, no hooks) with your own Git credentials and opens a draft with gh. Branches whose history touches sensitive paths or adds credential-looking strings are refused.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {

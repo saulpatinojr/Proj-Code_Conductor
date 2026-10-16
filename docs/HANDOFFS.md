@@ -58,10 +58,10 @@ Lifetimes longer than 7 days, or not positive, are rejected before a run starts.
 Each packet is stored privately with its run as `handoffs/<id>.json`, with owner-only
 permissions and at most 4 MiB. The manifest records its id, recipient, expiry and SHA-256
 (`RunManifest.handoffs`). Reading a packet back verifies that digest, so an edited packet
-is rejected. Imported manifests cannot carry handoff references (`cc import`), because
+is rejected. Imported manifests cannot carry handoff references (`ccon import`), because
 they would look like this store's own evidence.
 
-`cc handoff --run <runId> --assignment <id>` prints the recipient's exact prompt, including
+`ccon handoff --run <runId> --assignment <id>` prints the recipient's exact prompt, including
 its packet, for a manual run in an official client (C03). Assignments that wait for a
 manual handoff get their packet too. `--json` prints the packet itself, with format
 characters escaped.
@@ -78,8 +78,8 @@ All run evidence is local and owner-private: manifests, events, approval records
 handoff packets live under `~/.code-conductor/runs` (or `$CODE_CONDUCTOR_HOME/runs`). There
 is no central session database or service.
 
-- `cc runs` lists stored runs with their decision, age and any live worktrees.
-- `cc runs --older-than <days>` previews which runs' evidence would be deleted, and
+- `ccon runs` lists stored runs with their decision, age and any live worktrees.
+- `ccon runs --older-than <days>` previews which runs' evidence would be deleted, and
   `--apply` deletes it.
 - Runs whose agent worktrees still exist are kept; review or remove those worktrees first
   ([`WORKTREES.md`](WORKTREES.md)). Runs whose manifest cannot be read are kept too,

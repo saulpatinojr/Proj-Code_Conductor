@@ -158,7 +158,7 @@ export function detectGateProfiles(root: string, config = loadGateConfig(root)):
   return selected.filter((name) => !replaced.has(name));
 }
 
-/** Why a gate may never run (shared with `cc validate`), or undefined. */
+/** Why a gate may never run (shared with `ccon validate`), or undefined. */
 export function forbiddenGateReason(gate: GateDefinition): string | undefined {
   return gateCommandProblem(gate.command, gate.args ?? [])?.message;
 }

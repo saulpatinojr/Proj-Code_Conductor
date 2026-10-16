@@ -7,7 +7,7 @@ import { cliProcessSpec, localCommandName, missingBaselineCommands } from '../..
 
 describe('native VS Code process boundary', () => {
   const root = resolve('workspace with spaces');
-  const runtime = join(root, 'extension', 'dist', 'cc.js');
+  const runtime = join(root, 'extension', 'dist', 'ccon.js');
   it('keeps shell metacharacters and quotes as literal argument values', () => {
     const objective = '$(touch HACKED); `echo nope` & %PATH% "quoted"\nsecond line';
     const spec = cliProcessSpec(root, runtime, ['plan', '--objective', objective], true);
@@ -43,7 +43,7 @@ describe('native VS Code process boundary', () => {
 describe('task-variable substitution boundary', () => {
   it('never exposes variable markers in data or cwd to the task resolver', () => {
     const root = resolve('${env:OPENAI_API_KEY}');
-    const runtime = join(root, '${command:dangerous}', 'cc.js');
+    const runtime = join(root, '${command:dangerous}', 'ccon.js');
     const spec = cliProcessSpec(root, runtime, ['${env:OPENAI_API_KEY}', '${workspaceFolder}', '${input:foo}'], true);
     expect(spec.args.every((arg) => !arg.includes('${'))).toBe(true);
     expect('cwd' in spec).toBe(false);

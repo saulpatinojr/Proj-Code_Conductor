@@ -92,11 +92,11 @@ Phase 1 will define the exact Node package manager/workspace tooling. Once commi
 Once implemented:
 
 ```bash
-cc doctor
-cc validate
+ccon doctor
+ccon validate
 ```
 
-`cc doctor` should verify:
+`ccon doctor` should verify:
 
 - repository trust
 - Git status
@@ -108,14 +108,14 @@ cc validate
 - sandbox capability
 - GitHub connectivity
 
-`cc validate` should verify committed Code Conductor policy/configuration and reject invalid authority/risk combinations.
+`ccon validate` should verify committed Code Conductor policy/configuration and reject invalid authority/risk combinations.
 
 ## 8. Target repository bootstrap
 
 Future target repos use:
 
 ```bash
-cc init
+ccon init
 ```
 
 The initializer should detect repository profile(s) and propose a minimal configuration, such as:

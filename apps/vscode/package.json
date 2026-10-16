@@ -19,7 +19,7 @@
   "main": "./dist/extension.js",
   "files": [
     "dist/extension.js",
-    "dist/cc.js",
+    "dist/ccon.js",
     "defaults/*.yaml",
     "defaults/manifest.json",
     "schema/contracts.schema.json",

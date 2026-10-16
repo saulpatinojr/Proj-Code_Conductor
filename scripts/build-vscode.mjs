@@ -9,7 +9,7 @@ const common = {
 };
 const results = [
   await build({ ...common, entryPoints: ['apps/vscode/src/extension.ts'], external: ['vscode'], outfile: 'apps/vscode/dist/extension.js' }),
-  await build({ ...common, entryPoints: ['packages/cli/src/index.ts'], outfile: 'apps/vscode/dist/cc.js' }),
+  await build({ ...common, entryPoints: ['packages/cli/src/index.ts'], outfile: 'apps/vscode/dist/ccon.js' }),
 ];
 
 // Every package with code in either bundle, from esbuild's own record of its inputs. The

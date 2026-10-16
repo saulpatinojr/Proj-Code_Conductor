@@ -45,9 +45,9 @@ Changing provider preferences still does not grant permission to execute or disc
 Pre-action authorization is separate (#44), as is workstation trust.
 
 Every runtime document reports its packaged and applicable overlay paths/hashes through
-`loadConfiguration`. `cc workspace-validate <folder>` prints that provenance without running
+`loadConfiguration`. `ccon workspace-validate <folder>` prints that provenance without running
 providers, gates, GitHub operations or APM, and works in an unrelated empty folder. The
-existing `cc validate` deliberately remains the stricter Code Conductor source-repository
+existing `ccon validate` deliberately remains the stricter Code Conductor source-repository
 scaffold/config check used by CI. VS Code Validate uses workspace validation.
 
 ## Portable gates and optional tools

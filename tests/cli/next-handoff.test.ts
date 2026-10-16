@@ -24,7 +24,7 @@ const manifest: RunManifest = {
   results: [{ taskId: 'T-1', assignmentId: 'A-2', agentId: 'reviewer-claude', role: 'reviewer', stance: 'critical', provider: 'anthropic', harness: 'claude', surface: 'cli', billingChannel: 'subscription', status: 'completed', changes: [], tests: [], evidence: [], findings: [{ id: 'F-1', severity: 'low', summary: FORGED, evidenceIds: [], blocking: true }], risks: [], blockers: [], recommendation: 'changes_required' }],
 };
 
-describe('cc next and cc handoff', () => {
+describe('ccon next and ccon handoff', () => {
   it('prints untrusted run text on single lines, so it cannot forge steps, commands or terminal escapes', () => {
     store('RUN-EVIL', manifest);
     const result = cli('next', '--run', 'RUN-EVIL');
@@ -38,8 +38,8 @@ describe('cc next and cc handoff', () => {
     store('RUN-JSON', { ...manifest, runId: 'RUN-JSON', task: { ...task, objective: 'Plain objective' }, results: [{ ...manifest.results[0]!, status: 'awaiting_external', findings: [] }] });
     const result = cli('next', '--run', 'RUN-JSON', '--json');
     const action = (JSON.parse(result.stdout) as { nextActions: Array<{ argv?: string[][]; commands?: string[] }> }).nextActions[0];
-    expect(action?.argv).toEqual([['cc', 'handoff', '--run', 'RUN-JSON', '--assignment', 'A-2']]);
-    expect(action?.commands).toEqual(['cc handoff --run RUN-JSON --assignment A-2']);
+    expect(action?.argv).toEqual([['ccon', 'handoff', '--run', 'RUN-JSON', '--assignment', 'A-2']]);
+    expect(action?.commands).toEqual(['ccon handoff --run RUN-JSON --assignment A-2']);
   });
 
   it('prints only the exact prompt on stdout when redirected, and refuses unknown assignments', () => {

@@ -20,7 +20,7 @@ they run only after a pre-action approval of the exact command plan
 | `terraform-plan` | **only when chosen** | `terraform plan -input=false -lock=false` (advisory) | `terraform`, initialised `.terraform` |
 | `ansible` | `ansible.cfg`, `requirements.yml` or `galaxy.yml` | `ansible-lint` | `ansible-lint` |
 
-Choose profiles for a run with `cc run --gate-profiles terraform,terraform-plan ...`.
+Choose profiles for a run with `ccon run --gate-profiles terraform,terraform-plan ...`.
 Otherwise profiles are detected from repository markers. An unknown name stops the
 validator with the list of available profiles. An explicit choice replaces detection,
 and the approval summary names any detected profile it leaves out. Readiness never
@@ -103,7 +103,7 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   `.ansible-lint` file can turn on fixes without `--fix`), and gates inherit your
   environment, so variables you set, such as `TF_CLI_ARGS`, apply to them. Command names are compared
   case-insensitively and without `.exe`/`.cmd` extensions. The planner refuses other
-  gates, and `cc validate` rejects them in the catalog (`gates.tool`, `gates.shape`,
+  gates, and `ccon validate` rejects them in the catalog (`gates.tool`, `gates.shape`,
   `gates.infrastructure_change`, `gates.auto_approve`, `gates.command`). Production apply belongs to a native pipeline
   with environment protection and its own approval (#32 deployment boundary, C02
   `deployment` action).

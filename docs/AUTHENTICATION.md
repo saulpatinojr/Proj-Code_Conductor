@@ -27,12 +27,12 @@ billed step that you take in your own client. No repository policy key enables i
 
 1. Create a Perplexity API key in Perplexity's own console. Your Pro sign-in is never
    used for automation.
-2. List the server with `cc mcp --profiles research-automated --allow-api`. The explicit
+2. List the server with `ccon mcp --profiles research-automated --allow-api`. The explicit
    `--allow-api` flag is the consent; without it, separately billed servers are left out.
 3. Configure that server in your native client by following its `source` documentation,
    with your own key.
 
-Until then, research assignments stay manual (`cc handoff`, then `cc import`). Results keep
+Until then, research assignments stay manual (`ccon handoff`, then `ccon import`). Results keep
 their source URLs (`Evidence.uri`) and the billing channel they ran on.
 
 ## Credential storage
@@ -55,9 +55,9 @@ Code Conductor MUST NOT store:
 - cloud secret keys
 - plaintext passwords
 
-## `cc doctor` checks
+## `ccon doctor` checks
 
-`cc doctor` should inspect the environment without revealing values:
+`ccon doctor` should inspect the environment without revealing values:
 
 ```text
 GitHub/Copilot       authenticated / unavailable / unknown
@@ -74,14 +74,14 @@ GCP                  authenticated / unavailable
 ## Client states before a provider starts
 
 Implements I02 (#34). Decision: D-065. For Codex, Claude Code and Kiro, Code Conductor
-tells four states apart, and `cc doctor` reports each one on its own line:
+tells four states apart, and `ccon doctor` reports each one on its own line:
 
 | State | Established by | Without it |
 |---|---|---|
 | Installed | The client is on `PATH` and reports `--version`. | The assignment waits for a manual handoff. |
 | Signed in | The client's own documented status command (below). | The provider is not started. |
-| Healthy | The client reports its version and a sign-in state Code Conductor recognises. | `cc doctor` warns. A state it does not recognise also blocks starting. |
-| Trusted | `cc harness-smoke <client> --mode read\|modify` passed **for the installed version**. | The provider is not started. |
+| Healthy | The client reports its version and a sign-in state Code Conductor recognises. | `ccon doctor` warns. A state it does not recognise also blocks starting. |
+| Trusted | `ccon harness-smoke <client> --mode read\|modify` passed **for the installed version**. | The provider is not started. |
 
 Official status commands:
 
@@ -118,7 +118,7 @@ How the checks work:
 - **No user configuration from the repository.** A provider is not started when its
   explicit configuration directory (`CLAUDE_CONFIG_DIR` or `ANTHROPIC_CONFIG_DIR` for
   Claude Code, `CODEX_HOME` for Codex) lies inside the repository being run, directly or
-  through a symlink, and `cc harness-smoke` refuses the same, since it runs the provider
+  through a symlink, and `ccon harness-smoke` refuses the same, since it runs the provider
   for real. The sign-in probe cannot see the hooks, `env` block or credential helper such
   "user" settings could carry. `HOME` is not checked: when a repository is your home
   folder (dotfiles), its `.claude/` is your own user configuration.
@@ -136,7 +136,7 @@ How the checks work:
     is a subscription.
 
   Otherwise the assignment is blocked before any worktree is created or approval asked,
-  and `cc next` points to the official sign-in. `cc harness-smoke` refuses in the same
+  and `ccon next` points to the official sign-in. `ccon harness-smoke` refuses in the same
   cases, because the smoke test runs the provider for real.
 - **Anything not recognised never counts.** That includes a status line or `authMethod`
   that is not documented, a probe that fails or times out, and a version that cannot be

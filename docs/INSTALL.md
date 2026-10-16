@@ -3,7 +3,7 @@
 Implements I01 from #33/#32. Code Conductor ships as one VS Code extension (a `.vsix`).
 The extension carries:
 
-- the `cc` runtime, bundled into a single file;
+- the `ccon` runtime, bundled into a single file;
 - the packaged defaults ([`PACKAGED-DEFAULTS.md`](PACKAGED-DEFAULTS.md));
 - the contract schema.
 
@@ -52,20 +52,19 @@ with checksums, an SBOM and a provenance attestation to verify first
 ([`RELEASE.md`](RELEASE.md#verify-a-package)). CI also packages it under a
 validation-only publisher on every pull request.
 
-## Run `cc` commands yourself
+## Run `ccon` commands yourself
 
-The extension does not put `cc` on your `PATH`. On most Linux and macOS systems `cc` is
-the C compiler, which must not be shadowed. Commands the extension copies for you
-already name its bundled runtime:
+The extension does not put `ccon` on your `PATH`; it changes nothing outside VS Code.
+Commands the extension copies for you already name its bundled runtime:
 
 ```sh
-node '<extension folder>/dist/cc.js' worktrees --remove-clean
+node '<extension folder>/dist/ccon.js' worktrees --remove-clean
 ```
 
 The extension folder is in VS Code's extensions directory, for example
 `~/.vscode/extensions/<publisher>.code-conductor-vscode-<version>`. On a remote host (SSH,
 WSL, Dev Containers) it is under `~/.vscode-server/extensions` there. Command lines shown
-elsewhere in these docs as `cc <command>` mean the same thing.
+elsewhere in these docs as `ccon <command>` mean the same thing.
 
 On Windows the extension formats copied commands for PowerShell. A command whose values
 PowerShell would not pass on exactly is not offered for copying; use the native surface

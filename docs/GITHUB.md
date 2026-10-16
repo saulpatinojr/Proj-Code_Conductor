@@ -11,7 +11,7 @@ token is stored by Code Conductor.
 ## Inspect a pull request
 
 ```sh
-cc github-gate [--repo <dir>] [--pr <number|url|branch>] [--json]
+ccon github-gate [--repo <dir>] [--pr <number|url|branch>] [--json]
 ```
 
 Read-only. It runs `gh pr view --json …` for the current branch's pull request, or the
@@ -31,11 +31,11 @@ Even then, merging remains your decision in GitHub.
 ## Prepare a draft pull request
 
 ```sh
-cc pr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>]
-cc pr … --create
+ccon pr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>]
+ccon pr … --create
 ```
 
-Without `--create`, `cc pr` previews and changes nothing. It runs no Git at all for a run
+Without `--create`, `ccon pr` previews and changes nothing. It runs no Git at all for a run
 that stopped because Git configuration changed, or that has no outcome yet. It uses only
 worktree records on a `cc/` branch under the Code Conductor root. The preview covers the agent
 branch of the latest run (or `--run`), the exact commit, commit count and changed files,
@@ -97,7 +97,7 @@ With `--create`, in an interactive terminal:
 
 Approval, push and pull-request events, including a refused push, a `gh` failure and an
 unconfirmed URL, are appended to the run's `events.jsonl`. If the push succeeds but `gh`
-fails, the branch stays pushed and the command to open the draft yourself is printed. `cc next` still shows the manual `git push` / `gh pr create`
+fails, the branch stays pushed and the command to open the draft yourself is printed. `ccon next` still shows the manual `git push` / `gh pr create`
 commands for people who prefer to run them themselves.
 
 ## Not covered
