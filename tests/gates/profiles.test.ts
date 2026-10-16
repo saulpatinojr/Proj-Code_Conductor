@@ -1,9 +1,10 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { blockingGateFailure, commandOnPath, detectGateProfiles, executeGatePlan, forbiddenGateReason, loadGateConfig, planGates, resolveExecutable, type PlannedGate } from '../../packages/gates/src/index.js';
 import { validateGateCatalog } from '../../packages/policy/src/index.js';
+import { isRunning } from '../process-state.js';
 
 const temps: string[] = [];
 afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
@@ -212,13 +213,6 @@ describe('declarative gate profiles', () => {
   });
 });
 
-// /proc/<pid>/stat state; zombies ("Z") left for a non-reaping PID 1 are not running.
-function running(pid: number): boolean {
-  const path = `/proc/${pid}/stat`;
-  if (existsSync(path)) { const stat = readFileSync(path, 'utf8'); return !['Z', 'X'].includes(stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)); }
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
-
 describe('bounded gate execution', () => {
   it('caps captured output and says so in the evidence', async () => {
     const [result] = await executeGatePlan(workspace(), [planned({ id: 'loud', command: process.execPath, args: ['-e', "process.stdout.write('x'.repeat(6 * 1024 * 1024))"] })]);
@@ -247,7 +241,7 @@ describe('bounded gate execution', () => {
     expect(result?.result.status).toBe('failed');
     expect(result?.result.summary).toContain('(timeout)');
     const grandchild = Number(readFileSync(join(root, 'grandchild.pid'), 'utf8'));
-    for (let attempt = 0; attempt < 50 && running(grandchild); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(running(grandchild)).toBe(false);
+    for (let attempt = 0; attempt < 50 && isRunning(grandchild); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(isRunning(grandchild)).toBe(false);
   }, 15_000);
 });

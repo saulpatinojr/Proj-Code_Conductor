@@ -6,17 +6,12 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runIsolated } from '../../packages/core/src/processes.js';
+import { isRunning } from '../process-state.js';
 
 const temps: string[] = [];
 afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
 const scratch = (): string => { const path = mkdtempSync(join(tmpdir(), 'cc-processes-')); temps.push(path); return path; };
 const digest = (stdout: Buffer, stderr: Buffer): string => createHash('sha256').update(createHash('sha256').update(stdout).digest()).update(createHash('sha256').update(stderr).digest()).digest('hex');
-
-function running(pid: number): boolean {
-  const path = `/proc/${pid}/stat`;
-  if (existsSync(path)) { const stat = readFileSync(path, 'utf8'); return !['Z', 'X'].includes(stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)); }
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
 
 describe('bounded isolated runs', () => {
   it('decodes output once, so a character split across pipe writes stays intact', async () => {
@@ -50,11 +45,11 @@ setInterval(() => {}, 1000);`;
     const pidFile = join(root, 'gate.pid');
     for (let attempt = 0; attempt < 200 && !existsSync(pidFile); attempt += 1) await new Promise((done) => setTimeout(done, 25));
     const gate = Number(readFileSync(pidFile, 'utf8'));
-    expect(running(gate)).toBe(true);
+    expect(isRunning(gate)).toBe(true);
     const exited = new Promise<NodeJS.Signals | null>((done) => parent.once('exit', (_code, signal) => done(signal)));
     parent.kill('SIGTERM');
     expect(await exited).toBe('SIGTERM');
-    for (let attempt = 0; attempt < 100 && running(gate); attempt += 1) await new Promise((done) => setTimeout(done, 20));
-    expect(running(gate)).toBe(false);
+    for (let attempt = 0; attempt < 100 && isRunning(gate); attempt += 1) await new Promise((done) => setTimeout(done, 20));
+    expect(isRunning(gate)).toBe(false);
   }, 20_000);
 });
