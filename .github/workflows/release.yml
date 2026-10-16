@@ -92,7 +92,7 @@ jobs:
             echo '```sh'
             echo 'sha256sum -c SHA256SUMS'
             echo "gh attestation verify code-conductor-${TAG#v}.vsix --repo $REPOSITORY \\"
-            echo "  --signer-workflow $REPOSITORY/.github/workflows/release.yml \\"
+            echo "  --cert-identity $GITHUB_SERVER_URL/$REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG \\"
             echo "  --source-ref refs/tags/$TAG --source-digest $GITHUB_SHA --deny-self-hosted-runners"
             echo '```'
           } > NOTES.md
@@ -160,9 +160,11 @@ jobs:
             echo "::error::$TAG now points at $type $tagged, not the built commit $GITHUB_SHA."
             exit 1
           fi
+          # --cert-identity is an exact match on the signing workflow and its ref. Some gh
+          # versions match --signer-workflow by prefix.
           for file in code-conductor-*; do
             gh attestation verify "$file" --repo "$GH_REPO" \
-              --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
+              --cert-identity "$GITHUB_SERVER_URL/$GH_REPO/.github/workflows/release.yml@refs/tags/$TAG" \
               --source-ref "refs/tags/$TAG" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
           done
           gh release create "$TAG" --draft --verify-tag --title "Code Conductor $TAG" --notes-file NOTES.md code-conductor-* SHA256SUMS

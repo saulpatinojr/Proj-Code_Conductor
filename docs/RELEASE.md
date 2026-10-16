@@ -84,7 +84,14 @@ release.
    - download the package and verify it as below;
    - install it on a clean machine ([`WORKSTATION-VALIDATION.md`](WORKSTATION-VALIDATION.md)).
 
-   Then publish the draft.
+   Then, just before you publish, confirm the tag still names the commit in the release
+   notes. The release attaches to wherever the tag points at that moment:
+
+   ```sh
+   git ls-remote origin 'refs/tags/v0.2.0^{}'
+   ```
+
+   Publish the draft only if that prints the commit the notes name.
 
 A wrong tag fails before anything is built. Delete it (`git push origin :refs/tags/v0.2.0`)
 and tag again.
@@ -110,7 +117,7 @@ From the folder holding the downloaded release files:
 ```sh
 sha256sum -c SHA256SUMS
 gh attestation verify code-conductor-<version>.vsix --repo saulpatinojr/Proj-Code_Conductor \
-  --signer-workflow saulpatinojr/Proj-Code_Conductor/.github/workflows/release.yml \
+  --cert-identity https://github.com/saulpatinojr/Proj-Code_Conductor/.github/workflows/release.yml@refs/tags/v<version> \
   --source-ref refs/tags/v<version> --source-digest <commit> --deny-self-hosted-runners
 ```
 
@@ -119,11 +126,14 @@ gh attestation verify code-conductor-<version>.vsix --repo saulpatinojr/Proj-Cod
 With only `--repo`, `gh attestation verify` accepts a signature from any workflow on any
 branch of the repository. The other flags pin it down to:
 
-- the Release workflow (`--signer-workflow`);
+- the Release workflow, run for this tag (`--cert-identity`, which must match the signing
+  certificate exactly);
 - this release's tag and commit (`--source-ref`, `--source-digest`);
 - a GitHub-hosted runner (`--deny-self-hosted-runners`).
 
-See [gh attestation verify](https://cli.github.com/manual/gh_attestation_verify). The
+`--cert-identity` is used instead of `--signer-workflow` because some `gh` versions match
+the workflow by prefix only. See
+[gh attestation verify](https://cli.github.com/manual/gh_attestation_verify). The
 Draft job runs the same check before it creates the release. Artifact attestations are
 available for public repositories on every current GitHub plan; a private repository
 needs GitHub Enterprise Cloud.
