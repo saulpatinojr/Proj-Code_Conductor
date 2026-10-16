@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
+import { KILL_GRACE_MS, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
 
 export type HarnessExecutionSurface = 'cli' | 'acp' | 'platform' | 'manual' | 'ide' | 'local' | 'mcp_api';
 
@@ -49,56 +50,10 @@ function commandVersion(command: string): string | undefined {
   return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;
 }
 
-// Provider clients run in their own session and process group on POSIX. Without a
-// controlling terminal they cannot open /dev/tty or inject keystrokes into the
-// approval prompt, and the processes they leave behind in their group are terminated
-// with it. This is containment, not a security boundary: a same-user descendant can
-// start its own session to leave the group, and can still reach the person's terminal
-// through /proc. Approval integrity does not rest on it; what is committed is
-// re-verified against the approved tree. Windows has no process-group isolation here.
-const ISOLATE_PROCESS_GROUPS = process.platform !== 'win32';
-// How long a client gets to exit after SIGTERM, and to release its output pipes after exiting.
-const KILL_GRACE_MS = 5000;
-const liveGroups = new Set<number>();
-let reaperInstalled = false;
-
-function reapGroups(): void {
-  for (const pid of liveGroups) { try { process.kill(-pid, 'SIGKILL'); } catch { /* group already gone */ } }
-  liveGroups.clear();
-}
-
-/** Spawn a provider client isolated from the controlling terminal (exported for tests). */
-export function spawnIsolated(command: string, args: readonly string[], options: Parameters<typeof spawn>[2]): ReturnType<typeof spawn> {
-  const child = spawn(command, [...args], { ...options, detached: ISOLATE_PROCESS_GROUPS, windowsHide: true });
-  if (ISOLATE_PROCESS_GROUPS && child.pid) {
-    liveGroups.add(child.pid);
-    if (!reaperInstalled) {
-      reaperInstalled = true;
-      process.once('exit', reapGroups);
-      for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-        const onSignal = (): void => {
-          reapGroups();
-          // Re-raise for the default action only when nothing else handles the signal;
-          // an embedding host (for example an editor extension) decides for itself.
-          if (process.listenerCount(signal) === 1) {
-            process.removeListener(signal, onSignal);
-            process.kill(process.pid, signal);
-          }
-        };
-        process.on(signal, onSignal);
-      }
-    }
-  }
-  return child;
-}
-
-/** Signal a provider client and everything it started. */
-export function terminateGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signals = 'SIGTERM'): void {
-  if (ISOLATE_PROCESS_GROUPS && child.pid) {
-    try { process.kill(-child.pid, signal); } catch { /* group already gone */ }
-    if (signal === 'SIGKILL') liveGroups.delete(child.pid);
-  } else child.kill(signal);
-}
+// Provider clients run isolated from the controlling terminal, in their own process
+// group, and are reaped on exit or interruption (shared with gate commands; see
+// @code-conductor/core/processes for what this does and does not contain).
+export { spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
 
 function appendTail(current: string, next: string, limit = 256 * 1024): string {
   const combined = current + next;

@@ -189,9 +189,29 @@ export function validateCapabilities(capabilities: CapabilityConfig): Validation
 }
 
 type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?: unknown; gates?: Array<{ id?: unknown; command?: unknown; args?: unknown; requires?: unknown }> }> };
-const TERRAFORM_FORBIDDEN = new Set(['apply', 'destroy', 'import', 'taint', 'untaint', 'state', 'force-unlock', 'workspace', 'login', 'logout']);
 
-/** Gates validate; they never change infrastructure, state or credentials. */
+// Gates validate; they never change infrastructure, state or credentials. Shells and
+// command wrappers could run anything, so a gate names the tool itself. Terraform and
+// OpenTofu gates are limited to an allowlist of read-only subcommands (plan still runs
+// provider plugins; see the terraform-plan disclosure in config/gates.yaml).
+const GATE_WRAPPERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'csh', 'tcsh', 'fish', 'cmd', 'powershell', 'pwsh', 'env', 'sudo', 'doas', 'su', 'xargs', 'nohup', 'nice', 'timeout', 'time', 'exec', 'eval', 'busybox', 'npx', 'terragrunt']);
+const TERRAFORM_ALLOWED = new Set(['fmt', 'validate', 'plan', 'version']);
+
+/** Why a gate command may never run, or undefined. Shared by `cc validate` and the gate planner. */
+export function gateCommandProblem(command: unknown, args: readonly unknown[] = []): { code: string; message: string } | undefined {
+  if (typeof command !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) return { code: 'gates.command', message: 'it must name a plain executable (no shell, no path)' };
+  const name = command.toLowerCase().replace(/\.(exe|com|cmd|bat|ps1)$/, '');
+  const values = args.filter((arg): arg is string => typeof arg === 'string');
+  if (GATE_WRAPPERS.has(name)) return { code: 'gates.wrapper', message: `${command} is a shell or command wrapper, which could run anything; a gate names the tool itself` };
+  if (values.some((arg) => /^-?-auto-approve(=|$)/i.test(arg))) return { code: 'gates.auto_approve', message: 'auto-approval flags can never be part of a gate' };
+  if (name === 'terraform' || name === 'tofu') {
+    const subcommand = values.find((arg) => !arg.startsWith('-'));
+    if (!subcommand || !TERRAFORM_ALLOWED.has(subcommand)) return { code: 'gates.infrastructure_change', message: `${command} ${subcommand ?? '(no subcommand)'} is not one of ${[...TERRAFORM_ALLOWED].join(', ')}; gates may only check formatting, validate or plan` };
+    if (subcommand === 'plan' && values.some((arg) => /^-?-out(=|$)/.test(arg))) return { code: 'gates.infrastructure_change', message: 'a saved plan file can hold secrets and be applied later; plan gates never write one' };
+  }
+  return undefined;
+}
+
 export function validateGateCatalog(catalog: GateCatalog): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const names = new Set(Object.keys(catalog.profiles ?? {}));
@@ -200,11 +220,8 @@ export function validateGateCatalog(catalog: GateCatalog): ValidationIssue[] {
     if (profile.selection !== undefined && profile.selection !== 'detected' && profile.selection !== 'explicit') issues.push({ level: 'error', code: 'gates.selection', path, message: `Profile ${name} selection must be detected or explicit.` });
     if (profile.replaces !== undefined && (!Array.isArray(profile.replaces) || profile.replaces.some((item) => typeof item !== 'string' || !names.has(item)))) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles.` });
     for (const gate of profile.gates ?? []) {
-      const args = Array.isArray(gate.args) ? gate.args.filter((arg): arg is string => typeof arg === 'string') : [];
-      if (typeof gate.command !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(gate.command)) issues.push({ level: 'error', code: 'gates.command', path, message: `Gate ${String(gate.id)} must name a plain executable (no shell, no path).` });
-      const subcommand = args.find((arg) => !arg.startsWith('-'));
-      if ((gate.command === 'terraform' || gate.command === 'tofu') && subcommand && TERRAFORM_FORBIDDEN.has(subcommand)) issues.push({ level: 'error', code: 'gates.infrastructure_change', path, message: `Gate ${String(gate.id)} runs ${gate.command} ${subcommand}, which changes infrastructure or state; gates may only validate or plan.` });
-      if (args.some((arg) => /^-?-auto-approve(=|$)/.test(arg))) issues.push({ level: 'error', code: 'gates.auto_approve', path, message: `Gate ${String(gate.id)} must not pass an auto-approve flag.` });
+      const problem = gateCommandProblem(gate.command, Array.isArray(gate.args) ? gate.args : []);
+      if (problem) issues.push({ level: 'error', code: problem.code, path, message: `Gate ${String(gate.id)} is not allowed: ${problem.message}.` });
     }
   }
   return issues;

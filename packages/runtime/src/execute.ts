@@ -178,13 +178,17 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         const runnable = gatePlan.filter((item) => !item.missing.length);
         if (runnable.length) {
           // Gate profiles run the target repository's own scripts, so they are local execution.
-          const commands = runnable.map((item) => [item.gate.command, ...(item.gate.args ?? [])].join(' '));
+          const commands = runnable.map((item) => `${[item.gate.command, ...(item.gate.args ?? [])].join(' ')} [${item.executable ?? item.gate.command}]${item.gate.blocking === false ? ' (advisory)' : ''}`);
+          const disclosures = [...new Set(runnable.flatMap((item) => (item.gate.disclosure ? [item.gate.disclosure] : [])))];
+          // In an agent worktree, dependencies, .terraform and build output exist only because
+          // something in this run created them, possibly the agent; they are ignored by Git.
+          const untrusted = validationRoot === primaryBuilderWorktree?.path ? ' Prerequisites such as installed dependencies, .terraform or build output in this agent worktree were created during the run, possibly by the agent, and are not bound by this approval.' : '';
           const approval = await authorize(() => {
             const state = workingTreeState(validationRoot);
             return [{
               action: 'local_execution', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: validationRoot, revision: state.revision, recipient: 'local:deterministic-gates',
-              bindings: { tree: state.tree, commands: sha256(JSON.stringify(gatePlan.map((item) => [item.profile, item.gate.id, item.gate.command, item.gate.args ?? [], item.timeoutMs, item.missing]))), selection: gatePlan.some((item) => item.explicit) ? 'explicit' : 'detected' },
-              summary: `Run ${runnable.length} deterministic gate command(s) from the target repository in ${validationRoot}: ${commands.join('; ')}${runnable.length < gatePlan.length ? ` (${gatePlan.length - runnable.length} gate(s) with missing prerequisites will not run and count as failed)` : ''}`,
+              bindings: { tree: state.tree, commands: sha256(JSON.stringify(gatePlan.map((item) => [item.profile, item.gate.id, item.gate.command, item.executable ?? null, item.gate.args ?? [], item.timeoutMs, item.missing]))), selection: gatePlan.some((item) => item.explicit) ? 'explicit' : 'detected' },
+              summary: `Run ${runnable.length} deterministic gate command(s) from the target repository in ${validationRoot}, with your environment: ${commands.join('; ')}${runnable.length < gatePlan.length ? ` (${gatePlan.length - runnable.length} gate(s) with missing prerequisites will not run and count as blocking failures)` : ''}.${disclosures.map((text) => ` ${text}`).join('')}${untrusted}`,
             }];
           });
           if (!approval.approved) {

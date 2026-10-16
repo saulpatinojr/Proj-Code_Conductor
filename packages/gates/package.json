@@ -4,8 +4,14 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "dependencies": {
+    "@code-conductor/core": "0.1.0",
     "@code-conductor/policy": "0.1.0",
     "@code-conductor/schemas": "0.1.0",
     "yaml": "^2.9.1"

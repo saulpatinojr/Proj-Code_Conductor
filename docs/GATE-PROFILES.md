@@ -22,27 +22,51 @@ they run only after a pre-action approval of the exact command plan
 
 Choose profiles for a run with `cc run --gate-profiles terraform,terraform-plan ...`.
 Otherwise profiles are detected from repository markers. An unknown name stops the
-validator with the list of available profiles. When nothing applies, readiness is blocked
-(`no-applicable-gates`); it never passes vacuously.
+validator with the list of available profiles. Readiness never passes vacuously:
+- when nothing applies, it is blocked (`no-applicable-gates`);
+- advisory gates alone, for example `--gate-profiles terraform-plan`, never establish it
+  (`no-blocking-gate-passed`). Choose a blocking profile too, as in the example above.
 
 ## Prerequisites, never installation
 
-Every gate declares what must already be present. A missing tool (looked up on `PATH`
-without running a shell or `which`) or missing installed dependencies make the gate a
-**blocking failure without executing anything**. The evidence names what is missing and
-what you can do. Code Conductor never runs `npm ci`, `terraform init` or any other
-installer for you: install scripts and provider plugins are repository-chosen code and
-network fetches that you decide to run. A gate with unmet prerequisites is listed in the
-approval summary but is not part of what runs.
+Every gate declares what must already be present. A missing tool or missing installed
+dependencies make the gate a **blocking failure without executing anything**, advisory
+gates included. The evidence names what is missing and what you can do. Code Conductor
+never runs `npm ci`, `terraform init` or any other installer for you: install scripts and
+provider plugins are repository-chosen code and network fetches that you decide to run.
+A gate with unmet prerequisites is listed in the approval summary but is not part of
+what runs.
+
+Tools are resolved without a shell or `which`, from **absolute** `PATH` entries only.
+The current directory, empty entries and relative entries are never searched, because
+the repository under validation could put a binary there. The resolved absolute file is
+what runs. It is shown in the approval summary and the evidence, and bound by the
+approval digest. On Windows only `.exe` and `.com` files run. Batch shims such as
+`npm.cmd`, `pnpm.cmd` or `yarn.cmd` would need `cmd.exe`, so those gates report an
+unsupported prerequisite instead of running.
+
+In an agent worktree, installed dependencies, `.terraform` and build output exist only
+because something in the run created them, possibly the agent. Git ignores them, so the
+approval does not bind them. The approval summary says so.
 
 ## Bounded, isolated execution
 
 Gate commands run without a shell, in their own session and process group on POSIX. They
-have no controlling terminal, so they cannot draw over an approval prompt. Each gate has
-a timeout (default 10 minutes). On timeout, Code Conductor terminates the whole process
-group, then kills it if it does not exit. Any process the gate leaves behind is also
-terminated when it finishes. At most 4 MiB of output is captured per stream; truncation
-is stated in the evidence, and the evidence hash covers what was captured.
+have no controlling terminal, so they cannot draw over an approval prompt.
+- **Timeout:** each gate has a timeout (default 10 minutes). On timeout, Code Conductor
+  terminates the whole process group, then kills it if it has not exited after five
+  seconds.
+- **Leftover processes:** processes the gate leaves in its group are killed as soon as
+  it exits. If a process that left the group still holds the output pipes, Code
+  Conductor stops reading after five seconds.
+- **Interruption:** gate groups are reaped when Code Conductor exits or is interrupted
+  (Ctrl-C, `SIGTERM`, `SIGHUP`), the same as provider clients.
+- **Output:** at most 4 MiB is captured per stream, decoded once so multi-byte characters
+  are not split. Truncation is stated in the evidence. The evidence `sha256` covers the
+  full, untruncated output: SHA-256 over the digests of all stdout and all stderr bytes.
+
+This is containment, not a security boundary: a process running as you can leave the
+group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
 
 ## Validation, plan review and apply stay separate
 
@@ -50,19 +74,29 @@ is stated in the evidence, and the evidence hash covers what was captured.
 - `terraform-plan` is explicit and advisory. A plan needs real provider credentials and
   backend state, so it is evidence for human review, not a pass/fail gate, and it is never
   detected automatically.
-- Nothing applies changes. The planner refuses any gate that runs `terraform`/`tofu`
-  `apply`, `destroy`, `import`, `taint`, `untaint`, `state`, `force-unlock`, `workspace`,
-  `login` or `logout`, or that passes an auto-approve flag. `cc validate` rejects such
-  gates in the catalog (`gates.infrastructure_change`, `gates.auto_approve`), and gate
-  commands must be plain executable names. Production apply belongs to a native pipeline
+- **Planning still runs code.** Terraform reads data sources while planning, and provider
+  plugins are executables. Programs the configuration defines, such as an `external`
+  data source, therefore run with your environment and cloud credentials, and they can
+  have side effects. In an agent worktree, the agent may have written that
+  configuration. The approval summary for this gate says so; approve only after
+  reviewing the configuration the agent changed.
+- No gate applies changes. Terraform and OpenTofu gates may only use `fmt`, `validate`,
+  `plan` (never with `-out`, because a saved plan can hold secrets and be applied later)
+  or `version`. Shells and command wrappers (`sh`, `bash`, `cmd`, `pwsh`, `env`, `sudo`,
+  `npx`, `terragrunt`, …) cannot be gate commands, because they could run anything.
+  Neither can auto-approve flags. Command names are compared case-insensitively and
+  without `.exe`/`.cmd` extensions. The planner refuses such gates, and `cc validate`
+  rejects them in the catalog (`gates.infrastructure_change`, `gates.wrapper`,
+  `gates.auto_approve`, `gates.command`). Production apply belongs to a native pipeline
   with environment protection and its own approval (#32 deployment boundary, C02
   `deployment` action).
 
 ## Not covered here
 
-- Gates run in the validation worktree as it exists on disk. A fresh checkout of exactly
-  the approved commit would need project bootstrap (dependency installation) and is
-  deferred. The approval binding's limits are listed in [`APPROVALS.md`](APPROVALS.md).
+- Gates run in the validation worktree as it exists on disk, including dependencies the
+  run created. A fresh checkout of exactly the approved commit, with dependencies you
+  installed yourself, would need project bootstrap and is deferred.
+- npm, pnpm and yarn gates do not run on native Windows (batch shims, see above). The approval binding's limits are listed in [`APPROVALS.md`](APPROVALS.md).
 - Further ecosystems (Python, Go, Rust, PowerShell, Kubernetes/Helm) can be added as
   profiles with the same prerequisite and safety rules when a real repository needs them
   (#15).

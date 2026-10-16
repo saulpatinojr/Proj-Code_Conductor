@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { commandOnPath, detectGateProfiles, executeGatePlan, forbiddenGateReason, loadGateConfig, planGates, type PlannedGate } from '../../packages/gates/src/index.js';
+import { blockingGateFailure, commandOnPath, detectGateProfiles, executeGatePlan, forbiddenGateReason, loadGateConfig, planGates, resolveExecutable, type PlannedGate } from '../../packages/gates/src/index.js';
 import { validateGateCatalog } from '../../packages/policy/src/index.js';
 
 const temps: string[] = [];
@@ -72,8 +72,61 @@ describe('declarative gate profiles', () => {
     expect(forbiddenGateReason({ id: 'x', command: 'terraform', args: ['plan', '-input=false'] })).toBeUndefined();
     const config = { version: 1, profiles: { bad: { gates: [{ id: 'deploy', command: 'terraform', args: ['apply', '-auto-approve'] }] } } };
     expect(() => planGates(workspace(), ['bad'], config)).toThrow(/not allowed/);
-    expect(validateGateCatalog(config).map((issue) => issue.code)).toEqual(['gates.infrastructure_change', 'gates.auto_approve']);
+    expect(validateGateCatalog(config).map((issue) => issue.code)).toEqual(['gates.auto_approve']);
     expect(validateGateCatalog({ profiles: { shell: { gates: [{ id: 's', command: 'sh -c', args: [] }] } } })[0]?.code).toBe('gates.command');
+  });
+
+  it('allows only read-only Terraform subcommands and rejects shells and wrappers', () => {
+    for (const args of [['refresh'], ['test'], ['init', '-migrate-state', '-force-copy'], ['plan', '-out=tfplan'], ['plan', '-out', 'tfplan'], ['console'], []]) {
+      expect(forbiddenGateReason({ id: 'x', command: 'terraform', args }), args.join(' ')).toBeDefined();
+    }
+    for (const command of ['Terraform', 'terraform.exe', 'TOFU']) expect(forbiddenGateReason({ id: 'x', command, args: ['apply'] })).toBeDefined();
+    for (const [command, args] of [['terragrunt', ['apply']], ['env', ['terraform', 'apply']], ['bash', ['-c', 'terraform apply -auto-approve']], ['sudo', ['make']], ['npx', ['something']]] as const) {
+      expect(forbiddenGateReason({ id: 'x', command, args: [...args] }), command).toBeDefined();
+    }
+    for (const args of [['fmt', '-check', '-recursive'], ['validate', '-no-color'], ['plan', '-input=false', '-lock=false', '-no-color'], ['-chdir=infra', 'validate']]) {
+      expect(forbiddenGateReason({ id: 'x', command: 'terraform', args })).toBeUndefined();
+    }
+  });
+
+  it('never reaches readiness from advisory gates alone, and missing prerequisites always block', async () => {
+    const root = workspace({ 'main.tf': 'terraform {}\n' });
+    const advisoryRan = await executeGatePlan(root, [{ ...planned({ id: 'plan', command: process.execPath, args: ['-e', ''], blocking: false }) }]);
+    expect(advisoryRan.map((item) => item.result.gate)).toEqual(['plan', 'no-blocking-gate-passed']);
+    expect(blockingGateFailure(advisoryRan)).toBe(true);
+    const advisoryMissing = await executeGatePlan(root, [planned({ id: 'plan', command: 'terraform', args: ['plan'], blocking: false }, ['.terraform not present'])]);
+    expect(advisoryMissing[0]).toMatchObject({ blocking: true, result: { status: 'failed' } });
+    expect(blockingGateFailure(advisoryMissing)).toBe(true);
+  });
+
+  it('resolves tools from absolute PATH entries only, so a repository-planted binary never runs', async () => {
+    const root = workspace();
+    const trusted = join(workspace(), 'trusted');
+    mkdirSync(trusted);
+    mkdirSync(join(root, 'bin'));
+    for (const [directory, label] of [[trusted, 'TRUSTED'], [join(root, 'bin'), 'PLANTED']] as const) {
+      writeFileSync(join(directory, 'cc-fake-tool'), `#!/bin/sh\necho ${label}\n`);
+      chmodSync(join(directory, 'cc-fake-tool'), 0o755);
+    }
+    // A relative entry that really reaches the planted binary from this process, and the
+    // one a gate running in the repository would see.
+    const planted = relative(process.cwd(), join(root, 'bin'));
+    for (const path of [`${planted}${delimiter}${trusted}`, `bin${delimiter}${trusted}`, `${delimiter}${trusted}`, `.${delimiter}${trusted}`]) {
+      expect(resolveExecutable('cc-fake-tool', { PATH: path }).path, path).toBe(join(trusted, 'cc-fake-tool'));
+    }
+    expect(resolveExecutable('cc-fake-tool', { PATH: `${planted}${delimiter}bin` }).path).toBeUndefined();
+    if (process.platform !== 'win32') {
+      const original = process.env.PATH;
+      process.env.PATH = `bin${delimiter}${trusted}${delimiter}${original ?? ''}`;
+      try {
+        const config = { version: 1, profiles: { fake: { gates: [{ id: 'fake', command: 'cc-fake-tool', args: [], blocking: true }] } } };
+        const plan = planGates(root, ['fake'], config);
+        expect(plan[0]?.executable).toBe(join(trusted, 'cc-fake-tool'));
+        const [result] = await executeGatePlan(root, plan);
+        expect(result?.evidence.summary).toContain('TRUSTED');
+        expect(result?.evidence.source).toContain(join(trusted, 'cc-fake-tool'));
+      } finally { process.env.PATH = original; }
+    }
   });
 
   it('keeps the packaged catalog policy-clean', () => {
@@ -93,7 +146,21 @@ describe('bounded gate execution', () => {
     const [result] = await executeGatePlan(workspace(), [planned({ id: 'loud', command: process.execPath, args: ['-e', "process.stdout.write('x'.repeat(6 * 1024 * 1024))"] })]);
     expect(result?.result.status).toBe('passed');
     expect(result?.result.summary).toContain('truncated');
+    expect(Buffer.byteLength(result?.evidence.summary ?? '')).toBeLessThan(9000);
   });
+
+  it.skipIf(process.platform === 'win32')('finishes promptly when a descendant keeps the output pipes open after the gate exits', async () => {
+    for (const detached of [true, false]) {
+      const root = workspace();
+      const script = `const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: ${detached}, stdio: ['ignore', 'inherit', 'inherit'] }); g.unref(); require('node:fs').writeFileSync('descendant.pid', String(g.pid));`;
+      const started = Date.now();
+      const [result] = await executeGatePlan(root, [{ ...planned({ id: 'holder', command: process.execPath, args: ['-e', script] }), timeoutMs: 60_000 }]);
+      const descendant = Number(readFileSync(join(root, 'descendant.pid'), 'utf8'));
+      try { process.kill(descendant, 'SIGKILL'); } catch { /* already gone */ }
+      expect(result?.result.status, `detached=${detached}`).toBe('passed');
+      expect(Date.now() - started).toBeLessThan(15_000);
+    }
+  }, 40_000);
 
   it.skipIf(process.platform === 'win32')('times out and terminates everything the gate started', async () => {
     const root = workspace();
