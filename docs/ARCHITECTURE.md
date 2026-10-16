@@ -125,7 +125,7 @@ Its boundaries are:
 
 - conservative/lossless mode by default;
 - explicit aggressive mode only when comment/whitespace removal is acceptable;
-- workspace-root and sensitive-file enforcement before local file reads;
+- workspace-root and sensitive-file enforcement before local file reads. A file is read through one descriptor opened without following symlinks, and it must still be the file that was checked once opened. Hard-linked files are refused, because a hard link can make a file from outside the workspace appear inside it. Reads are size-bounded;
 - provider-neutral core output;
 - approximate token-reduction telemetry, never vendor billing/quota truth;
 - private local telemetry and time-bounded in-memory original-content cache;

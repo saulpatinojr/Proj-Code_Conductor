@@ -1,4 +1,5 @@
-import { mkdtempSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { linkSync, mkdtempSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -174,6 +175,32 @@ describe('Context Optimizer', () => {
       try {
         const optimizer = new ContextOptimizer({ statsFile: join(root, 'stats.json'), allowedRoots: [root], maxFileBytes: 16 });
         expect(() => optimizer.readCompressedFile(large)).toThrow(/exceeds the 16 byte limit/i);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it.skipIf(process.platform === 'win32')('refuses a hard link, which can make a file from outside appear inside the workspace', () => {
+      const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-hardlink-root-'));
+      const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-hardlink-outside-'));
+      const secret = join(outside, 'private.txt');
+      writeFileSync(secret, 'outside the workspace\n');
+      linkSync(secret, join(root, 'notes.md'));
+      try {
+        const optimizer = new ContextOptimizer({ statsFile: join(root, 'stats.json'), allowedRoots: [root] });
+        expect(() => optimizer.readCompressedFile(join(root, 'notes.md'))).toThrow(/more than one hard link/i);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it.skipIf(process.platform === 'win32')('refuses a FIFO without waiting on it', () => {
+      const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-fifo-'));
+      execFileSync('mkfifo', [join(root, 'pipe.md')]);
+      try {
+        const optimizer = new ContextOptimizer({ statsFile: join(root, 'stats.json'), allowedRoots: [root] });
+        expect(() => optimizer.readCompressedFile(join(root, 'pipe.md'))).toThrow(/not a regular file/i);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

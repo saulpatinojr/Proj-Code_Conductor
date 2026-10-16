@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 
@@ -248,7 +248,7 @@ export class ContextOptimizer {
 
   readCompressedFile(filePath: string, project = 'vscode', mode: OptimizationMode = 'lossless'): { content: string; result: OptimizationResult } {
     const safePath = this.resolveAllowedFile(filePath);
-    const raw = readFileSync(safePath, 'utf8');
+    const raw = this.readAllowedFile(safePath, filePath);
     const ext = extname(safePath);
     const result = this.compress(raw, { contentType: ext, project, mode });
     return { content: result.optimizedContent, result };
@@ -303,6 +303,34 @@ export class ContextOptimizer {
       throw new Error(`Context file exceeds the ${this.maxFileBytes} byte limit: ${filePath}`);
     }
     return canonical;
+  }
+
+  /**
+   * Read a checked file through one file descriptor, so what is read is the file that was
+   * checked. The final path component is opened without following symlinks. The opened
+   * file must be a regular file within the size limit, with a single link: a hard link
+   * can make a file from outside the workspace appear inside it. After opening, the path
+   * must still resolve to that same file, so a directory swapped for a symlink between
+   * the check and the open is refused.
+   */
+  private readAllowedFile(canonical: string, filePath: string): string {
+    let descriptor: number;
+    try { descriptor = openSync(canonical, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); }
+    catch (error) { throw new Error(`Context file cannot be opened: ${filePath} (${(error as NodeJS.ErrnoException).code ?? 'error'})`); }
+    try {
+      const opened = fstatSync(descriptor);
+      if (!opened.isFile()) throw new Error(`Context path is not a regular file: ${filePath}`);
+      if (opened.nlink > 1) throw new Error(`Context file has more than one hard link, so its location cannot be verified: ${filePath}`);
+      if (opened.size > this.maxFileBytes) throw new Error(`Context file exceeds the ${this.maxFileBytes} byte limit: ${filePath}`);
+      let current: ReturnType<typeof statSync> | undefined;
+      try { current = realpathSync(canonical) === canonical ? statSync(canonical) : undefined; } catch { current = undefined; }
+      if (!current || current.dev !== opened.dev || current.ino !== opened.ino) throw new Error(`Context file changed while it was being opened: ${filePath}`);
+      const buffer = Buffer.alloc(opened.size + 1);
+      let length = 0;
+      for (let read = 1; read > 0 && length < buffer.length; length += read) read = readSync(descriptor, buffer, length, buffer.length - length, null);
+      if (length > opened.size) throw new Error(`Context file changed while it was being read: ${filePath}`);
+      return buffer.subarray(0, length).toString('utf8');
+    } finally { closeSync(descriptor); }
   }
 
   private recordStats(
