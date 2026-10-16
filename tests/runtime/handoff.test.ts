@@ -94,6 +94,20 @@ describe('handoff packets', () => {
     expect(packet.disagreements).toEqual([]);
   });
 
+  it('bounds agent-written evidence ids, redacts them in disagreements, and validates its lifetime', () => {
+    const token = ['ghp', '_', 'b'.repeat(36)].join('');
+    const challenger = assignment('A-3', 'challenger', 'claude');
+    const recipient = assignment('A-2', 'reviewer', 'claude', ['A-1', 'A-3']);
+    const evidence = Array.from({ length: 3000 }, (_, index) => ({ id: `E-${index}-${'x'.repeat(60)}`, kind: 'agent_output' as const, source: 's', summary: 's' }));
+    const packet = buildHandoffPacket({ ...manifest([result(builder, { recommendation: 'ready', evidence }), result(challenger, { recommendation: 'changes_required', findings: [{ id: 'F-1', severity: 'high', summary: 's', evidenceIds: [token], blocking: true }] })]), assignments: [builder, recipient, challenger] }, recipient, provenance)!;
+    const text = renderHandoff(packet);
+    expect(text.length).toBeLessThan(10_000);
+    expect(text).toContain('more stored with the run');
+    expect(text.endsWith(`END HANDOFF ${packet.id}`)).toBe(true);
+    expect(JSON.stringify(packet.disagreements)).not.toContain(token);
+    for (const ttlMs of [0, Number.NaN, 8 * 24 * 60 * 60 * 1000]) expect(() => buildHandoffPacket(manifest([result(builder)]), reviewer, provenance, { ttlMs })).toThrow('Handoff TTL');
+  });
+
   it('refuses a stored packet that names another run or recipient, comes from the future, or expired', () => {
     const now = Date.parse('2026-10-16T00:00:00Z');
     const packet = buildHandoffPacket(manifest([result(builder)]), reviewer, provenance, { now, ttlMs: 3_600_000 })!;
@@ -141,20 +155,54 @@ describe('handoffs in a run', () => {
     expect(() => store.readHandoff(outcome.manifest.runId, reference!.id, reference!.sha256)).toThrow('does not match');
   });
 
-  async function runWith(options: { trusted?: (harness: string, mode: string) => boolean; adapters?: (codex: RecordingAdapter, claude: RecordingAdapter) => Map<string, HarnessAdapter>; now?: () => number; handoffTtlMs?: number; decide?: () => void } = {}) {
+  async function runWith(options: { trusted?: (harness: string, mode: string) => boolean; adapters?: (codex: RecordingAdapter, claude: RecordingAdapter) => Map<string, HarnessAdapter>; now?: () => number; handoffTtlMs?: number; decide?: (requests: ApprovalRequest[]) => void } = {}) {
     const temp = mkdtempSync(join(tmpdir(), 'cc-handoff-run-'));
     temps.push(temp);
     const codex = new RecordingAdapter('codex', 'openai');
     const claude = new RecordingAdapter('claude', 'anthropic');
     const worktrees = new SandboxWorktrees(temp);
+    const gateRuns = { count: 0 };
     const outcome = await executeTask(resolve('.'), createTask('handoff run', 'R1', resolve('.')), {
       execute: true, adapters: options.adapters?.(codex, claude) ?? new Map<string, HarnessAdapter>([['codex', codex], ['claude', claude]]), store: new RunStore(join(temp, 'runs')), worktrees,
-      gateExecutor: () => ({ status: 0, stdout: '', stderr: '' }), isHarnessTrusted: options.trusted ?? (() => true),
-      approver: { decide: async () => { options.decide?.(); return { approved: true, approver: 'test' }; } },
+      gateExecutor: () => { gateRuns.count += 1; return { status: 0, stdout: '', stderr: '' }; }, isHarnessTrusted: options.trusted ?? (() => true),
+      approver: { decide: async (requests) => { options.decide?.(requests); return { approved: true, approver: 'test' }; } },
       ...(options.now ? { now: options.now } : {}), ...(options.handoffTtlMs !== undefined ? { handoffTtlMs: options.handoffTtlMs } : {}),
     });
-    return { outcome, codex, claude, temp, sandbox: worktrees.sandboxRepository };
+    return { outcome, codex, claude, temp, sandbox: worktrees.sandboxRepository, gateRuns };
   }
+
+  // Planted while the person decides, so only the check in the rebuilt request can see it.
+  function plantWhileDeciding(match: (request: ApprovalRequest) => boolean) {
+    const holder: { marker?: string } = {};
+    const decide = (requests: ApprovalRequest[]): void => {
+      if (holder.marker || !requests.some(match)) return;
+      const repository = git(requests[0]!.repository, 'rev-parse', '--path-format=absolute', '--git-common-dir').replace(/\/\.git$/, '');
+      holder.marker = join(repository, '..', 'filter-ran');
+      git(repository, 'config', 'filter.planted.clean', `touch '${holder.marker}'; cat`);
+      writeFileSync(join(repository, '.git', 'info', 'attributes'), '* filter=planted\n');
+    };
+    return { holder, decide };
+  }
+
+  it('checks Git configuration again when the start approval is rebuilt after the decision', async () => {
+    const { holder, decide } = plantWhileDeciding((request) => request.action === 'local_execution' && request.recipient === 'anthropic/claude@cli');
+    const { outcome, claude } = await runWith({ decide });
+    expect(holder.marker).toBeDefined();
+    expect(existsSync(holder.marker!)).toBe(false);
+    expect(claude.prompts).toHaveLength(0);
+    const reviewerResult = outcome.manifest.results.find((item) => item.role === 'reviewer');
+    expect(reviewerResult?.blockers.join(' ')).toContain('Git configuration or history files');
+  });
+
+  it('checks Git configuration again when the gate approval is rebuilt after the decision', async () => {
+    const { holder, decide } = plantWhileDeciding((request) => request.recipient === 'local:deterministic-gates');
+    const { outcome, gateRuns } = await runWith({ decide });
+    expect(holder.marker).toBeDefined();
+    expect(existsSync(holder.marker!)).toBe(false);
+    expect(gateRuns.count).toBe(0);
+    const validator = outcome.manifest.results.find((item) => item.harness === 'internal-validator');
+    expect(validator?.blockers.join(' ')).toContain('Git configuration or history files');
+  });
 
   it('runs no Git for a packet until the Git-control check passed, so a filter planted between assignments never runs', async () => {
     const holder: { sandbox?: string; marker?: string } = {};

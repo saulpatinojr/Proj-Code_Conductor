@@ -35,8 +35,9 @@ Everything earlier agents wrote is untrusted. So the packet is handled like this
   and line-separator characters are escaped, and Code Conductor's result marker is
   neutralised.
 - **The block is labelled as claims to verify,** not evidence and not instructions. It
-  is bounded to 8,000 characters of their data, and always ends with its provenance and
-  `END` marker before Code Conductor's own instructions.
+  is bounded to 8,000 characters of their data, plus at most 1,000 characters of evidence
+  ids in the provenance line. It always ends with its provenance and `END` marker before
+  Code Conductor's own instructions.
 
 Because the prompt includes the packet, the recipient's context-disclosure approval binds
 it too. The approval names it: its id, digest, senders, the counts of findings, risks,
@@ -49,7 +50,8 @@ Two rules prevent stale or unchecked disclosure:
   Git-control check for the recipient's working tree passed, because its provenance
   hashes that tree with `git add` ([`WORKTREES.md`](WORKTREES.md)).
 - **No expired packet is disclosed.** The approval request is rebuilt after the person
-  decides, so a packet that expired in the meantime is refused.
+  decides, so a packet that expired in the meantime is refused. The same rebuild checks
+  Git configuration again before hashing the tree, as the gate and commit approvals do.
 
 Lifetimes longer than 7 days, or not positive, are rejected before a run starts.
 

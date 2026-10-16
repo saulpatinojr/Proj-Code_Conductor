@@ -43,6 +43,7 @@ export function readinessDisagreements(results: readonly AgentResult[]): Disagre
 export function buildHandoffPacket(manifest: RunManifest, recipient: AgentAssignment, provenance: { repository: string; revision: string; tree: string }, options: { now?: number; ttlMs?: number } = {}): HandoffPacket | undefined {
   const sources = manifest.results.filter((result) => recipient.dependsOn.includes(result.assignmentId) && result.status === 'completed');
   if (!sources.length) return undefined;
+  if (options.ttlMs !== undefined && !validHandoffTtl(options.ttlMs)) throw new Error('Handoff TTL must be a positive number of milliseconds, at most 7 days.');
   const assignments = new Map(manifest.assignments.map((assignment) => [assignment.id, assignment]));
   const now = options.now ?? Date.now();
   const unique = (values: string[]): string[] => [...new Set(values)];
@@ -66,7 +67,7 @@ export function buildHandoffPacket(manifest: RunManifest, recipient: AgentAssign
       risks: unique(sources.flatMap((result) => result.risks).map(clean)),
     },
     priorFindings: sources.flatMap((result) => result.findings).map(finding),
-    disagreements: readinessDisagreements(sources),
+    disagreements: readinessDisagreements(sources).map((item) => ({ ...item, positions: item.positions.map((position) => ({ ...position, evidenceIds: position.evidenceIds.map(clean) })) })),
     provenance: { ...provenance, evidenceIds: unique(sources.flatMap((result) => result.evidence.map((item) => clean(item.id)))) },
   };
 }
@@ -104,6 +105,19 @@ function quoted(value: string): string {
   return text;
 }
 const quotedList = (values: readonly string[]): string => `[${values.map(quoted).join(', ')}]`;
+/** Like quotedList, but at most `limit` characters; the rest is counted, not shown. */
+function boundedList(values: readonly string[], limit: number): string {
+  const shown: string[] = [];
+  let length = 2;
+  for (const value of values) {
+    const item = quoted(value);
+    if (length + item.length + 2 > limit) break;
+    shown.push(item);
+    length += item.length + 2;
+  }
+  return `[${shown.join(', ')}]${shown.length < values.length ? ` and ${values.length - shown.length} more stored with the run` : ''}`;
+}
+const MAX_RENDERED_EVIDENCE = 1000;
 
 /** Counts a person sees in the disclosure approval for a prompt that carries this packet. */
 export function describeHandoff(packet: HandoffPacket, sha256: string): string {
@@ -138,7 +152,7 @@ export function renderHandoff(packet: HandoffPacket, sha256?: string): string {
     length += line.length + 1;
   }
   const footer = [
-    `Provenance: ${packet.provenance.repository} at ${packet.provenance.revision}, tree ${packet.provenance.tree}; evidence ${quotedList(packet.provenance.evidenceIds)}.`,
+    `Provenance: ${packet.provenance.repository} at ${packet.provenance.revision}, tree ${packet.provenance.tree}; evidence ${boundedList(packet.provenance.evidenceIds, MAX_RENDERED_EVIDENCE)}.`,
     `END HANDOFF ${packet.id}`,
   ];
   return [...header, ...kept, ...footer].join('\n');

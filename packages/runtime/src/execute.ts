@@ -222,6 +222,9 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           const skipped = dropped.length ? ` Detected profile(s) not run because you chose others: ${dropped.join(', ')}.` : '';
           const untrusted = validationRoot === primaryBuilderWorktree?.path ? ' Prerequisites such as installed dependencies, .terraform or build output in this agent worktree were created during the run, possibly by the agent, and are not bound by this approval.' : '';
           const approval = await authorize(() => {
+            // Built again after the person decides: Git configuration may have changed meanwhile.
+            stopped = controlChange(validationRoot, 'while gate commands were being approved');
+            if (stopped) throw new Error(stopped);
             const state = workingTreeState(validationRoot);
             return [{
               action: 'local_execution', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: validationRoot, revision: state.revision, recipient: 'local:deterministic-gates',
@@ -230,7 +233,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             }];
           });
           if (!approval.approved) {
-            manifest.results.push(blockedResult(assignment, approval.blocker));
+            manifest.results.push(blockedResult(assignment, stopped ? `${stopped} The gate commands did not run.` : approval.blocker));
             save();
             continue;
           }
@@ -304,6 +307,10 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         // Also checked when the request is rebuilt after the decision: a packet that expired
         // while the person was deciding is never disclosed.
         if (handoff && handoffExpired(handoff.packet, clock())) throw new Error(`handoff packet ${handoff.packet.id} expired at ${handoff.packet.expiresAt}`);
+        // Git configuration may have changed while the person was deciding; hashing the tree
+        // under changed configuration would run its filters.
+        stopped = controlChange(cwd, `while ${recipient}'s start was being approved`);
+        if (stopped) throw new Error(stopped);
         const state = workingTreeState(cwd);
         const bound = { runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: cwd, revision: state.revision, recipient };
         const prefix = attempt ? `Retry attempt ${attempt + 1}: ` : '';
@@ -316,23 +323,24 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         : prepared.blocker ? { approved: false, blocker: `${prepared.blocker} The provider was not started.` }
           : await authorizeStart(0);
       if (!approval.approved) {
+        // A configuration change found while the approval was rebuilt is recorded as such, so
+        // `cc next` and `cc worktrees` run no Git for this run either.
+        let blocker = stopped && !approval.blocker.includes(GIT_CONTROL_CHANGED) ? `${stopped} The provider was not started.` : approval.blocker;
         if (assignmentWorktree) {
           // Nothing ran in the fresh worktree; remove it and its branch rather than leave them
           // behind, unless Git configuration changed: removal would run Git under it.
           const unused = assignmentWorktree;
-          let cleanup = '';
-          if (stopped) cleanup = ` The unused worktree ${unused.path} and its branch ${unused.branch} were kept, because removing them would run Git under the changed configuration; remove them after checking it.`;
+          if (stopped) blocker += ` The unused worktree ${unused.path} and its branch ${unused.branch} were kept, because removing them would run Git under the changed configuration; remove them after checking it.`;
           else {
             try { worktrees.remove(unused, true, false); }
-            catch (error) { cleanup = ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
+            catch (error) { blocker += ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
           }
           if (!existsSync(unused.path)) {
             createdWorktrees.splice(createdWorktrees.indexOf(unused), 1);
             manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== unused.path);
           }
-          approval.blocker += cleanup;
         }
-        manifest.results.push(blockedResult(assignment, approval.blocker));
+        manifest.results.push(blockedResult(assignment, blocker));
         save();
         continue;
       }
