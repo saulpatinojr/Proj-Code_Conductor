@@ -6,7 +6,10 @@ import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { createTask, executeTask, importRunManifest, planTask, parseAgentResult } from '@code-conductor/runtime';
+import { assignmentPrompt, createTask, executeTask, formatCommand, importRunManifest, nextActions, planTask, parseAgentResult, type NextAction } from '@code-conductor/runtime';
+import { RunStore } from '@code-conductor/evidence';
+import { defaultWorktreeRoot } from '@code-conductor/git';
+import { assertContract, type RunManifest } from '@code-conductor/schemas';
 import { createBuiltinAdapters } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
@@ -67,10 +70,16 @@ function doctor(root: string): number {
     if (!found) missingRequired = true;
   }
 
+  let signIn: Record<string, { command?: string[]; docs?: string }> = {};
+  try { signIn = Object.fromEntries(Object.entries(loadConfiguration<{ harnesses: Record<string, { sign_in?: { command?: string[]; docs?: string } }> }>(root, 'capabilities').document.harnesses).map(([id, harness]) => [id, harness.sign_in ?? {}])); }
+  catch { /* Reported by the configuration check below. */ }
   for (const [id, adapter] of adapters) {
     if (id === 'internal-validator') continue;
-    console.log(`${adapter.available() ? 'OK' : 'INFO'} harness ${id}: surface=${adapter.executionSurface} command=${adapter.command ?? 'platform/manual'} version=${adapter.version() ?? 'unknown/not-applicable'}`);
+    const hint = signIn[id];
+    const official = hint?.command ? ` sign-in=\`${formatCommand(hint.command)}\`${hint.docs ? ` (${hint.docs})` : ''}` : '';
+    console.log(`${adapter.available() ? 'OK' : 'INFO'} harness ${id}: surface=${adapter.executionSurface} command=${adapter.command ?? 'platform/manual'} version=${adapter.version() ?? 'unknown/not-applicable'}${official}`);
   }
+  console.log('INFO authentication stays in each official client; installed or detected does not mean signed in, healthy or trusted. Code Conductor never reads or stores credentials.');
 
   const knownExtensions = [
     ['claude', 'anthropic.claude-code'],
@@ -126,7 +135,7 @@ async function run(args: string[]): Promise<number> {
   const execute = args.includes('--execute'); const workstation = new WorkstationStore();
   const task = createTask(objective, risk, root, listOption(args, '--specializations'));
   const outcome = await executeTask(root, task, { execute, keepWorktrees: !args.includes('--cleanup-worktrees'), isHarnessTrusted: (harness, mode, surface) => workstation.isTrusted(harness, mode, surface), approver: new TerminalApprover() });
-  console.log(JSON.stringify({ runId: outcome.plan.runId, execute, manifestPath: outcome.manifestPath, mergeDecision: outcome.manifest.mergeDecision, assignments: outcome.plan.assignments.map((a) => ({ role: a.role, harness: a.harness, surface: a.surface, stance: a.stance, authority: a.authority })), approvals: (outcome.manifest.approvals ?? []).map((a) => ({ action: a.action, recipient: a.recipient, status: a.status, requestDigest: a.requestDigest })), pendingExternal: outcome.pendingExternal.map((a) => a.id), worktrees: outcome.worktrees.map((w) => ({ path: w.path, branch: w.branch, baseSha: w.baseSha })) }, null, 2));
+  console.log(JSON.stringify({ runId: outcome.plan.runId, execute, manifestPath: outcome.manifestPath, mergeDecision: outcome.manifest.mergeDecision, assignments: outcome.plan.assignments.map((a) => ({ role: a.role, harness: a.harness, surface: a.surface, stance: a.stance, authority: a.authority })), approvals: (outcome.manifest.approvals ?? []).map((a) => ({ action: a.action, recipient: a.recipient, status: a.status, requestDigest: a.requestDigest })), nextActions: nextActions(outcome.manifest, { worktreeRoot: defaultWorktreeRoot() }).map(presentAction), pendingExternal: outcome.pendingExternal.map((a) => a.id), worktrees: outcome.worktrees.map((w) => ({ path: w.path, branch: w.branch, baseSha: w.baseSha })) }, null, 2));
   return outcome.manifest.mergeDecision && outcome.manifest.mergeDecision.decision !== 'ready' ? 1 : 0;
 }
 
@@ -183,6 +192,49 @@ function agentsList(args: string[]): number {
   if (inventory.truncated) console.log('WARN native-inventory.truncated: file budget reached; results are partial.');
   return 0;
 }
+function presentAction(action: NextAction): Record<string, unknown> {
+  return { ...action, ...(action.commands ? { commands: action.commands.map(formatCommand) } : {}) };
+}
+
+function storedManifest(store: RunStore, runId: string): RunManifest {
+  const value = store.readManifest(runId);
+  assertContract('RunManifest', value);
+  return value as RunManifest;
+}
+
+function nextCommand(args: string[]): number {
+  const store = new RunStore();
+  const runId = getOption(args, '--run') ?? store.latestRunId();
+  if (!runId) { console.error('No stored runs. Plan or run a task first.'); return 1; }
+  try {
+    const manifest = storedManifest(store, runId);
+    const actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() });
+    if (args.includes('--json')) { console.log(JSON.stringify({ runId: manifest.runId, mergeDecision: manifest.mergeDecision, nextActions: actions.map(presentAction) }, null, 2)); return 0; }
+    console.log(`Run ${manifest.runId}: ${manifest.mergeDecision ? `${manifest.mergeDecision.decision} — ${manifest.mergeDecision.rationale}` : 'planned (not executed)'}`);
+    if (!actions.length) console.log('No next action recorded. Dry-run plans execute nothing; use `cc run --execute` from an interactive terminal.');
+    for (const [index, action] of actions.entries()) {
+      console.log(`\n${index + 1}. ${action.title} [${action.surface}]\n   ${action.detail}`);
+      if (action.path) console.log(`   path: ${action.path}`);
+      for (const command of action.commands ?? []) console.log(`   $ ${formatCommand(command)}`);
+    }
+    return 0;
+  } catch (error) { console.error(`ERROR next.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
+}
+
+function handoff(args: string[]): number {
+  const runId = getOption(args, '--run'); const assignmentId = getOption(args, '--assignment');
+  if (!runId || !assignmentId) { console.error('Usage: cc handoff --run <runId> --assignment <assignmentId>'); return 2; }
+  try {
+    const manifest = storedManifest(new RunStore(), runId);
+    const assignment = manifest.assignments.find((item) => item.id === assignmentId);
+    if (!assignment) { console.error(`ERROR handoff.unknown_assignment: ${assignmentId} is not part of ${runId}.`); return 1; }
+    // stderr carries guidance; stdout is only the prompt so it can be piped or copied exactly.
+    console.error(`Manual handoff for ${assignment.role} (${assignment.harness}@${assignment.surface ?? 'manual'}). Paste the prompt below into the official client yourself; this disclosure is your decision. Keep the client's result with run ${runId}.`);
+    console.log(assignmentPrompt(manifest.task, assignment));
+    return 0;
+  } catch (error) { console.error(`ERROR handoff.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
+}
+
 function importRun(args: string[]): number {
   const file = args.find((value) => !value.startsWith('--') && args[args.indexOf(value) - 1] !== '--source');
   if (!file) { console.error('Usage: cc import <run-manifest.json> [--source <label>] [--force]'); return 2; }
@@ -214,7 +266,7 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.'); }
+function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
@@ -227,6 +279,8 @@ switch (command) {
   case 'mcp': exitCode = mcpList(args); break;
   case 'agents': exitCode = agentsList(args); break;
   case 'import': exitCode = importRun(args); break;
+  case 'next': exitCode = nextCommand(args); break;
+  case 'handoff': exitCode = handoff(args); break;
   case 'apm-audit': exitCode = apmCheck(args[0]); break;
   case 'github-gate': exitCode = githubGate(args); break;
   case 'context-stats': exitCode = contextStats(); break;

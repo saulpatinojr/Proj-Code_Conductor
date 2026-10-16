@@ -16,6 +16,8 @@ export type ApprovalStatus = 'approved' | 'denied' | 'missing' | 'expired' | 'ch
 export interface ApprovalRequest { action: ApprovalAction; runId: string; taskId: string; assignmentId?: string; repository: string; revision: string; recipient?: string; bindings: Record<string, string>; summary: string }
 /** Non-secret evidence of one pre-action approval decision. Records are evidence only and never authorize a later action. */
 export interface ApprovalRecord { requestDigest: string; action: ApprovalAction; runId: string; taskId: string; assignmentId?: string; recipient?: string; revision: string; status: ApprovalStatus; approver: string; requestedAt: string; decidedAt?: string; expiresAt?: string; summary: string }
-export interface RunManifest { runId: string; task: TaskEnvelope; assignments: AgentAssignment[]; results: AgentResult[]; gates: GateResult[]; approvals?: ApprovalRecord[]; mergeDecision?: MergeDecision }
+/** An isolated agent worktree created for a run, so native Source Control review can find it. */
+export interface WorktreeRecord { assignmentId: string; path: string; branch: string; baseSha: string }
+export interface RunManifest { runId: string; task: TaskEnvelope; assignments: AgentAssignment[]; results: AgentResult[]; gates: GateResult[]; approvals?: ApprovalRecord[]; worktrees?: WorktreeRecord[]; mergeDecision?: MergeDecision }
 
 export { validateContract, assertContract, type ContractName, type ContractValidationResult } from './validate.js';

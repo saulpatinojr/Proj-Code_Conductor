@@ -1,5 +1,10 @@
 import { discoveryInventory } from './discovery.js';
 import { loadConfiguration, type ConfigurationName } from '@code-conductor/policy';
+import { readBoundedFile } from '@code-conductor/policy/bounded-read';
+import { defaultWorktreeRoot } from '@code-conductor/git';
+import { nextActions, type NextAction } from '@code-conductor/runtime/next-actions';
+import type { RunManifest } from '@code-conductor/schemas';
+import { nativeOperation, signInHint } from './native-actions.js';
 import * as vscode from 'vscode';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -11,7 +16,7 @@ import { cliProcessSpec, localCommandName, missingBaselineCommands } from './exe
 
 type ItemSpec = { label: string; description?: string; tooltip?: string; icon?: string; command?: vscode.Command };
 type CapabilitySurface = { kind?: string; identifiers?: string[]; commands?: string[]; command?: string; interactive?: boolean; machine_execution?: boolean; requires_local_client?: boolean; enabled_by_default?: boolean };
-type HarnessCapability = { provider?: string; command_candidates?: string[]; primary_specializations?: string[]; preferred_execution_surface?: string; native_capabilities?: string[]; surfaces?: Record<string, CapabilitySurface> };
+type HarnessCapability = { provider?: string; sign_in?: unknown; command_candidates?: string[]; primary_specializations?: string[]; preferred_execution_surface?: string; native_capabilities?: string[]; surfaces?: Record<string, CapabilitySurface> };
 type CapabilityDocument = { defaults?: { billing_policy?: string; allow_separately_billed_api?: boolean }; harnesses?: Record<string, HarnessCapability> };
 type LocalDiscovery = { version: 3; capturedAt: string; commands: Record<string, boolean>; extensions: Record<string, boolean> };
 
@@ -83,10 +88,32 @@ function teamItems(root?: string): ItemSpec[] {
   });
 }
 
+function runsDirectory(): string { return join(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'runs'); }
+
+/** Bounded, read-only manifest load from the owner-private run store; malformed or oversized manifests are skipped. */
+function storedManifest(runId: string): RunManifest | undefined {
+  try {
+    const value = JSON.parse(readBoundedFile(join(runsDirectory(), runId, 'manifest.json'), 1048576).toString('utf8')) as Partial<RunManifest>;
+    return value && typeof value.runId === 'string' && value.task && Array.isArray(value.results) ? value as RunManifest : undefined;
+  } catch { return undefined; }
+}
+
 function runItems(): ItemSpec[] {
-  const root = process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'); const runs = join(root, 'runs');
+  const runs = runsDirectory();
   if (!existsSync(runs)) return [{ label: 'No runs yet', description: 'Use Code Conductor: Plan Task', icon: 'history' }];
-  return readdirSync(runs, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().slice(0, 20).map((name) => ({ label: name, icon: 'run-all' }));
+  return readdirSync(runs, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().slice(0, 20).map((name) => {
+    const manifest = storedManifest(name);
+    if (!manifest) return { label: name, description: 'manifest unavailable or too large · use cc next', icon: 'run-all' };
+    const actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() });
+    const decision = manifest.mergeDecision?.decision ?? 'planned';
+    return {
+      label: name,
+      description: `${decision}${actions[0] ? ` · next: ${actions[0].title}` : ''}`,
+      tooltip: [manifest.task.objective, manifest.mergeDecision?.rationale, ...actions.map((action) => `• ${action.title}`)].filter(Boolean).join('\n'),
+      icon: decision === 'ready' ? 'pass' : decision === 'planned' ? 'run-all' : decision === 'human_required' ? 'person' : 'warning',
+      command: { command: 'codeConductor.nextActions', title: 'Show next actions', arguments: [name] },
+    };
+  });
 }
 
 function gateItems(root?: string): ItemSpec[] {
@@ -112,9 +139,10 @@ function connectionItems(root?: string, discovery?: LocalDiscovery): ItemSpec[] 
     const preferredAvailable = requiresLocal ? localClientAvailable : preferred?.kind === 'vscode_extension' ? extensionAvailable : false;
     const allSurfaces = Object.entries(harness.surfaces ?? {}).map(([name, surface]) => `${name}:${surface.kind ?? 'unknown'}${surface.machine_execution ? ':machine' : ':human'}`).join(', ');
     items.push({
+      command: { command: 'codeConductor.signIn', title: 'Sign in with the official client', arguments: [id] },
       label: harnessLabel(id),
       description: `${preferredAvailable ? 'detected; auth/trust not checked' : requiresLocal ? 'not detected in cached discovery' : 'native/manual setup not verified'} · preferred ${preferredName}${commands.length ? ` · ${commands.join('|')}` : ''}`,
-      tooltip: `Provider: ${harness.provider ?? 'unknown'}\nSurfaces: ${allSurfaces || 'none'}\nNative capabilities: ${(harness.native_capabilities ?? []).join(', ') || 'none declared'}${extensionIds.length ? `\nVS Code extensions: ${extensionIds.join(', ')}${extensionAvailable ? ' (detected)' : ''}` : ''}`,
+      tooltip: `Provider: ${harness.provider ?? 'unknown'}\nSign in: ${signInHint(harness.sign_in)?.instructions ?? 'through the official client'}\nSurfaces: ${allSurfaces || 'none'}\nNative capabilities: ${(harness.native_capabilities ?? []).join(', ') || 'none declared'}${extensionIds.length ? `\nVS Code extensions: ${extensionIds.join(', ')}${extensionAvailable ? ' (detected)' : ''}` : ''}`,
       icon: preferredAvailable ? (id === 'kiro' ? 'checklist' : id === 'antigravity' ? 'globe' : id === 'copilot-github' ? 'github' : 'hubot') : 'warning',
     });
   }
@@ -171,6 +199,55 @@ function startupTooltip(mode: StartupMode, discovery?: LocalDiscovery): string {
   if (!discovery) return `${label}\nNo AI provider, ACP session, MCP server, or APM materialization was started.`;
   const available = Object.entries(discovery.commands).filter(([, value]) => value).map(([key]) => key);
   return `${label}\nDetected local commands: ${available.join(', ') || 'none'}\nNo AI provider, ACP session, MCP server, or APM materialization was started.`;
+}
+
+async function performNextAction(context: vscode.ExtensionContext, action: NextAction): Promise<void> {
+  const operation = nativeOperation(action, defaultWorktreeRoot());
+  switch (operation.type) {
+    case 'open_source_control':
+      try {
+        await vscode.commands.executeCommand('git.openRepository', operation.path);
+        await vscode.commands.executeCommand('workbench.view.scm');
+      } catch {
+        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(operation.path), { forceNewWindow: true });
+      }
+      return;
+    case 'run_cli': {
+      const r = workspaceRoot();
+      if (r) await runCli(context, r, operation.args, `Code Conductor ${operation.args[0] ?? ''}`.trim());
+      return;
+    }
+    case 'copy_command':
+      await vscode.env.clipboard.writeText(operation.text);
+      await vscode.window.showInformationMessage(`${action.title}: command copied. Run it yourself in a terminal; Code Conductor does not run it for you.`, { detail: operation.text, modal: false });
+      return;
+    case 'open_documentation':
+      await vscode.env.openExternal(vscode.Uri.parse(operation.url));
+      return;
+    default:
+      await vscode.window.showInformationMessage(operation.text);
+  }
+}
+
+async function showNextActions(context: vscode.ExtensionContext, runId: unknown): Promise<void> {
+  if (typeof runId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(runId)) return;
+  const manifest = storedManifest(runId);
+  if (!manifest) { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`cc next --run ${runId}\` in a terminal.`); return; }
+  const actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() });
+  if (!actions.length) { await vscode.window.showInformationMessage(`${runId}: ${manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.'}`); return; }
+  const picked = await vscode.window.showQuickPick(actions.map((action) => ({ label: action.title, detail: action.detail, description: action.surface.replace('_', ' '), action })), { placeHolder: `${runId}: ${manifest.mergeDecision?.decision ?? 'planned'}`, matchOnDetail: true });
+  if (picked) await performNextAction(context, picked.action);
+}
+
+async function showSignIn(root: string | undefined, harnessId: unknown): Promise<void> {
+  if (!root || typeof harnessId !== 'string') return;
+  const capabilities = loadYaml<CapabilityDocument>(root, 'config/capabilities.yaml');
+  const hint = signInHint(capabilities?.harnesses?.[harnessId]?.sign_in);
+  if (!hint) { await vscode.window.showInformationMessage(`${harnessLabel(harnessId)}: sign in through its official client.`); return; }
+  const choices = [...(hint.command ? ['Copy sign-in command'] : []), ...(hint.docs ? ['Open official documentation'] : [])];
+  const choice = await vscode.window.showInformationMessage(`${harnessLabel(harnessId)}: ${hint.instructions} Code Conductor never asks for, stores or copies your credentials.`, ...choices);
+  if (choice === 'Copy sign-in command' && hint.command) await vscode.env.clipboard.writeText(hint.command);
+  if (choice === 'Open official documentation' && hint.docs) await vscode.env.openExternal(vscode.Uri.parse(hint.docs));
 }
 
 async function runCli(context: vscode.ExtensionContext, root: string, args: string[], title: string): Promise<void> {
@@ -258,6 +335,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const risk = await vscode.window.showQuickPick(['R0', 'R1', 'R2', 'R3', 'R4'], { placeHolder: 'Risk class' }); if (!risk) return;
     await runCli(context, r, ['plan', '--repo', '.', '--risk', risk, '--objective', objective], 'Code Conductor Plan');
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.nextActions', async (runId: unknown) => showNextActions(context, runId)));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.signIn', async (harnessId: unknown) => showSignIn(root(), harnessId)));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.openDecisions', async () => {
     const r = root(); if (!r) return; const uri = vscode.Uri.file(join(r, 'docs', 'DECISIONS.md')); if (existsSync(uri.fsPath)) await vscode.window.showTextDocument(uri);
   }));

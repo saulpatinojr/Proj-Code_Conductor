@@ -50,6 +50,7 @@ type CapabilityHarness = {
   preferred_execution_surface?: string;
   surfaces?: Record<string, CapabilitySurface>;
   native_capabilities?: string[];
+  sign_in?: { command?: unknown; instructions?: unknown; docs?: unknown };
   primary_specializations?: string[];
 };
 type CapabilityConfig = {
@@ -151,6 +152,19 @@ function validateCapabilities(capabilities: CapabilityConfig): ValidationIssue[]
     }
     if (!harness.surfaces || Object.keys(harness.surfaces).length === 0) {
       issues.push({ level: 'error', code: 'capabilities.surfaces_required', path, message: `Harness ${id} must declare at least one surface.` });
+    }
+    if (harness.sign_in !== undefined) {
+      const signIn = harness.sign_in;
+      const command = signIn?.command;
+      if (command !== undefined && (!Array.isArray(command) || !command.length || command.some((part) => typeof part !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(part)))) {
+        issues.push({ level: 'error', code: 'capabilities.sign_in_command', path, message: `Harness ${id} sign_in.command must be a non-empty list of plain arguments (no shell syntax).` });
+      }
+      if (signIn?.docs !== undefined && (typeof signIn.docs !== 'string' || !/^https:\/\/[^\s]+$/.test(signIn.docs))) {
+        issues.push({ level: 'error', code: 'capabilities.sign_in_docs', path, message: `Harness ${id} sign_in.docs must be an https URL to official documentation.` });
+      }
+      if (typeof signIn?.instructions !== 'string' || !signIn.instructions) {
+        issues.push({ level: 'error', code: 'capabilities.sign_in_instructions', path, message: `Harness ${id} sign_in must explain where sign-in happens.` });
+      }
     }
     if (!Array.isArray(harness.native_capabilities)) {
       issues.push({ level: 'error', code: 'capabilities.native_capabilities', path, message: `Harness ${id} must declare native_capabilities, even if empty.` });

@@ -50,6 +50,14 @@
       {
         "command": "codeConductor.openDecisions",
         "title": "Code Conductor: Open Decision Register"
+      },
+      {
+        "command": "codeConductor.nextActions",
+        "title": "Code Conductor: Show Next Actions for Run"
+      },
+      {
+        "command": "codeConductor.signIn",
+        "title": "Code Conductor: Official Sign-in Guidance"
       }
     ],
     "viewsContainers": {
@@ -96,12 +104,25 @@
           "when": "view =~ /codeConductor\\./",
           "group": "navigation"
         }
+      ],
+      "commandPalette": [
+        {
+          "command": "codeConductor.nextActions",
+          "when": "false"
+        },
+        {
+          "command": "codeConductor.signIn",
+          "when": "false"
+        }
       ]
     }
   },
   "dependencies": {
-    "yaml": "^2.9.1",
-    "@code-conductor/policy": "0.1.0"
+    "@code-conductor/git": "0.1.0",
+    "@code-conductor/policy": "0.1.0",
+    "@code-conductor/runtime": "0.1.0",
+    "@code-conductor/schemas": "0.1.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/vscode": "^1.140.0"

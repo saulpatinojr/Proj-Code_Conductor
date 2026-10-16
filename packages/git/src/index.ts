@@ -335,10 +335,15 @@ function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTre
   return { sha, files, created: true };
 }
 
+/** Where Code Conductor creates agent worktrees unless a caller chooses otherwise. */
+export function defaultWorktreeRoot(): string {
+  return join(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'worktrees');
+}
+
 export class WorktreeManager {
   readonly root: string;
 
-  constructor(root = join(homedir(), '.code-conductor', 'worktrees')) {
+  constructor(root = defaultWorktreeRoot()) {
     this.root = root;
     ensurePrivateDirectory(root);
   }

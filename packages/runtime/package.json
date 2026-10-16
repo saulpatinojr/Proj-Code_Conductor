@@ -4,7 +4,7 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./next-actions": { "types": "./dist/next-actions.d.ts", "default": "./dist/next-actions.js" } },
   "dependencies": {
     "@code-conductor/policy": "0.1.0",
     "@code-conductor/adapters": "0.1.0",

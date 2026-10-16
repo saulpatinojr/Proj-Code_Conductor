@@ -31,7 +31,8 @@ export interface ExecuteOptions {
 }
 export interface ExecuteOutcome { plan: TaskPlan; manifest: RunManifest; manifestPath: string; pendingExternal: AgentAssignment[]; worktrees: WorktreeHandle[] }
 
-function buildPrompt(task: TaskEnvelope, assignment: AgentAssignment): string {
+/** The exact prompt an assignment receives; also used for a person-driven manual handoff. */
+export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment): string {
   return [
     `Code Conductor task ${task.id}.`, `Objective: ${task.objective}`, `Role: ${assignment.role}. Stance: ${assignment.stance}.`,
     `Harness: ${assignment.harness}. Surface: ${assignment.surface ?? 'unspecified'}.`,
@@ -220,9 +221,10 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       if (assignment.authority.includes('modify_worktree')) {
         assignmentWorktree = worktrees.create(root, task.id, assignment.agentId);
         createdWorktrees.push(assignmentWorktree); cwd = assignmentWorktree.path;
+        manifest.worktrees = [...(manifest.worktrees ?? []), { assignmentId: assignment.id, path: assignmentWorktree.path, branch: assignmentWorktree.branch, baseSha: assignmentWorktree.baseSha }];
       } else if (primaryBuilderWorktree) cwd = primaryBuilderWorktree.path;
 
-      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: buildPrompt(task, assignment) };
+      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment) };
       // Starting the client and disclosing the prompt plus repository access are
       // approved together but recorded separately, each bound to this recipient.
       // Every start, including a retry, is a new process and a new disclosure, so
@@ -251,7 +253,10 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           let cleanup = '';
           try { worktrees.remove(unused, true, false); }
           catch (error) { cleanup = ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
-          if (!existsSync(unused.path)) createdWorktrees.splice(createdWorktrees.indexOf(unused), 1);
+          if (!existsSync(unused.path)) {
+            createdWorktrees.splice(createdWorktrees.indexOf(unused), 1);
+            manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== unused.path);
+          }
           approval.blocker += cleanup;
         }
         manifest.results.push(blockedResult(assignment, approval.blocker));

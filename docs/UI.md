@@ -5,9 +5,9 @@ Code Conductor v0.1 uses a thin VS Code extension rather than a replacement chat
 ## Activity Bar views
 
 - **Team** — roles, stances, and preferred harnesses from repository policy.
-- **Runs** — recent local run IDs stored under `~/.code-conductor/runs` (or `CODE_CONDUCTOR_HOME`).
+- **Runs** — recent runs from `~/.code-conductor/runs` (or `CODE_CONDUCTOR_HOME`), each with its decision and next step. Clicking a run lists its next actions. These hand you to native Source Control, copy a command for you to run, or show the manual handoff ([`NATIVE-INTERFACES.md`](NATIVE-INTERFACES.md)).
 - **Gates** — deterministic gate profiles and whether each gate is blocking.
-- **Connections** — presence of GitHub CLI, APM, Claude Code, Codex, Kiro CLI, and Antigravity CLI.
+- **Connections** — presence of GitHub CLI, APM, Claude Code, Codex, Kiro CLI, and Antigravity CLI. Clicking a client shows its official sign-in command and documentation link; detected never means signed in or trusted.
 - **Packs** — APM lock state, canonical agent/skill counts, and explicit APM targets.
 - **Usage** — subscription-first/API-spend policy. v0.1 does not scrape or persist vendor quota telemetry.
 

@@ -15,6 +15,15 @@
   "references": [
     {
       "path": "../../packages/policy"
+    },
+    {
+      "path": "../../packages/git"
+    },
+    {
+      "path": "../../packages/runtime"
+    },
+    {
+      "path": "../../packages/schemas"
     }
   ]
 }
