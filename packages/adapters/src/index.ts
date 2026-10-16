@@ -33,6 +33,34 @@ export interface HarnessExecutionOutcome {
   startedAt: string;
   finishedAt: string;
   timedOut: boolean;
+  /** The client's final message, from its documented machine-readable output (see `finalMessage`). */
+  message?: string;
+}
+
+/**
+ * The final message from a client's documented machine-readable output, so only what
+ * the model said last is read for its result, never tool or command output:
+ * - Claude Code `-p --output-format json` prints one JSON object with the text in
+ *   `result` (https://code.claude.com/docs/en/headless).
+ * - Codex `exec --json` prints JSON Lines events; the last `item.completed` whose item is
+ *   an `agent_message` holds the final text (https://developers.openai.com/codex/non-interactive-mode).
+ * Undefined when the output does not have that shape.
+ */
+export function finalMessage(harness: string, stdout: string): string | undefined {
+  const parse = (text: string): unknown => { try { return JSON.parse(text) as unknown; } catch { return undefined; } };
+  if (harness === 'claude') {
+    const value = parse(stdout.trim()) as { result?: unknown } | undefined;
+    return typeof value?.result === 'string' ? value.result : undefined;
+  }
+  if (harness === 'codex') {
+    let message: string | undefined;
+    for (const line of stdout.split(/\r?\n/)) {
+      const event = parse(line) as { type?: unknown; item?: { type?: unknown; text?: unknown } } | undefined;
+      if (event?.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') message = event.item.text;
+    }
+    return message;
+  }
+  return undefined;
 }
 
 export interface HarnessAdapter {
@@ -167,7 +195,8 @@ class SubprocessAdapter implements HarnessAdapter {
         clearTimeout(timer); clearTimeout(escalation); clearTimeout(release);
         // The client exited; do not let anything it left running keep touching the worktree.
         terminateGroup(child, 'SIGKILL');
-        resolve({ harness: this.id, surface: this.executionSurface, command: this.command, args, exitCode, signal, stdout, stderr, startedAt, finishedAt: new Date().toISOString(), timedOut });
+        const message = finalMessage(this.id, stdout);
+        resolve({ harness: this.id, surface: this.executionSurface, command: this.command, args, exitCode, signal, stdout, stderr, startedAt, finishedAt: new Date().toISOString(), timedOut, ...(message !== undefined ? { message } : {}) });
       };
       child.on('close', finish);
       // A descendant that left the process group can keep the output pipes open after

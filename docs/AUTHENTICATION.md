@@ -101,6 +101,12 @@ How the checks work:
 - **Trust is bound to the client version.** After an upgrade, run the smoke tests
   again. A smoke test on a new version also clears what an older version had passed.
 
+Results are read the same way. A provider's result is read only from its client's final
+message in the documented machine-readable output: Claude Code's `result` field
+([headless](https://code.claude.com/docs/en/headless)), and Codex's last `agent_message`
+event ([non-interactive mode](https://developers.openai.com/codex/non-interactive-mode)).
+Tool and command output can never supply one.
+
 Limits:
 
 - **Classification follows the vendors' documented values.** A new method shows as

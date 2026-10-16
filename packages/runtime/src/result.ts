@@ -9,7 +9,7 @@ function fallbackResult(assignment: AgentAssignment, outcome: HarnessExecutionOu
     id: `E-${randomUUID()}`,
     kind: 'agent_output',
     source: `${assignment.harness}:${assignment.surface ?? outcome.surface}:${assignment.agentId}`,
-    summary: [outcome.stdout.trim(), outcome.stderr.trim()].filter(Boolean).join('\n').slice(0, 12000) || 'Agent returned no structured result.',
+    summary: [(outcome.message ?? outcome.stdout).trim(), outcome.stderr.trim()].filter(Boolean).join('\n').slice(0, 12000) || 'Agent returned no structured result.',
   };
   return {
     taskId: assignment.taskId,
@@ -32,10 +32,16 @@ function fallbackResult(assignment: AgentAssignment, outcome: HarnessExecutionOu
   };
 }
 
+/**
+ * The agent's result from the last `CC_RESULT_JSON:` line of its final message. When the
+ * adapter extracted the client's final message from its machine-readable output, only
+ * that message is read; tool and command output cannot supply a result.
+ */
 export function parseAgentResult(assignment: AgentAssignment, outcome: HarnessExecutionOutcome): AgentResult {
-  const markerIndex = outcome.stdout.lastIndexOf(marker);
+  const text = outcome.message ?? outcome.stdout;
+  const markerIndex = text.lastIndexOf(marker);
   if (markerIndex >= 0) {
-    const raw = outcome.stdout.slice(markerIndex + marker.length).trim().split(/\r?\n/)[0] ?? '';
+    const raw = text.slice(markerIndex + marker.length).trim().split(/\r?\n/)[0] ?? '';
     try {
       const candidate = JSON.parse(raw) as Partial<AgentResult>;
       const result: AgentResult = {
