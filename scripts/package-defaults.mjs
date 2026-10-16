@@ -47,13 +47,18 @@ function writeGenerated(destination, contents) {
   });
   if (!pending.length) return;
   // Outside the folder, so a concurrent build's prune cannot delete a file before it is
-  // renamed; mkdtemp makes it new and private, so nothing can be planted in it. A build
-  // killed mid-write can leave it behind (ignored by Git, never packaged).
+  // renamed; mkdtemp makes it new and private, so nothing can be planted in it. It must be
+  // on the folder's file system (a separately mounted generated folder is not supported).
+  // A build killed mid-write can leave it behind (ignored by Git, never packaged).
   const staging = mkdtempSync(join(dirname(destination), `.${basename(destination)}.staging-`));
   try {
     for (const [name, bytes] of pending) {
       const path = join(destination, name);
-      if (lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) rmSync(path, { recursive: true, force: true });
+      // A folder at a file's name is moved aside in one step, not deleted in place, so a
+      // concurrent build never sees it half removed.
+      if (lstatSync(path, { throwIfNoEntry: false })?.isDirectory()) {
+        try { renameSync(path, join(staging, `${name}.replaced`)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
       writeFileSync(join(staging, name), bytes, { flag: 'wx' });
       renameSync(join(staging, name), path);
     }
