@@ -104,8 +104,10 @@ How the checks work:
 - **No user configuration from the repository.** A provider is not started when its
   explicit configuration directory (`CLAUDE_CONFIG_DIR` or `ANTHROPIC_CONFIG_DIR` for
   Claude Code, `CODEX_HOME` for Codex) lies inside the repository being run, directly or
-  through a symlink. The sign-in probe cannot see the hooks, `env` block or credential
-  helper such "user" settings could carry.
+  through a symlink, and `cc harness-smoke` refuses the same, since it runs the provider
+  for real. The sign-in probe cannot see the hooks, `env` block or credential helper such
+  "user" settings could carry. `HOME` is not checked: when a repository is your home
+  folder (dotfiles), its `.claude/` is your own user configuration.
 - **The same client file throughout.** The version probe, the sign-in probe and the
   launch all run the one file the command resolves to on an absolute `PATH` entry. A
   relative entry such as `node_modules/.bin`, an empty entry, or (on Windows) the working

@@ -49,6 +49,8 @@ describe('provider client environment', () => {
     expect(configurationInsideRepository('claude', repository, env)).toEqual([`CLAUDE_CONFIG_DIR (${env.CLAUDE_CONFIG_DIR})`]);
     expect(configurationInsideRepository('codex', repository, env)).toEqual([]);
     expect(configurationInsideRepository('codex', repository, { CODEX_HOME: repository })).toEqual([`CODEX_HOME (${repository})`]);
+    // The Anthropic profile directory counts for Claude Code, including one not created yet.
+    expect(configurationInsideRepository('claude', repository, { ANTHROPIC_CONFIG_DIR: join(repository, 'not', 'yet') })).toEqual([`ANTHROPIC_CONFIG_DIR (${join(repository, 'not', 'yet')})`]);
     // A sibling sharing the repository's name as a prefix is outside it.
     expect(configurationInsideRepository('claude', repository, { CLAUDE_CONFIG_DIR: `${repository}-cfg` })).toEqual([]);
     expect(configurationInsideRepository('kiro', repository, env)).toEqual([]);
@@ -59,6 +61,9 @@ describe('provider client environment', () => {
       mkdirSync(join(repository, 'cfg'));
       symlinkSync(join(repository, 'cfg'), join(elsewhere, 'claude'));
       expect(configurationInsideRepository('claude', repository, { CLAUDE_CONFIG_DIR: join(elsewhere, 'claude') })).toHaveLength(1);
+      // The repository named through a symlink is the same repository.
+      symlinkSync(repository, join(elsewhere, 'repo-link'));
+      expect(configurationInsideRepository('claude', join(elsewhere, 'repo-link'), { CLAUDE_CONFIG_DIR: join(repository, 'cfg') })).toHaveLength(1);
     }
     // A relative value, as the provider environment resolves it when Code Conductor starts in the repository.
     expect(configurationInsideRepository('claude', repository, providerEnvironment({ CLAUDE_CONFIG_DIR: '.' }, repository))).toEqual([`CLAUDE_CONFIG_DIR (${repository})`]);

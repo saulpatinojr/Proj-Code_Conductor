@@ -9,13 +9,16 @@ afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: 
 
 // A fake Claude Code whose --version answer is read from a file the test controls, so
 // the client can be "upgraded" in the middle of a smoke test.
-function fakeClaude(): { root: string; env: NodeJS.ProcessEnv; setVersion: (version: string) => void } {
+function fakeClaude(): { root: string; log: string; env: NodeJS.ProcessEnv; setVersion: (version: string) => void } {
   const root = mkdtempSync(join(tmpdir(), 'cc-smoke-cli-'));
   temps.push(root);
   const versionFile = join(root, 'version');
+  const log = join(root, 'calls.log');
+  writeFileSync(log, '');
   const result = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'READ_OK\nCC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":[],"findings":[],"risks":[],"blockers":[],"recommendation":"ready"}' });
   writeFileSync(join(root, 'claude'), [
     '#!/bin/sh',
+    `echo "$*" >> '${log}'`,
     `if [ "$1" = "--version" ]; then cat '${versionFile}' 2>/dev/null || exit 1; exit 0; fi`,
     'if [ "$1 $2" = "auth status" ]; then echo \'{"loggedIn":true,"authMethod":"claude.ai"}\'; exit 0; fi',
     // The run itself: the client is upgraded while the smoke test is running.
@@ -25,6 +28,7 @@ function fakeClaude(): { root: string; env: NodeJS.ProcessEnv; setVersion: (vers
   chmodSync(join(root, 'claude'), 0o755);
   return {
     root,
+    log,
     env: { ...process.env, PATH: `${root}${delimiter}${process.env.PATH ?? ''}`, CODE_CONDUCTOR_HOME: join(root, 'home') },
     setVersion: (version) => writeFileSync(versionFile, `${version}\n`),
   };
@@ -39,6 +43,16 @@ describe.skipIf(process.platform === 'win32')('cc harness-smoke', () => {
     expect(run.stderr).toContain('the client changed during the smoke test (1.0.0 (Claude Code) before, 2.0.0 (Claude Code) after)');
     const state = join(client.root, 'home', 'workstation.json');
     expect(existsSync(state) ? readFileSync(state, 'utf8') : '').not.toContain('ValidatedAt');
+  });
+
+  it('refuses, before asking the client anything, when its configuration is inside the repository', () => {
+    const client = fakeClaude();
+    client.setVersion('1.0.0 (Claude Code)');
+    // Started in this repository, a relative CLAUDE_CONFIG_DIR names a folder in it.
+    const run = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', 'read'], { encoding: 'utf8', env: { ...client.env, CLAUDE_CONFIG_DIR: '.' }, timeout: 60_000 });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('would read its user configuration from inside the repository: CLAUDE_CONFIG_DIR');
+    expect(readFileSync(client.log, 'utf8')).not.toMatch(/auth status|-p /);
   });
 
   it('refuses to smoke-test a client whose version cannot be read', () => {

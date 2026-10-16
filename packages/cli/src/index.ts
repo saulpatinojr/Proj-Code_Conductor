@@ -8,9 +8,9 @@ import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/pol
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, stoppedForGitControl, type NextAction, type PullRequestOptions } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
-import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree } from '@code-conductor/git';
+import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
-import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, createBuiltinAdapters } from '@code-conductor/adapters';
+import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
@@ -180,6 +180,12 @@ async function harnessSmoke(args: string[]): Promise<number> {
     }
   }
   // The smoke test runs the provider for real, on the subscription.
+  // The smoke test runs the provider for real: the same refusal as a run, against the
+  // repository Code Conductor was started in (or that folder, outside any repository).
+  let repository = process.cwd();
+  try { repository = resolveRepositoryRoot(repository); } catch { /* Not in a repository. */ }
+  const inside = configurationInsideRepository(harness, repository);
+  if (inside.length) { console.error(`BLOCKED: ${harness} would read its user configuration from inside the repository: ${printable(inside.join(', '), 2000)}. The repository could then supply the client's settings (hooks, environment, credential helper). Point it outside the repository.`); return 1; }
   if (adapter.authStatus) {
     const auth = await adapter.authStatus();
     if (auth.state !== 'authenticated') { console.error(`BLOCKED: ${harness} is not signed in (\`${formatCommand(auth.command)}\` reported ${auth.state}). Sign in with the official client first; \`cc doctor\` shows how.`); return 1; }

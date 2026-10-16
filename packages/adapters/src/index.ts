@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
@@ -163,16 +163,27 @@ const HARNESS_CONFIG_DIRECTORIES: Record<string, readonly string[]> = { claude: 
  * Explicit client configuration directories that lie inside `repository`, as `NAME (path)`.
  * The sign-in probe cannot see a repository's hooks or `env` block, so "user" settings
  * the repository supplies would apply to the run unchecked; such a provider is not started.
+ * Containment is decided by file identity (device and inode of each existing ancestor),
+ * not by spelling, so symlinks, case-insensitive file systems and alternative Windows
+ * spellings (8.3 names, `\\?\`) cannot hide it. HOME is not checked: a repository at the
+ * home folder (dotfiles) is the user's own configuration by definition.
  */
 export function configurationInsideRepository(harness: string, repository: string, env: NodeJS.ProcessEnv = providerEnvironment()): string[] {
-  const canonical = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
-  const fold = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
-  const root = fold(canonical(repository));
+  const identity = (path: string) => { const stat = statSync(path, { bigint: true, throwIfNoEntry: false }); return stat ? `${stat.dev}:${stat.ino}` : undefined; };
+  const root = identity(repository);
+  if (!root) return [];
   return (HARNESS_CONFIG_DIRECTORIES[harness] ?? []).filter((name) => {
     const value = env[name];
     if (!value) return false;
-    const directory = fold(canonical(value));
-    return directory === root || directory.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
+    // From the directory (or, if it does not exist yet, its nearest existing ancestor),
+    // symlinks resolved, up through each real parent to the file-system root.
+    let start = resolve(value);
+    while (!identity(start) && dirname(start) !== start) start = dirname(start);
+    try { start = realpathSync(start); } catch { /* Compare the spelled path. */ }
+    for (let current = start; ; current = dirname(current)) {
+      if (identity(current) === root) return true;
+      if (dirname(current) === current) return false;
+    }
   }).map((name) => `${name} (${env[name]})`);
 }
 
