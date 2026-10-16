@@ -63,37 +63,28 @@ export class RunStore {
     return target;
   }
 
-  /** Stored run ids, newest manifest first. */
+  /** Stored runs, most recently written first. Only a regular manifest file (not a symlink) counts. */
   listRunIds(): string[] {
-    if (!existsSync(this.root)) return [];
-    return readdirSync(this.root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && existsSync(join(this.root, entry.name, 'manifest.json')))
-      .map((entry) => ({ name: entry.name, mtime: statSync(join(this.root, entry.name, 'manifest.json')).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime)
-      .map((entry) => entry.name);
+    let entries;
+    try { entries = readdirSync(this.root, { withFileTypes: true }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const runs: Array<{ name: string; mtime: number }> = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        const stat = lstatSync(join(this.root, entry.name, 'manifest.json'));
+        if (stat.isFile()) runs.push({ name: entry.name, mtime: stat.mtimeMs });
+      } catch { /* not a stored run */ }
+    }
+    return runs.sort((a, b) => b.mtime - a.mtime).map((run) => run.name);
   }
 
   /** Most recently written run manifest, if any. */
   latestRunId(): string | undefined {
-    let entries;
-    try { entries = readdirSync(this.root, { withFileTypes: true }); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw error;
-    }
-    let latest: { name: string; mtime: number } | undefined;
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      // Same rule as readManifest: only a regular file (not a symlink) counts as a run.
-      let mtime: number;
-      try {
-        const stat = lstatSync(join(this.root, entry.name, 'manifest.json'));
-        if (!stat.isFile()) continue;
-        mtime = stat.mtimeMs;
-      } catch { continue; }
-      if (!latest || mtime > latest.mtime) latest = { name: entry.name, mtime };
-    }
-    return latest?.name;
+    return this.listRunIds()[0];
   }
 
   /**
