@@ -50,6 +50,19 @@ describe('agent catalog immutable intake', () => {
     }
   });
 
+  it('normalizes and titles long lines in linear time', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-agent-catalog-long-'));
+    try {
+      // Blanks inside a line: quadratic for the trims this replaces (seconds at this size).
+      writeFileSync(join(root, 'wide.agent.md'), `# Wide${' '.repeat(100_000)}Agent  \n\nBody${' '.repeat(100_000)}x\n`);
+      const entry = buildInventory(root).entries.find((item) => item.sourcePath === 'wide.agent.md');
+      expect(entry?.title).toBe(`Wide${' '.repeat(100_000)}Agent`);
+      expect(entry?.normalizedSha256).toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('refuses CLI output paths inside the immutable source corpus', () => {
     const root = mkdtempSync(join(tmpdir(), 'cc-agent-catalog-immutable-'));
     try {

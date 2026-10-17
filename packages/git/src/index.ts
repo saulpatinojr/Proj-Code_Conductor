@@ -26,11 +26,13 @@ export function safeGitRefSegment(value: string): string {
     .replace(/[^A-Za-z0-9._-]/g, '-')
     .replace(/\.\.+/g, '-')
     .replace(/-+/g, '-')
-    .replace(/^[.-]+|[.-]+$/g, '')
+    // A trailing match starts only where a run begins (the lookbehind), so a long run
+    // inside the value is scanned once, not once per character.
+    .replace(/^[.-]+|(?<![.-])[.-]+$/g, '')
     .slice(0, 80)
-    .replace(/[.-]+$/g, '');
+    .replace(/(?<![.-])[.-]+$/g, '');
   if (segment.toLowerCase().endsWith('.lock')) segment = `${segment.slice(0, -5)}-lock`;
-  segment = segment.replace(/\.\.+/g, '-').replace(/^[.-]+|[.-]+$/g, '');
+  segment = segment.replace(/\.\.+/g, '-').replace(/^[.-]+|(?<![.-])[.-]+$/g, '');
   return segment || 'agent';
 }
 
@@ -628,7 +630,11 @@ export function redactUrl(url: string): string {
     parsed.hash = '';
     text = parsed.toString();
   } catch {
-    text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`).replace(/[?#].*$/, '');
+    // Up to the last `@` on any line (dotAll), then nothing from the first `?` or `#`: a
+    // `[?#].*$` replace misses a query followed by a line break, and is quadratic.
+    text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/is, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`);
+    const query = text.search(/[?#]/);
+    if (query >= 0) text = text.slice(0, query);
   }
   return redactSecrets(text).text;
 }

@@ -83,13 +83,26 @@ function walkFiles(dir: string, budget: { remaining: number }): string[] {
   return out;
 }
 
+/**
+ * The first top-level `name:` line in a file's front matter with a usable value: plain or
+ * quoted, on that line. A value holding another quote or a `#` (a YAML comment) is skipped,
+ * not guessed at. Read line by line: these files come from whatever repository is open,
+ * and the regular expression this replaces took cubic time on a long run of spaces.
+ */
 function frontmatterName(text: string): string | undefined {
   const normalized = text.replace(/\r\n?/g, '\n');
   if (!normalized.startsWith('---\n')) return undefined;
   const end = normalized.indexOf('\n---', 4);
   if (end < 0) return undefined;
-  const match = normalized.slice(4, end).match(/^name:\s*["']?([^"'\n#]+?)["']?\s*$/m);
-  return match?.[1]?.trim() || undefined;
+  for (const line of normalized.slice(4, end).split('\n')) {
+    if (!line.startsWith('name:')) continue;
+    let value = line.slice('name:'.length).trim();
+    if (value.startsWith('"') || value.startsWith("'")) value = value.slice(1);
+    if (value.endsWith('"') || value.endsWith("'")) value = value.slice(0, -1);
+    value = value.trim();
+    if (value && !/["'#]/.test(value)) return value;
+  }
+  return undefined;
 }
 
 function tomlName(text: string): string | undefined {

@@ -86,6 +86,7 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Human approval boundary for high-risk/destructive external operations.
 - Local run/evidence, workstation-trust, modifying worktree, and context-optimizer telemetry directories/files use owner-only permissions on POSIX systems where applicable.
 - Context file reads are bounded to configured workspace roots after canonical/symlink resolution and reject sensitive/state paths, non-regular files, and oversized inputs.
+- Text Code Conductor does not control is parsed in linear time. A long run of spaces in an agent or skill file's front matter (`.claude/agents`, `.github/agents`, `SKILL.md` and the rest) made `ccon agents` and `ccon doctor` stall for minutes, because the name pattern was cubic. Quadratic trims are gone too, from remote URL redaction, GitHub repository detection, Git branch-name sanitization and the agent-catalog intake script. Results are unchanged, except for two cases. A redacted remote URL now drops its query, and everything before its last `@`, even when a line break would have hidden them. An empty `name:` now falls back to the file name instead of taking the next line as the name.
 - Evidence-store path traversal and rename-based sensitive-file detection are covered by regression tests.
 - Added high/critical dependency audit as a CI gate; the current dependency graph reports zero known npm vulnerabilities.
 - Multiple GitHub Copilot Gatekeeper review rounds were exercised and concrete findings were addressed with targeted regression coverage.

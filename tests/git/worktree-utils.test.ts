@@ -44,6 +44,9 @@ describe('git helpers', () => {
     expect(safeGitRefSegment('.lock')).toBe('lock');
     expect(safeGitRefSegment('...')).toBe('agent');
     expect(safeGitRefSegment('feature@{bad}')).not.toMatch(/\.\.|@\{|\.lock$/i);
+    // A long run of dots and dashes inside the value: quadratic for the trim this replaces
+    // (about 20 s at this size, against milliseconds).
+    expect(safeGitRefSegment(`x${'.-'.repeat(50_000)}x`)).toBe('x');
   });
 
   it('preserves spawn diagnostics when Git cannot be found', () => {
