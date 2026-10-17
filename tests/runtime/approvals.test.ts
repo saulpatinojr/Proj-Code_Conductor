@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -7,8 +7,9 @@ import type { HarnessAdapter, HarnessExecutionOutcome, HarnessExecutionRequest }
 import { RunStore } from '../../packages/evidence/src/index.js';
 import type { Approver } from '../../packages/policy/src/index.js';
 import { assertContract, type ApprovalRequest } from '../../packages/schemas/src/index.js';
-import { createTask, executeTask } from '../../packages/runtime/src/index.js';
-import { FakeAdapter, git, rewriteKeepingTimes, SandboxWorktrees, WritingAdapter } from './fixtures.js';
+import { WorktreeManager } from '../../packages/git/src/index.js';
+import { createTask, executeTask, GIT_CONTROL_CHANGED } from '../../packages/runtime/src/index.js';
+import { FakeAdapter, git, initRepository, rewriteKeepingTimes, SandboxWorktrees, WritingAdapter } from './fixtures.js';
 
 const approveAll: Approver = { decide: async () => ({ approved: true, approver: 'test' }) };
 
@@ -492,6 +493,7 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(existsSync(outcome.worktrees[0]!.path)).toBe(true);
     expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
     expect(builder?.blockers.join(' ')).toContain('repositories nested in the work tree');
+    expect(builder?.blockers.join(' ')).toMatch(/: nested repository vendor-lib appeared; .*; and \d+ more\./);
     expect(seen.some((request) => request.action === 'commit')).toBe(false);
   });
 
@@ -677,5 +679,65 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(validator?.blockers.join(' ')).toContain('Git configuration or history files');
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
     expect(outcome.worktrees).toHaveLength(1);
+  });
+});
+
+describe('Git control checks with agent worktrees of the repository under work (#4)', () => {
+  // As on a workstation: the run's root is the repository and agent worktrees are its own.
+  // Its configuration includes a file only from the primary checkout (on its branch, at its
+  // gitdir), so the agent worktree legitimately sees different configuration.
+  async function workstationRun(builderDoes?: (cwd: string, repository: string) => void) {
+    const temp = realpathSync(mkdtempSync(join(tmpdir(), 'cc-control-run-')));
+    temps.push(temp);
+    const repository = initRepository(join(temp, 'repo'));
+    git(repository, 'config', `includeIf.onbranch:${git(repository, 'branch', '--show-current')}.path`, 'branch.inc');
+    writeFileSync(join(repository, '.git', 'branch.inc'), '[user]\n\temail = branch@example.invalid\n');
+    git(repository, 'config', `includeIf.gitdir:${join(repository, '.git')}.path`, 'gitdir.inc');
+    writeFileSync(join(repository, '.git', 'gitdir.inc'), '[user]\n\tname = primary\n');
+    const codex = new (class extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') builderDoes?.(request.cwd, repository);
+        return super.execute(request);
+      }
+    })('codex', 'openai');
+    const claude = new CountingAdapter('claude', 'anthropic');
+    const outcome = await executeTask(repository, createTask('workstation-layout R1 run', 'R1', repository), {
+      execute: true, adapters: new Map<string, HarnessAdapter>([['codex', codex], ['claude', claude]]), store: new RunStore(temp), worktrees: new WorktreeManager(join(temp, 'worktrees')),
+      gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true, approver: approveAll,
+    });
+    return { outcome, repository, calls: codex.calls + claude.calls };
+  }
+
+  it('starts every provider when the agent worktree sees different configuration from the primary checkout', async () => {
+    const { outcome, calls } = await workstationRun();
+    expect(outcome.manifest.results.flatMap((result) => result.blockers).join(' ')).not.toContain(GIT_CONTROL_CHANGED);
+    expect(calls).toBe(2);
+    expect(outcome.manifest.mergeDecision?.decision).toBe('ready');
+  });
+
+  it('names a change only the primary checkout sees, read there again after the provider in the agent worktree ran', async () => {
+    const { outcome, repository, calls } = await workstationRun((_cwd, repository) => writeFileSync(join(repository, '.git', 'branch.inc'), '[filter "agent"]\n\tclean = cat\n'));
+    const [builder, ...rest] = outcome.manifest.results;
+    expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
+    expect(builder?.blockers.join(' ')).toContain(`local config file:${join(repository, '.git', 'branch.inc')} changed (read in ${repository})`);
+    expect(rest.every((result) => result.status === 'blocked')).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it('names a shared change the agent worktree itself sees, without its value', async () => {
+    const { outcome, repository } = await workstationRun((cwd) => git(cwd, 'config', 'filter.agent.clean', 'planted-clean-command'));
+    const blockers = outcome.manifest.results[0]?.blockers.join(' ') ?? '';
+    expect(blockers).toContain(`local config file:${join(repository, '.git', 'config')} changed;`);
+    expect(blockers).toContain(`local config file:${join(repository, '.git', 'config')} changed (read in ${repository})`);
+    expect(blockers).not.toContain('planted-clean-command');
+  });
+
+  it('stops when the state cannot be read, for example repositories nested deeper than it reads', async () => {
+    const { outcome, calls } = await workstationRun((cwd) => {
+      let directory = cwd;
+      for (const name of ['a', 'b', 'c', 'd']) { git(directory, 'init', '-q', name); directory = join(directory, name); }
+    });
+    expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain(`${GIT_CONTROL_CHANGED} (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates, repositories nested in the work tree) for ${outcome.worktrees[0]!.path} could not be read (checked after openai/codex@cli was started).`);
+    expect(calls).toBe(1);
   });
 });

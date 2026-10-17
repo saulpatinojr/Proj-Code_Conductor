@@ -67,9 +67,12 @@ Git configuration defines further programs that Code Conductor's own `git add` r
 (clean and process filters), and grafts or a shallow file change which history Git
 reports. Code Conductor therefore records a digest of the effective configuration of
 every scope, includes followed, and of `info/attributes`, `info/grafts`, `shallow` and
-`objects/info/alternates`. It reads them the first time it meets a repository in a run;
-worktree-scope configuration is kept per worktree. Every later check compares with that
-first reading:
+`objects/info/alternates`, one digest per file. It reads them the first time it meets a
+directory in a run. Git reports configuration as seen from where it runs: origin paths
+and `includeIf "gitdir:..."` or `"onbranch:..."` differ between an agent worktree and the
+primary checkout. So a directory is compared only with its own first reading, and the
+directory that first read the repository is read again whenever another of its worktrees
+is checked. Every later check compares with those first readings:
 - before each provider starts and before a retry;
 - after the provider finishes;
 - while a commit approval is built and rebuilt;
@@ -78,8 +81,10 @@ first reading:
 
 If anything changed, Code Conductor stops the run without running further Git operations
 under configuration it has not seen. The assignment and every later one are `blocked`,
-the run is `human_required`, and agent changes stay uncommitted. Only the digests are
-kept, because configuration can hold credentials.
+the run is `human_required`, and agent changes stay uncommitted. The stop names each
+configuration file, control file or nested repository that changed, appeared or
+disappeared. Only the digests are kept, never a value, because configuration can hold
+credentials.
 
 Ordinary Git activity during a run also stops it, by design. Examples: `husky` setting
 `core.hooksPath` during `npm install`, `git push -u` or `git branch --set-upstream-to`

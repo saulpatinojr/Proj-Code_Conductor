@@ -7,7 +7,7 @@ import type { ClientAuthStatus, HarnessAdapter, HarnessExecutionRequest } from '
 import { configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type GitControlState, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -125,25 +125,37 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   // process filters), and grafts or a shallow file change which history it sees. A
   // provider that changed them could get its programs run outside its own sandbox. Each
   // directory's state is read once per run and every later check compares against that
-  // first reading, so a change between assignments is caught too. Once anything changed
-  // (or cannot be read), nothing that would run Git under it happens for the rest of the run.
+  // first reading, so a change between assignments is caught too. Git reports configuration
+  // as seen from where it runs, so a directory is only ever compared with itself; the
+  // directory that first read a repository (its root, in practice) is read again whenever
+  // another of its worktrees is checked, so what an earlier assignment changed there is
+  // caught before Git runs in a new agent worktree. Once anything changed (or cannot be
+  // read), nothing that would run Git under it happens for the rest of the run.
   let stopped: string | undefined;
-  const sharedBaselines = new Map<string, string>();
-  const worktreeBaselines = new Map<string, string>();
+  const baselines = new Map<string, GitControlState>();
+  const firstReaders = new Map<string, string>();
   const controlChange = (cwd: string, when: string): string | undefined => {
     let changed: string | undefined;
     try {
-      const current = gitControlState(cwd);
+      const directory = resolve(cwd);
+      const current = gitControlState(directory);
       if (!current) return undefined;
-      // Shared state is keyed by repository, so a new agent worktree is compared with what
-      // earlier assignments saw; worktree-scope configuration is keyed by worktree.
-      for (const [baselines, key, digest] of [[sharedBaselines, current.commonDir, current.shared], [worktreeBaselines, resolve(cwd), current.worktree]] as const) {
-        const baseline = baselines.get(key);
-        if (baseline === undefined) baselines.set(key, digest);
-        else if (baseline !== digest) changed = 'changed since Code Conductor first read them in this run';
+      const reader = firstReaders.get(current.commonDir) ?? directory;
+      firstReaders.set(current.commonDir, reader);
+      const readings: Array<[string, GitControlState]> = [[directory, current]];
+      if (reader !== directory) {
+        const again = gitControlState(reader);
+        if (!again) throw new Error(`${reader} is no longer a Git work tree`);
+        readings.push([reader, again]);
       }
-    } catch { changed = 'could not be read'; }
-    return changed && `${GIT_CONTROL_CHANGED} (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates, repositories nested in the work tree) for ${cwd} ${changed} (checked ${when}). Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\`, the repository's .git directory and any repository nested in the work tree before running again. Agent changes are preserved uncommitted.`;
+      const found = readings.flatMap(([path, state]) => {
+        const baseline = baselines.get(path);
+        if (!baseline) baselines.set(path, state);
+        return baseline ? controlStateChanges(baseline, state).map((change) => (path === directory ? change : `${change} (read in ${path})`)) : [];
+      });
+      if (found.length) changed = `changed since Code Conductor first read them in this run (checked ${when}): ${found.slice(0, 5).join('; ')}${found.length > 5 ? `; and ${found.length - 5} more` : ''}`;
+    } catch { changed = `could not be read (checked ${when})`; }
+    return changed && `${GIT_CONTROL_CHANGED} (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates, repositories nested in the work tree) for ${cwd} ${changed}. Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\`, the repository's .git directory and any repository nested in the work tree before running again. Agent changes are preserved uncommitted.`;
   };
   const save = (): string => store.saveManifest(manifest);
   store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'run.planned', message: `Planned ${plan.assignments.length} assignment(s).` });
