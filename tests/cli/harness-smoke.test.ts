@@ -52,7 +52,9 @@ function writingClaude(write: string, reply = 'Done.\nCC_RESULT_JSON:{"status":"
   return { home, env: { ...process.env, PATH: `${root}${delimiter}${process.env.PATH ?? ''}`, CODE_CONDUCTOR_HOME: home } };
 }
 
-describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify', () => {
+// Each test starts the CLI, bounded by spawnSync's own 60 s; creating 10,001 files alone
+// can take seconds on a slow file system.
+describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify', { timeout: 60_000 }, () => {
   const smoke = (env: NodeJS.ProcessEnv, mode = 'modify') => spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', mode], { encoding: 'utf8', env, timeout: 60_000 });
   const trusted = (home: string) => (existsSync(join(home, 'workstation.json')) ? readFileSync(join(home, 'workstation.json'), 'utf8') : '').includes('ValidatedAt');
 
@@ -74,7 +76,14 @@ describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify'
     ['another file was created too', `printf 'WRITE_OK\\n' > OUTPUT.txt; printf x > EXTRA.txt`, undefined, 'changed=+EXTRA.txt,+OUTPUT.txt output="WRITE_OK\\n"'],
     ['a tracked file was changed', `printf 'WRITE_OK\\n' > OUTPUT.txt; printf changed > INPUT.txt`, undefined, 'changed=~INPUT.txt,+OUTPUT.txt'],
     ['the file is missing', ':', undefined, 'changed=none output=missing'],
-    ['OUTPUT.txt is a symlink', `printf 'WRITE_OK\\n' > real.txt; ln -s real.txt OUTPUT.txt`, undefined, 'output=unreadable (over 1 KiB, or a symlink)'],
+    ['OUTPUT.txt is a symlink', `printf 'WRITE_OK\\n' > real.txt; ln -s real.txt OUTPUT.txt`, undefined, 'changed=+OUTPUT.txt,+real.txt output=unreadable (not a regular file of at most 1 KiB)'],
+    ['OUTPUT.txt is a folder', 'mkdir OUTPUT.txt', undefined, 'changed=+OUTPUT.txt/ output=unreadable (not a regular file of at most 1 KiB)'],
+    ['OUTPUT.txt is over 1 KiB', `printf 'WRITE_OK\\n' > OUTPUT.txt; head -c 1100 /dev/zero >> OUTPUT.txt`, undefined, 'changed=+OUTPUT.txt output=unreadable (not a regular file of at most 1 KiB)'],
+    ['UTF-16LE OUTPUT.txt has a stray odd byte', `printf '\\377\\376W\\000R\\000I\\000T\\000E\\000_\\000O\\000K\\000\\r\\000\\n\\000Z' > OUTPUT.txt`, undefined, 'changed=+OUTPUT.txt output="WRITE_OK\\r\\n\\u{fffd}" (utf-16le)'],
+    ['an empty folder was created too', `printf 'WRITE_OK\\n' > OUTPUT.txt; mkdir -p a/b`, undefined, 'changed=+a/,+a/b/,+OUTPUT.txt'],
+    // Opening a FIFO blocks until a writer comes, so the check must never open one.
+    ['a FIFO was left behind', `printf 'WRITE_OK\\n' > OUTPUT.txt; mkfifo pipe`, undefined, 'changed=+OUTPUT.txt,+pipe'],
+    ['the workspace holds too many entries to list', `printf 'WRITE_OK\\n' > OUTPUT.txt; mkdir many; (cd many && seq 1 10001 | xargs touch)`, undefined, 'changed=(the workspace could not be listed: The smoke workspace holds more than 10,000 entries.)'],
     ['there is no structured result', `printf 'WRITE_OK\\n' > OUTPUT.txt`, 'Done.', 'result=failed (Agent did not return a valid CC_RESULT_JSON structured result.)'],
     ['the structured result breaks the contract', `printf 'WRITE_OK\\n' > OUTPUT.txt`,
       'Done.\nCC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":["OUTPUT.txt now holds WRITE_OK"],"findings":[],"risks":[],"blockers":[],"recommendation":"ready"}',
@@ -110,6 +119,26 @@ describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify'
     expect(modify.status).toBe(1);
     expect(modify.stderr).toContain('changed=+OUTPUT.txt,+SNEAKY.txt');
     expect(trusted(client.home)).toBe(false);
+  });
+
+  it.each([
+    ['nothing changed', ':'],
+    ['the client ran Git, which rewrites only its own index', 'git status >/dev/null; git add -A'],
+  ])('passes read mode when %s', (_, write) => {
+    const client = writingClaude(write);
+    const run = smoke(client.env, 'read');
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout).toContain('SMOKE PASS claude cli read');
+  });
+
+  it.each([
+    ['a tracked file was made executable', 'chmod +x INPUT.txt', 'changed=~INPUT.txt'],
+    ['a tracked file was deleted', 'rm INPUT.txt', 'changed=-INPUT.txt'],
+  ])('fails read mode when %s', (_, write, detail) => {
+    const client = writingClaude(write);
+    const run = smoke(client.env, 'read');
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`SMOKE FAIL claude cli read: exit=0 signal=null timeout=false result=completed ${detail}`);
   });
 
   it('still passes under that Git configuration when only OUTPUT.txt was written', () => {
