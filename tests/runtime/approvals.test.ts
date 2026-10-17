@@ -733,9 +733,9 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(builder.blockers.join(' ')).toMatch(/HEAD in .+ names no commit \(an unborn or orphan branch, refs\/heads\/fresh-start\)/);
   });
 
-  it('redacts a credential-shaped file name the agent committed', async () => {
+  it.each([['committed', true], ['left uncommitted', false]])('redacts a credential-shaped file name the agent %s', async (_label, committed) => {
     const name = `gh${'p_'}${'c'.repeat(36)}`;
-    const { builder, text } = await builderOf((_cwd, commit) => commit(`${name}.txt`, `${token}\n`));
+    const { builder, text } = await builderOf((cwd, commit) => (committed ? commit(`${name}.txt`, `${token}\n`) : writeFileSync(join(cwd, `${name}.txt`), `${token}\n`)));
     expect(builder.blockers.join(' ')).toContain('[redacted GitHub token].txt:1 GitHub token');
     expect(text).not.toContain(name);
     expect(text).not.toContain(token);

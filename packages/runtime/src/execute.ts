@@ -414,8 +414,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             // removed again is still found; history past the scan budget fails closed.
             for (const [tip, label] of tips) {
               const scan = scanHistoryForNewSecrets(handle.path, handle.baseSha, tip);
-              if (scan.findings.length) throw new Error(`The agent's own commits on ${label} add credential-looking strings (${redactSecrets(describeSecrets(scan.findings)).text}). Even if later removed, their content stays in history. Code Conductor committed nothing; review ${label} before using it.`);
-              if (scan.unscanned.length) throw new Error(`The agent's own commits on ${label} could not be fully scanned for credentials: ${redactSecrets(describeUnscanned(scan.unscanned)).text}. Code Conductor committed nothing; review ${label} before using it.`);
+              if (scan.findings.length) throw new Error(`The agent's own commits on ${label} add credential-looking strings (${describeSecrets(scan.findings)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review ${label} before using it.`);
+              if (scan.unscanned.length) throw new Error(`The agent's own commits on ${label} could not be fully scanned for credentials: ${describeUnscanned(scan.unscanned)}. Code Conductor committed nothing; review ${label} before using it.`);
             }
           }
           // An agent can also move its branch or HEAD away from the base (for example reset to
@@ -488,7 +488,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
                 throw new Error(stopped);
               }
             }
-            const commit = commitAllowed ? commitAgentChanges(handle, `feat(agent): ${assignment.agentId} for ${task.id}`, { expectedTree: expectedTree ?? before.tree, expectedHead: expectedHead ?? before.revision }) : undefined;
+            // Bound to the HEAD whose history was checked above, also when nothing needed approval.
+            const commit = commitAllowed ? commitAgentChanges(handle, `feat(agent): ${assignment.agentId} for ${task.id}`, { expectedTree: expectedTree ?? before.tree, expectedHead: expectedHead ?? found.head }) : undefined;
             result.changes = commit?.files ?? [];
             if (commit) {
               result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${commit.sha}`, summary: `${commit.created ? 'Committed' : 'Preserved existing commits for'} ${commit.files.length} changed file(s) on ${handle.branch}: ${commit.files.join(', ')}` });

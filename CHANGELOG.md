@@ -64,8 +64,8 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
     - Messages name where commits are: the branch, or HEAD with the branch it is on or `detached`.
     - The branch is looked up by its exact ref, so a tag spelt `refs/heads/<branch>` cannot stand in for it; `ccon pr` uses the same lookup.
     - Code Conductor's Git ignores commit-graph files: Git trusts the parents they record, so a rewritten one could hide commits from the history check.
-    - Credential-shaped file names are redacted in these messages.
-    - The commit approval is refused if HEAD moved after the history was checked.
+    - Credential-shaped file names are redacted in every credential-scan finding: the history check, the commit approval and `ccon pr`.
+    - Code Conductor's own commit is bound to the HEAD whose history was checked, with or without an approval, so a commit made after the check is never committed on top of.
 - Found by the first live workstation validation, on Windows 11 (#4):
   - `ccon doctor` listed every VS Code extension as missing on Windows. `code` is a batch file there (`code.cmd`), which Node cannot start without a shell, and Code Conductor does not run batch files through `cmd.exe`. Doctor now reads VS Code's own `extensions.json` (in `~/.vscode/extensions`, or `~/.vscode-server/extensions` on a remote host), which starts no process at all.
   - The `harness-smoke --mode modify` check accepts `WRITE_OK` with a CRLF line ending, as a client on Windows may write it, and now also requires `OUTPUT.txt` to be the only change. A failure names the value of each check: the result status with its reason, the changed files, and the start of `OUTPUT.txt`. Before, it gave only the exit code.

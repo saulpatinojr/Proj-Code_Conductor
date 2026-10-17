@@ -413,7 +413,7 @@ function scanEntries(cwd: string, entries: readonly ScanEntry[], maxBytes: numbe
     const before = candidate?.type === 'blob' ? candidate : undefined;
     const fresh = new Map([after, before].filter((item): item is ObjectInfo => item !== undefined && !selected.has(item.id)).map((item) => [item.id, item]));
     const cost = [...fresh.values()].reduce((total, item) => total + item.size, 0);
-    if (cost > budget) { unscanned.push(entry.path); continue; }
+    if (cost > budget) { unscanned.push(redactSecrets(entry.path).text); continue; }
     budget -= cost;
     for (const item of [after, before]) if (item) selected.set(item.id, item);
     planned.push({ path: entry.path, after, ...(before ? { before } : {}) });
@@ -429,7 +429,8 @@ function scanEntries(cwd: string, entries: readonly ScanEntry[], maxBytes: numbe
         if (previous.includes(match[0])) continue;
         const line = text.slice(0, match.index).split('\n').length;
         const key = `${item.path}\0${line}\0${kind}`;
-        if (!seen.has(key)) { seen.add(key); findings.push({ path: item.path, line, kind }); }
+        // A file named like a credential is reported under its redacted name, everywhere.
+        if (!seen.has(key)) { seen.add(key); findings.push({ path: redactSecrets(item.path).text, line, kind }); }
       }
     }
   }
