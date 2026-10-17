@@ -12,9 +12,9 @@ function Invoke-Native {
         [Parameter(Mandatory = $true)][string] $FilePath,
         [string[]] $ArgumentList = @()
     )
-    if (-not (Get-Command -Name $FilePath -CommandType Application -ErrorAction SilentlyContinue)) {
-        throw "$FilePath was not found on PATH."
-    }
+    # The program itself, by path: a profile's function or alias of the same name never runs.
+    $program = Get-Command -Name $FilePath -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $program) { throw "$FilePath was not found on PATH." }
     # Under ErrorActionPreference Stop, Windows PowerShell 5.1 stops at the first line a
     # program writes to standard error, so this sorts the two streams itself.
     $ErrorActionPreference = 'Continue'
@@ -24,8 +24,9 @@ function Invoke-Native {
     # Windows; gh and git write UTF-8. A host without a console cannot change it.
     $encoding = $null
     try { $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { $encoding = $null }
+    $code = $null
     try {
-        & $FilePath @ArgumentList 2>&1 | ForEach-Object {
+        & $program.Path @ArgumentList 2>&1 | ForEach-Object {
             if ($_ -is [System.Management.Automation.ErrorRecord]) { $err.Add($_.ToString()) } else { $out.Add([string]$_) }
         }
         $code = $LASTEXITCODE
