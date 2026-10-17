@@ -9,61 +9,61 @@ native surface that owns that step. It does not rebuild those surfaces.
 |---|---|---|
 | Diffs and commits | VS Code Source Control / Git | Records each agent worktree (`RunManifest.worktrees`); **Review in Source Control** opens it in the built-in Git view. If the Git extension is unavailable, it opens the folder in a new window. |
 | Sign-in | Each provider's official client | Shows the official sign-in command and documentation link from the packaged capabilities; never asks for, stores, copies or forwards credentials. |
-| Approvals before actions | Your interactive terminal | `cc run --execute` asks before each action ([`APPROVALS.md`](APPROVALS.md)). A refused or missing approval becomes a next action to re-run interactively. |
+| Approvals before actions | Your interactive terminal | `ccon run --execute` asks before each action ([`APPROVALS.md`](APPROVALS.md)). A refused or missing approval becomes a next action to re-run interactively. |
 | Pull requests and review | GitHub | Shows the `git push` and `gh pr create --draft` commands for **you** to run; merge stays a GitHub decision under branch protection and review. |
 | Deployment approval | Native pipeline environments | No deployment connector exists yet; any future one must use native environment protection plus a C02 `deployment` approval. |
-| Unsupported automation | You, in the official client | `cc handoff` prints the exact assignment prompt for a manual run. |
+| Unsupported automation | You, in the official client | `ccon handoff` prints the exact assignment prompt for a manual run. |
 
 ## Next actions
 
-`cc next [--run <runId>] [--json]` reads a stored run, from the latest run by default, and
-lists what to do next. The same list appears in `cc run` output and in the VS Code
+`ccon next [--run <runId>] [--json]` reads a stored run, from the latest run by default, and
+lists what to do next. The same list appears in `ccon run` output and in the VS Code
 **Runs** view. Each run shows its decision and first step; click a run to choose a step.
 
 - **Review changes**: the agent worktree, with `git status` and `git diff <base>`
   commands. It is offered only for existing worktrees inside the Code Conductor worktree
   root after symlinks are resolved, so a path outside that root is never opened, and
-  `cc import` rejects manifests that carry worktree records.
+  `ccon import` rejects manifests that carry worktree records.
 - **Check Git configuration**: replaces the review step when the run stopped because Git
   configuration or history files changed. Source Control, `git status` or `git diff`
   would run Git under that configuration, so only `git config --list --show-origin` is
   offered until you have restored it.
-- **Approve in an interactive terminal / You declined**: shows the exact `cc run ...
+- **Approve in an interactive terminal / You declined**: shows the exact `ccon run ...
   --execute` command to start a new run. A refused **commit** instead points to the
   changes kept uncommitted in the worktree: review and commit them yourself, because a new
   run would start the provider again. A refused gate run says the gates did not run.
 - **Validate harness**: sign in through the official client, then run
-  `cc harness-smoke <harness> --mode <read|modify>`.
+  `ccon harness-smoke <harness> --mode <read|modify>`.
 - **Review on GitHub**: the Copilot/GitHub gatekeeper is a GitHub platform step.
-- **Complete manually**: `cc handoff --run <runId> --assignment <id>`. It prints only the
+- **Complete manually**: `ccon handoff --run <runId> --assignment <id>`. It prints only the
   prompt on stdout and the guidance on stderr. Pasting the prompt into a client is your own
   disclosure decision. On a terminal, control and format characters in the prompt are
   replaced; redirect stdout for the exact bytes. For an assignment that changes files, work
   in an isolated branch or worktree. The command is shown only for plain run and
   assignment identifiers. To keep the outcome with Code Conductor's evidence, record it as
-  a RunManifest file and bring it in with `cc import`.
+  a RunManifest file and bring it in with `ccon import`.
 - **Fix validation / Resolve findings**: links to the gate and finding evidence.
 - **Open a draft pull request**: shown only when the run is `ready` and the builder
   committed changes.
 
-Run records can be imported, so their text is untrusted. `cc next`, `cc handoff` and the
+Run records can be imported, so their text is untrusted. `ccon next`, `ccon handoff` and the
 VS Code views print each value on one line, with control, bidirectional and zero-width
 characters replaced. A record therefore cannot rewrite the terminal or add a step or a
 command line. Commands are built by Code Conductor from argument vectors and quoted for
 the shell you paste into: POSIX shells, or PowerShell on Windows (shown as `PS>`).
 cmd.exe is not a supported paste target, because it does not treat single quotes as quoting.
 A command with a value that cannot be shown exactly is left out, and the step says so.
-`cc next --json` includes each command's exact `argv`.
+`ccon next --json` includes each command's exact `argv`.
 
 The extension shows a command in a dialog and copies it only when you choose **Copy**. It
 never runs commands for you. The only
-commands it starts on your click are the read-only `cc handoff` and `cc next`, in a VS
+commands it starts on your click are the read-only `ccon handoff` and `ccon next`, in a VS
 Code task terminal. Opening Source Control and the official sign-in documentation are the only other
 operations.
 
 ## Sign-in guidance
 
-`cc doctor` and the **Connections** view show the official sign-in route for each client.
+`ccon doctor` and the **Connections** view show the official sign-in route for each client.
 The links were verified against the vendors' official documentation on 2026-10-16:
 
 | Client | Sign-in | Official documentation |

@@ -15,13 +15,13 @@ Code Conductor v0.x is intentionally **not another standalone desktop app**.
 
 - VS Code is the primary graphical cockpit.
 - The Code Conductor extension stays thin and deep-links into native provider/editor/terminal/diff/SCM/PR surfaces.
-- An optional thin `cc` CLI/TUI uses the same versioned core/runtime.
+- An optional thin `ccon` CLI/TUI uses the same versioned core/runtime.
 - The packaged extension now bundles the compiled Code Conductor runtime; clean-machine validation and Marketplace publication still must prove customers do not need this source tree or a local `npm run build` step.
 - First run performs explicit local discovery/bootstrap; subsequent starts use cached non-secret state and lazy provider/MCP/APM activation.
 
 ### Sibling product: Code Workflow
 
-[Code Workflow](https://github.com/saulpatinojr/Proj-Code_Workflow) is the slim, in-client sibling. It runs multi-agent workflows inside one AI client (Claude Code, Codex CLI, or GitHub Copilot) through that client's own subagents, installs with one script, and has no background runtime. Code Conductor remains the full cross-provider program: routing, risk classes, independence, worktrees, gates, and human approval. Work exported from Code Workflow (`workflow.py export`) can be brought under Code Conductor review with `cc import <run-manifest.json>`; import never establishes readiness. The boundary and the shared `AgentResult`/`RunManifest` contract are locked in [ADR 0011](docs/adr/0011-code-workflow-sibling-boundary-and-shared-contract.md) (D-057).
+[Code Workflow](https://github.com/saulpatinojr/Proj-Code_Workflow) is the slim, in-client sibling. It runs multi-agent workflows inside one AI client (Claude Code, Codex CLI, or GitHub Copilot) through that client's own subagents, installs with one script, and has no background runtime. Code Conductor remains the full cross-provider program: routing, risk classes, independence, worktrees, gates, and human approval. Work exported from Code Workflow (`workflow.py export`) can be brought under Code Conductor review with `ccon import <run-manifest.json>`; import never establishes readiness. The boundary and the shared `AgentResult`/`RunManifest` contract are locked in [ADR 0011](docs/adr/0011-code-workflow-sibling-boundary-and-shared-contract.md) (D-057).
 
 ## Architecture at a glance
 
@@ -66,13 +66,17 @@ The user's larger legacy agent/skill library is tracked as a dedicated migration
 
 ## Quick start
 
+To use Code Conductor in your own repositories, install the VS Code extension from a
+release `.vsix`; no clone or build is needed. Prerequisites, compatibility, updates and
+uninstalling are in [`docs/INSTALL.md`](docs/INSTALL.md).
+
 Prerequisites for repository development are Git, Node.js 22+ (Node 24 recommended), GitHub CLI, and APM 0.30.0. Subscription-backed execution additionally requires the official vendor clients/surfaces described in [`docs/WORKSTATION-VALIDATION.md`](docs/WORKSTATION-VALIDATION.md).
 
 ```bash
 npm ci --ignore-scripts
 npm run typecheck
 npm test
-npm run cc:validate
+npm run ccon:validate
 ```
 
 Validate APM state:
@@ -85,7 +89,7 @@ apm audit --ci --policy ./apm-policy.yml --no-fail-fast
 Run workstation diagnostics after building the development checkout:
 
 ```bash
-npm run cc:doctor
+npm run ccon:doctor
 ```
 
 List provider-native agents and skills (project and user scope, read-only), marking project files APM did not deploy:
@@ -94,7 +98,7 @@ List provider-native agents and skills (project and user scope, read-only), mark
 node packages/cli/dist/index.js agents --repo .
 ```
 
-Prepare a repository file as context after building. Reads are scoped to the supplied root and sensitive/state paths are blocked:
+Prepare a repository file as context after building. Reads are scoped to the supplied root and sensitive/state paths are blocked. File reads need Linux (including WSL), the only platform where the opened file's location can be verified ([ADR 0007](docs/adr/0007-context-optimization-boundary.md)):
 
 ```bash
 node packages/cli/dist/index.js compress README.md --root .

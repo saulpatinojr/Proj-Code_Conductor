@@ -3,7 +3,7 @@ import ajvModule from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
 import type { ErrorObject, ValidateFunction } from 'ajv';
 
-export type ContractName = 'TaskEnvelope' | 'AgentAssignment' | 'AgentResult' | 'Evidence' | 'Finding' | 'GateResult' | 'ReviewResult' | 'MergeDecision' | 'ApprovalRecord' | 'WorktreeRecord' | 'RunManifest';
+export type ContractName = 'TaskEnvelope' | 'AgentAssignment' | 'AgentResult' | 'Evidence' | 'Finding' | 'GateResult' | 'ReviewResult' | 'MergeDecision' | 'ApprovalRecord' | 'WorktreeRecord' | 'HandoffPacket' | 'RunManifest';
 export interface ContractValidationResult { ok: boolean; errors: ErrorObject[] }
 
 type AjvInstance = {

@@ -17,6 +17,6 @@ When reviewing changes to `packages/policy/**`, `config/**`, `.apm/**`, or docum
 
 ## Verification Commands
 ```bash
-npm run cc:validate
+npm run ccon:validate
 apm audit --ci --policy ./apm-policy.yml --no-fail-fast
 ```

@@ -25,7 +25,7 @@ Code Conductor follows these baseline rules:
 
 - consumer OAuth/session credentials stay in official vendor clients and credential stores;
 - separately billed API execution is disabled by default;
-- secret values must never be printed by `cc doctor`, logs, run manifests, or evidence records;
+- secret values must never be printed by `ccon doctor`, logs, run manifests, or evidence records;
 - implementers cannot self-approve or self-merge;
 - modifying agents use isolated Git worktrees, but worktrees are not treated as a security sandbox;
 - unattended external CLI execution requires workstation smoke validation for the required authority;

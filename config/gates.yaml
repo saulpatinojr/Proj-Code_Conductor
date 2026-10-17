@@ -4,7 +4,7 @@ default_timeout_ms: 600000
 
 # Profiles select deterministic validation commands for the target repository. They
 # are detected from repository markers unless `selection: explicit`; a person can also
-# choose profiles for a run (`cc run --gate-profiles a,b`). Every gate declares its
+# choose profiles for a run (`ccon run --gate-profiles a,b`). Every gate declares its
 # prerequisites: a missing tool or uninstalled dependencies is a blocking failure with
 # nothing executed, never a skipped success. Code Conductor never installs dependencies
 # or runs install scripts on its own. No profile may change infrastructure: Terraform and

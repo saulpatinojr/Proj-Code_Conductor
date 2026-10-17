@@ -44,6 +44,11 @@ describe('external run manifest import', () => {
     expect(() => importRunManifest(writeManifest(manifest({ worktrees })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/worktree records/);
   });
 
+  it('rejects manifests that carry handoff packets (D-063)', () => {
+    const handoffs = [{ id: 'HP-12345678', to: 'A-2', sha256: 'c'.repeat(64), expiresAt: '2026-10-17T00:00:00.000Z' }];
+    expect(() => importRunManifest(writeManifest(manifest({ handoffs })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/handoff packets/);
+  });
+
   it('rejects manifests that fail the RunManifest contract', () => {
     expect(() => importRunManifest(writeManifest(manifest({ gates: 'none' })), { store: new RunStore(join(scratch(), 'runs')) })).toThrow(/schema validation/);
   });

@@ -17,7 +17,9 @@ export class FakeAdapter implements HarnessAdapter {
   version(): string { return 'fake-1.0.0'; }
   async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const payload = { status: 'completed', changes: request.assignment.role === 'builder' ? ['fake.txt'] : [], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: request.assignment.role === 'reviewer' ? 'ready' : 'review' };
-    return { harness: this.id, surface: this.executionSurface, command: this.command ?? 'fake', args: [], exitCode: 0, signal: null, stdout: `CC_RESULT_JSON:${JSON.stringify(payload)}\n`, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
+    // The final message, as a real adapter extracts it from the client's machine-readable output.
+    const message = `CC_RESULT_JSON:${JSON.stringify(payload)}\n`;
+    return { harness: this.id, surface: this.executionSurface, command: this.command ?? 'fake', args: [], exitCode: 0, signal: null, stdout: message, message, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
   }
 }
 

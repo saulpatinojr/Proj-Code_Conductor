@@ -1,6 +1,7 @@
-import { mkdtempSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { linkSync, mkdtempSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ContextOptimizer,
@@ -8,6 +9,7 @@ import {
   isSensitiveContextPath,
   minifyPayload,
 } from '../../packages/context-optimizer/src/index.js';
+import { DESCRIPTOR_LOCATION_SUPPORTED } from '../../packages/context-optimizer/src/checked-read.js';
 
 function mode(path: string): number {
   return statSync(path).mode & 0o777;
@@ -120,7 +122,8 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('reads only workspace-scoped files and preserves authoritative context by default', () => {
+    // Reads succeed only where the opened file's location can be verified (checked-read.test.ts).
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('reads only workspace-scoped files and preserves authoritative context by default', () => {
       const tempDir = mkdtempSync(join(tmpdir(), 'cc-optimizer-file-'));
       const testFile = join(tempDir, 'test.yaml');
       const statsFile = join(tempDir, 'stats.json');
@@ -141,7 +144,22 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('blocks reads outside configured workspace roots', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('answers a missing path and an outside path alike, so paths elsewhere cannot be probed', () => {
+      const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-probe-root-'));
+      const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-probe-outside-'));
+      writeFileSync(join(outside, 'exists.md'), 'x\n');
+      try {
+        const optimizer = new ContextOptimizer({ statsFile: join(root, 'stats.json'), allowedRoots: [root] });
+        const message = (path: string) => { try { optimizer.readCompressedFile(path); return ''; } catch (error) { return (error as Error).message.replace(path, '<path>'); } };
+        expect(message(join(outside, 'exists.md'))).toBe(message(join(outside, 'missing.md')));
+        expect(message(join(root, 'missing.md'))).toMatch(/does not exist or is outside the allowed workspace roots/);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('blocks reads outside configured workspace roots', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-root-'));
       const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-outside-'));
       const outsideFile = join(outside, 'outside.md');
@@ -155,7 +173,7 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('blocks sensitive files even when they are inside the workspace', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('blocks sensitive files even when they are inside the workspace', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-sensitive-'));
       const secret = join(root, '.env');
       writeFileSync(secret, 'TOKEN=secret\n');
@@ -167,7 +185,7 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('blocks files above the configured size limit', () => {
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('blocks files above the configured size limit', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-size-'));
       const large = join(root, 'large.txt');
       writeFileSync(large, 'x'.repeat(32));
@@ -179,8 +197,37 @@ describe('Context Optimizer', () => {
       }
     });
 
-    it('resolves symlinks before enforcing the workspace boundary', () => {
-      if (process.platform === 'win32') return;
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('refuses a hard link, which can make a file from outside appear inside the workspace', () => {
+      const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-hardlink-root-'));
+      const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-hardlink-outside-'));
+      const secret = join(outside, 'private.txt');
+      writeFileSync(secret, 'outside the workspace\n');
+      linkSync(secret, join(root, 'notes.md'));
+      try {
+        const optimizer = new ContextOptimizer({ statsFile: join(root, 'stats.json'), allowedRoots: [root] });
+        expect(() => optimizer.readCompressedFile(join(root, 'notes.md'))).toThrow(/more than one hard link/i);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('refuses a FIFO without waiting on it', () => {
+      const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-fifo-'));
+      execFileSync('mkfifo', [join(root, 'pipe.md')]);
+      try {
+        // Through the built CLI in a child process, so an open that blocks (no writer ever
+        // comes) fails this test by timeout instead of hanging the test runner.
+        const child = spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'compress', join(root, 'pipe.md'), '--root', root], { encoding: 'utf8', timeout: 10_000, env: { ...process.env, CODE_CONDUCTOR_HOME: join(root, 'home') } });
+        expect(child.error).toBeUndefined();
+        expect(child.status).toBe(1);
+        expect(child.stderr).toMatch(/not a regular file/i);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it.runIf(DESCRIPTOR_LOCATION_SUPPORTED)('resolves symlinks before enforcing the workspace boundary', () => {
       const root = mkdtempSync(join(tmpdir(), 'cc-optimizer-symlink-root-'));
       const outside = mkdtempSync(join(tmpdir(), 'cc-optimizer-symlink-outside-'));
       const outsideFile = join(outside, 'outside.txt');

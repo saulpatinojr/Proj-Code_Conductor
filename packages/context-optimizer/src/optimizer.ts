@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, join, resolve, sep } from 'node:path';
+import { readCheckedFile, requireDescriptorLocation } from './checked-read.js';
 
 export type OptimizationMode = 'lossless' | 'aggressive';
 
@@ -248,7 +249,7 @@ export class ContextOptimizer {
 
   readCompressedFile(filePath: string, project = 'vscode', mode: OptimizationMode = 'lossless'): { content: string; result: OptimizationResult } {
     const safePath = this.resolveAllowedFile(filePath);
-    const raw = readFileSync(safePath, 'utf8');
+    const raw = readCheckedFile(safePath, filePath, this.maxFileBytes);
     const ext = extname(safePath);
     const result = this.compress(raw, { contentType: ext, project, mode });
     return { content: result.optimizedContent, result };
@@ -288,20 +289,20 @@ export class ContextOptimizer {
   }
 
   private resolveAllowedFile(filePath: string): string {
-    const resolved = resolve(filePath);
-    if (!existsSync(resolved)) throw new Error(`File not found: ${filePath}`);
-    const canonical = realpathSync(resolved);
-    if (!this.allowedRoots.some((root) => pathWithinRoot(canonical, root))) {
-      throw new Error(`Context file is outside the allowed workspace roots: ${filePath}`);
+    requireDescriptorLocation(filePath);
+    // One answer for a path that does not exist and for one outside the roots, so no single
+    // answer tells a caller (an MCP client, for example) which paths exist elsewhere on the
+    // machine. ADR 0007 records the statistical residual under concurrent renames.
+    let canonical: string | undefined;
+    try { canonical = realpathSync(resolve(filePath)); } catch { canonical = undefined; }
+    if (!canonical || !this.allowedRoots.some((root) => pathWithinRoot(canonical, root))) {
+      throw new Error(`Context file does not exist or is outside the allowed workspace roots: ${filePath}`);
     }
     if (isSensitiveContextPath(canonical)) {
       throw new Error(`Sensitive context file is blocked by policy: ${filePath}`);
     }
-    const stat = statSync(canonical);
-    if (!stat.isFile()) throw new Error(`Context path is not a regular file: ${filePath}`);
-    if (stat.size > this.maxFileBytes) {
-      throw new Error(`Context file exceeds the ${this.maxFileBytes} byte limit: ${filePath}`);
-    }
+    // The file type and size are checked on the opened descriptor (readCheckedFile), not
+    // here by name: a name looked up again could answer for a different file.
     return canonical;
   }
 

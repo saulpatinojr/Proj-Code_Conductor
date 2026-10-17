@@ -1,8 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { absolutePathEnvironment, resolveExecutable } from '@code-conductor/core/processes';
 
 export interface WorktreeHandle {
   repositoryRoot: string;
@@ -68,12 +69,35 @@ export const DISABLED_HOOKS_PATH = NO_HOOKS;
 // --no-replace-objects a listing of a tree could show different files from the tree
 // that `commit-tree` records. Every Code Conductor git call therefore sees the real
 // objects only.
-const SAFE_GIT = ['--no-replace-objects', '-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false'] as const;
+// submodule.recurse=false keeps checkouts (worktree add) from populating submodules,
+// whose repositories would then sit inside an agent worktree (see nestedRepositories).
+const SAFE_GIT = ['--no-replace-objects', '-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false'] as const;
 // Large repositories list more than spawnSync's 1 MiB default; output past this fails closed.
 const MAX_GIT_OUTPUT = 256 * 1024 * 1024;
 
+/**
+ * The Git executable, from an absolute PATH entry only. Many Code Conductor Git calls
+ * run with an agent worktree as their working directory, where a bare `git` could
+ * otherwise resolve to a program the agent wrote (Windows looks in the working
+ * directory first; POSIX does for an empty or relative PATH entry).
+ */
+export function gitExecutable(env: NodeJS.ProcessEnv = process.env): string {
+  const resolved = resolveExecutable('git', env);
+  if (!resolved.path) throw new Error(`Git was not found on an absolute PATH entry (${resolved.problem ?? 'unknown problem'}).`);
+  return resolved.path;
+}
+
+interface RunGitOptions { env?: NodeJS.ProcessEnv; input?: string; maxBuffer?: number }
+function runGit(cwd: string, args: readonly string[], options: RunGitOptions & { encoding: 'utf8' }): SpawnSyncReturns<string>;
+function runGit(cwd: string, args: readonly string[], options?: RunGitOptions): SpawnSyncReturns<Buffer>;
+function runGit(cwd: string, args: readonly string[], options: RunGitOptions & { encoding?: 'utf8' } = {}): SpawnSyncReturns<string | Buffer> {
+  // Programs Git starts itself (ssh, filters, credential helpers) follow the same rule.
+  const env = absolutePathEnvironment(options.env ?? withoutGitLocalEnv());
+  return spawnSync(gitExecutable(env), [...SAFE_GIT, ...args], { cwd, env, shell: false, windowsHide: true, maxBuffer: options.maxBuffer ?? MAX_GIT_OUTPUT, ...(options.input !== undefined ? { input: options.input } : {}), ...(options.encoding ? { encoding: options.encoding } : {}) });
+}
+
 function git(cwd: string, args: string[], allowFailure = false, env: NodeJS.ProcessEnv = withoutGitLocalEnv()): string {
-  const result = spawnSync('git', [...SAFE_GIT, ...args], { cwd, encoding: 'utf8', env, shell: false, maxBuffer: MAX_GIT_OUTPUT });
+  const result = runGit(cwd, args, { env, encoding: 'utf8' });
   if (result.error) {
     throw new Error(`git ${args.join(' ')} failed to start: ${result.error.message}`);
   }
@@ -89,7 +113,9 @@ export function resolveRepositoryRoot(cwd: string): string {
 }
 
 export function gitChangedFiles(cwd: string): string[] {
-  const output = git(cwd, ['status', '--porcelain=v1', '-z'], true);
+  // Without --ignore-submodules=all, status runs `git status` inside every checked-out
+  // submodule, under that repository's own configuration (filters included).
+  const output = git(cwd, ['status', '--porcelain=v1', '-z', '--ignore-submodules=all'], true);
   if (!output) return [];
   const entries = output.split('\0');
   const files: string[] = [];
@@ -148,7 +174,7 @@ export function workingTreeState(path: string): WorkingTreeState {
     const atHead = new Set(skipped.length ? git(top, ['ls-files', '-z'], false, env).split('\0') : []);
     const absent = skipped.filter((file) => atHead.has(file) && !presentOnDisk(join(top, file)));
     if (absent.length) {
-      const update = spawnSync('git', [...SAFE_GIT, 'update-index', '-z', '--skip-worktree', '--stdin'], { cwd: top, env, input: `${absent.join('\0')}\0`, encoding: 'utf8', shell: false });
+      const update = runGit(top, ['update-index', '-z', '--skip-worktree', '--stdin'], { env, input: `${absent.join('\0')}\0`, encoding: 'utf8' });
       if (update.status !== 0) throw new Error(`git update-index --skip-worktree failed: ${update.stderr || update.error?.message || 'unknown error'}`);
     }
     git(top, [...CONTENT_EXACT, 'add', '--all'], false, env);
@@ -165,26 +191,34 @@ export interface GitControlState {
   commonDir: string;
   /** Digest of everything shared by all worktrees of the repository. */
   shared: string;
-  /** Digest of this worktree's own configuration (`extensions.worktreeConfig`). */
+  /** Digest of this worktree's own configuration (`extensions.worktreeConfig`) and of the repositories nested in it. */
   worktree: string;
 }
 
+/** Nesting deeper than this is not read, and is reported as unreadable control state. */
+export const MAX_NESTED_REPOSITORY_DEPTH = 3;
+
 /**
- * Digests of what, outside the work tree, decides which programs Code Conductor's own
- * Git operations run and which history they see: the effective configuration of every
- * scope with includes followed (it defines the clean, smudge and process filters that
- * `git add` runs), plus the grafts, shallow, alternates and info/attributes files. A
- * provider that rewrote them could make Code Conductor run its programs outside the
- * provider's own sandbox, or hide commits from the history check. Worktree-scope
- * configuration is digested separately because it legitimately differs between
- * worktrees (for example a sparse checkout). Only digests are kept, never the
- * configuration, which can hold credentials. Undefined outside Git.
+ * Repositories nested in a work tree that Git would enter, each under its own
+ * configuration: gitlinks in HEAD or the index whose path holds a `.git` (a checked-out
+ * submodule, which `git status` and `git add` enter), and untracked repositories, which
+ * `git add --all` records as gitlinks. Read with ls-tree and ls-files, which never enter
+ * them. Paths are relative to `top` and sorted.
  */
-export function gitControlState(path: string): GitControlState | undefined {
-  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return undefined;
-  const shared = createHash('sha256');
-  const worktree = createHash('sha256');
-  const top = git(path, ['rev-parse', '--show-toplevel']).trim();
+export function nestedRepositories(top: string): string[] {
+  const gitlinks = (output: string): string[] => output.split('\0').filter((entry) => entry.startsWith('160000 ')).map((entry) => entry.slice(entry.indexOf('\t') + 1));
+  const head = git(top, ['rev-parse', '--verify', '-q', 'HEAD^{tree}'], true).trim();
+  const tracked = [...gitlinks(git(top, ['ls-files', '--stage', '-z'])), ...(head ? gitlinks(git(top, ['ls-tree', '-r', '-z', head])) : [])];
+  const populated = tracked.filter((file) => presentOnDisk(join(top, file, '.git')));
+  // Without --directory, untracked files are listed one by one and a nested repository,
+  // which Git does not enter, as its directory with a trailing slash.
+  const untracked = git(top, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter((entry) => entry.endsWith('/')).map((entry) => entry.slice(0, -1));
+  return [...new Set([...populated, ...untracked])].sort();
+}
+
+// Configuration of every scope with includes followed, and the grafts, shallow,
+// alternates and info/attributes files, of the repository whose work tree is `top`.
+function digestControl(top: string, shared: ReturnType<typeof createHash>, worktree: ReturnType<typeof createHash>): string {
   // -z prints scope, origin and "key\nvalue" as three NUL-terminated fields per entry.
   // Origins of the main worktree's own files are relative (file:.git/config); make them
   // absolute so every worktree of the repository reports the same shared state.
@@ -200,6 +234,38 @@ export function gitControlState(path: string): GitControlState | undefined {
     shared.update(`\0${file}\0`);
     try { shared.update(readFileSync(file)); } catch (error) { shared.update(`unreadable:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`); }
   }
+  return commonDir;
+}
+
+/**
+ * Digests of what, outside the work tree, decides which programs Code Conductor's own
+ * Git operations run and which history they see: the effective configuration of every
+ * scope with includes followed (it defines the clean, smudge and process filters that
+ * `git add` runs), plus the grafts, shallow, alternates and info/attributes files. A
+ * provider that rewrote them could make Code Conductor run its programs outside the
+ * provider's own sandbox, or hide commits from the history check. Repositories nested
+ * in the work tree (see `nestedRepositories`) count too, with their own configuration:
+ * Git runs inside them, so one that appears or changes is a change like any other.
+ * Worktree-scope configuration is digested separately because it legitimately differs
+ * between worktrees (for example a sparse checkout). Only digests are kept, never the
+ * configuration, which can hold credentials. Undefined outside Git.
+ */
+export function gitControlState(path: string): GitControlState | undefined {
+  if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return undefined;
+  const shared = createHash('sha256');
+  const worktree = createHash('sha256');
+  const top = git(path, ['rev-parse', '--show-toplevel']).trim();
+  const commonDir = digestControl(top, shared, worktree);
+  const nested = (directory: string, depth: number): void => {
+    for (const file of nestedRepositories(directory)) {
+      const inner = join(directory, file);
+      if (depth >= MAX_NESTED_REPOSITORY_DEPTH) throw new Error(`repositories are nested more than ${MAX_NESTED_REPOSITORY_DEPTH} levels deep at ${inner}`);
+      worktree.update(`\0nested\0${relative(top, inner)}\0`);
+      digestControl(inner, worktree, worktree);
+      nested(inner, depth + 1);
+    }
+  };
+  nested(top, 0);
   return { commonDir: resolve(commonDir), shared: shared.digest('hex'), worktree: worktree.digest('hex') };
 }
 
@@ -213,6 +279,236 @@ export function isSensitiveRepositoryPath(path: string): boolean {
   if (normalized.includes('/.terraform/')) return true;
   if (/^(credentials|credentials\..+|id_rsa|id_ed25519)$/.test(leaf)) return true;
   return false;
+}
+
+export interface SecretFinding { path: string; line: number; kind: string }
+
+export interface SecretScan {
+  findings: SecretFinding[];
+  /** Changed files whose content was not scanned because the scan budget ran out. */
+  unscanned: string[];
+}
+
+// High-confidence credential formats only; a match is reported by location and kind,
+// never by value. Matches already present in the base revision at the same path are
+// not new and are not reported.
+const SECRET_PATTERNS: Array<[string, RegExp]> = [
+  ['private key', /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----/g],
+  ['AWS access key id', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
+  ['GitHub token', /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})\b/g],
+  ['GitLab token', /\bglpat-[A-Za-z0-9_-]{20,}/g],
+  ['npm token', /\bnpm_[A-Za-z0-9]{36}\b/g],
+  ['Slack token', /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g],
+  ['Google API key', /\bAIza[0-9A-Za-z_-]{35}\b/g],
+  ['Anthropic API key', /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g],
+  ['OpenAI API key', /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}\b/g],
+  ['Perplexity API key', /\bpplx-[A-Za-z0-9]{32,}\b/g],
+  ['Hugging Face token', /\bhf_[A-Za-z0-9]{34,}\b/g],
+  ['Stripe live key', /\b[rs]k_live_[0-9A-Za-z]{24,}\b/g],
+  ['Azure storage account key', /AccountKey=[A-Za-z0-9+/]{40,}={0,2}/g],
+];
+/**
+ * Replace credential-looking strings in free text, such as an agent's reported risks,
+ * with a marker naming their kind, so they are never passed on to another provider.
+ */
+export function redactSecrets(text: string): { text: string; redacted: number } {
+  let redacted = 0;
+  let result = text;
+  for (const [kind, pattern] of SECRET_PATTERNS) result = result.replace(pattern, () => { redacted += 1; return `[redacted ${kind}]`; });
+  return { text: result, redacted };
+}
+
+/** Content read by one scan, across all files and both sides of the comparison. */
+export const MAX_SCAN_BYTES = 64 * 1024 * 1024;
+const OBJECT_ID = /^[0-9a-f]{40,64}$/;
+
+interface ScanEntry { path: string; after: string; before?: string; type?: 'blob' | 'commit' }
+interface ObjectInfo { id: string; type: string; size: number }
+
+// One `cat-file --batch-check` for all names; undefined where an object does not exist.
+function objectInfo(cwd: string, names: readonly string[]): Array<ObjectInfo | undefined> {
+  if (!names.length) return [];
+  const result = runGit(cwd, ['cat-file', '--batch-check'], { input: names.map((name) => `${name}\n`).join(''), encoding: 'utf8' });
+  if (result.error || result.status !== 0) throw new Error(`git cat-file --batch-check failed: ${result.stderr || result.error?.message || `exit ${String(result.status)}`}`);
+  const lines = result.stdout.split('\n');
+  // Found objects print "<id> <type> <size>"; others print the name followed by "missing".
+  return names.map((_, index) => {
+    const [id, type, size, ...rest] = (lines[index] ?? '').split(' ');
+    return id && type && size && !rest.length && OBJECT_ID.test(id) && /^\d+$/.test(size) ? { id, type, size: Number(size) } : undefined;
+  });
+}
+
+// One `cat-file --batch` for all blobs; output is "<id> <type> <size>\n<content>\n" each.
+// Anything short of every object in full fails, so no content is mistaken for empty.
+function readObjects(cwd: string, objects: readonly ObjectInfo[]): Map<string, Buffer> {
+  const contents = new Map<string, Buffer>();
+  if (!objects.length) return contents;
+  const expected = objects.reduce((total, item) => total + item.size + 160, 0);
+  const result = runGit(cwd, ['cat-file', '--batch'], { input: objects.map((item) => `${item.id}\n`).join(''), maxBuffer: expected });
+  if (result.error || result.status !== 0) throw new Error(`git cat-file --batch failed: ${result.stderr?.toString() || result.error?.message || `exit ${String(result.status)}`}`);
+  let offset = 0;
+  for (const item of objects) {
+    const newline = result.stdout.indexOf(0x0a, offset);
+    const [id, , size] = (newline < 0 ? '' : result.stdout.subarray(offset, newline).toString('latin1')).split(' ');
+    const length = Number(size);
+    if (id !== item.id || length !== item.size || newline + 1 + length > result.stdout.length) throw new Error(`git cat-file --batch did not return ${item.id} in full`);
+    contents.set(id, result.stdout.subarray(newline + 1, newline + 1 + length));
+    offset = newline + 1 + length + 1;
+  }
+  return contents;
+}
+
+// Credential formats are ASCII. Latin-1 maps every byte to one character, so they are
+// found in UTF-8, other ASCII-compatible encodings and binary content alike, and line
+// numbers count newline bytes. UTF-16 text with a byte-order mark is decoded first.
+function scannable(content: Buffer): string {
+  if (content[0] === 0xff && content[1] === 0xfe) return content.subarray(2).toString('utf16le');
+  if (content[0] === 0xfe && content[1] === 0xff) {
+    const body = Buffer.from(content.subarray(2, 2 + ((content.length - 2) & ~1)));
+    return body.swap16().toString('utf16le');
+  }
+  return content.toString('latin1');
+}
+
+function scanEntries(cwd: string, entries: readonly ScanEntry[], maxBytes: number): SecretScan {
+  const names = [...new Set(entries.flatMap((entry) => (entry.before ? [entry.after, entry.before] : [entry.after])))];
+  const infos = objectInfo(cwd, names);
+  const byName = new Map(names.map((name, index) => [name, infos[index]]));
+  const selected = new Map<string, ObjectInfo>();
+  const unscanned: string[] = [];
+  let budget = maxBytes;
+  const planned: Array<{ path: string; after: ObjectInfo; before?: ObjectInfo }> = [];
+  // A path is published with its content, so a credential-looking file or directory name
+  // the base did not have counts too (reported redacted, at line 0).
+  const named = new Map<string, SecretFinding>();
+  for (const entry of entries) {
+    if (entry.type !== 'commit' && !(entry.before && byName.get(entry.before))) {
+      for (const [kind] of SECRET_PATTERNS.filter(([, pattern]) => entry.path.search(pattern) >= 0)) {
+        const path = redactSecrets(entry.path).text;
+        named.set(`${path}\0${kind}`, { path, line: 0, kind: `${kind} in its name` });
+      }
+    }
+    const after = byName.get(entry.after);
+    // Not what was asked for (for example a submodule pointer): there is no content to scan.
+    if (!after || after.type !== (entry.type ?? 'blob')) continue;
+    const candidate = entry.before ? byName.get(entry.before) : undefined;
+    const before = candidate?.type === 'blob' ? candidate : undefined;
+    const fresh = new Map([after, before].filter((item): item is ObjectInfo => item !== undefined && !selected.has(item.id)).map((item) => [item.id, item]));
+    const cost = [...fresh.values()].reduce((total, item) => total + item.size, 0);
+    if (cost > budget) { unscanned.push(entry.path); continue; }
+    budget -= cost;
+    for (const item of [after, before]) if (item) selected.set(item.id, item);
+    planned.push({ path: entry.path, after, ...(before ? { before } : {}) });
+  }
+  const contents = readObjects(cwd, [...selected.values()]);
+  const findings: SecretFinding[] = [...named.values()];
+  const seen = new Set<string>();
+  for (const item of planned) {
+    const text = scannable(contents.get(item.after.id)!);
+    const previous = item.before ? scannable(contents.get(item.before.id)!) : '';
+    for (const [kind, pattern] of SECRET_PATTERNS) {
+      for (const match of text.matchAll(pattern)) {
+        if (previous.includes(match[0])) continue;
+        const line = text.slice(0, match.index).split('\n').length;
+        const key = `${item.path}\0${line}\0${kind}`;
+        if (!seen.has(key)) { seen.add(key); findings.push({ path: item.path, line, kind }); }
+      }
+    }
+  }
+  return { findings, unscanned: [...new Set(unscanned)].sort() };
+}
+
+/**
+ * New credential-looking strings in the files that differ between a commit and a tree.
+ * Every changed file is read in full, text or binary, up to MAX_SCAN_BYTES for the
+ * whole scan; files past that budget are listed as `unscanned`, never silently skipped.
+ */
+export function scanForNewSecrets(path: string, base: string, tree: string, maxBytes = MAX_SCAN_BYTES): SecretScan {
+  // Raw output names both sides' blobs, so content is read by object id and file names
+  // that are not valid UTF-8 (or contain newlines) are still scanned.
+  const fields = git(path, ['diff-tree', '-r', '-z', '--raw', '--no-abbrev', '--no-renames', '--ignore-submodules=none', base, tree]).split('\0');
+  const entries: ScanEntry[] = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const [, , before, after] = (fields[index] ?? '').split(' ');
+    const file = fields[index + 1] ?? '';
+    if (!after || !OBJECT_ID.test(after) || /^0+$/.test(after)) continue;
+    entries.push({ path: file, after, ...(before && OBJECT_ID.test(before) && !/^0+$/.test(before) ? { before } : {}) });
+  }
+  return scanEntries(path, entries, maxBytes);
+}
+
+/**
+ * New credential-looking strings anywhere in the history from `base` to `head`: every
+ * file version any of those commits introduced, including ones a later commit removed
+ * again (their content stays in history), and each commit's own message and
+ * author/committer fields, which a push publishes too (reported as `commit <id>`).
+ * Each object is read once, under the same budget as `scanForNewSecrets`.
+ */
+export function scanHistoryForNewSecrets(path: string, base: string, head = 'HEAD', maxBytes = MAX_SCAN_BYTES): SecretScan {
+  // "<id>" for every commit and "<id> <path>" for every tree and blob reachable from
+  // head but not from base.
+  const entries: ScanEntry[] = [];
+  for (const line of git(path, ['rev-list', '--objects', `${base}..${head}`]).split('\n')) {
+    const match = /^([0-9a-f]{40,64})(?: (.*))?$/.exec(line);
+    if (!match) continue;
+    const [, id, file] = match as unknown as [string, string, string | undefined];
+    if (file === undefined) entries.push({ path: `commit ${id.slice(0, 12)}`, after: id, type: 'commit' });
+    else if (file) entries.push({ path: file, after: id, ...(/[\r\n]/.test(file) ? {} : { before: `${base}:${file}` }) });
+  }
+  return scanEntries(path, entries, maxBytes);
+}
+
+interface WorktreeLayout { gitDir: string; commonDir: string; topLevel: string }
+
+function worktreeLayout(path: string): WorktreeLayout | undefined {
+  const paths = git(path, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel']).trim().split(/\r?\n/);
+  // Git older than 2.31 echoes the unknown --path-format flag back as an extra
+  // line, so anything but exactly three absolute paths fails closed.
+  if (paths.length !== 3 || !paths.every((item) => isAbsolute(item))) return undefined;
+  const [gitDir, commonDir, topLevel] = paths.map((item) => resolve(item)) as [string, string, string];
+  return { gitDir, commonDir, topLevel };
+}
+
+/**
+ * Why a recorded agent worktree must be kept, or undefined when removing it loses
+ * nothing: it is a linked worktree strictly under the Code Conductor root (after
+ * resolving symlinks), it has exactly its own `cc/` agent branch checked out, so every
+ * commit in it stays reachable from that branch, and its content matches that
+ * branch's head exactly (content-exact, not git status alone). Runs Git in the worktree.
+ */
+export function agentWorktreeRemovalProblem(path: string, root: string, branch: string): string | undefined {
+  let real: string;
+  let realRoot: string;
+  try { real = realpathSync(path); realRoot = realpathSync(root); } catch { return 'it does not exist'; }
+  const offset = relative(realRoot, real);
+  if (!offset || offset.startsWith('..') || isAbsolute(offset)) return 'it is not under the Code Conductor worktree root';
+  if (!branch.startsWith('cc/')) return `${branch} is not a Code Conductor agent branch`;
+  const layout = worktreeLayout(real);
+  if (!layout) return 'its Git worktree layout could not be determined (Git 2.31 or later is required)';
+  if (layout.gitDir === layout.commonDir) return 'it is a repository\'s primary working tree';
+  if (realpathSync(layout.topLevel) !== real) return 'it is not the top level of a Git worktree';
+  const head = git(real, ['symbolic-ref', '-q', 'HEAD'], true).trim();
+  if (head !== `refs/heads/${branch}`) return `it has ${head || 'a detached HEAD'} checked out, not ${branch}, so its commits may be on no branch`;
+  // Checking content would run Git inside them, under configuration an agent could have written.
+  const nested = nestedRepositories(real);
+  if (nested.length) return `it contains ${nested.length === 1 ? 'a nested Git repository' : `${nested.length} nested Git repositories`} (${nested.slice(0, 3).join(', ')}${nested.length > 3 ? ', …' : ''}), which Code Conductor runs no Git in; inspect ${nested.length === 1 ? 'it' : 'them'} yourself`;
+  if (gitChangedFiles(real).length || workingTreeState(real).tree !== headTree(real)) return 'it has uncommitted changes';
+  return undefined;
+}
+
+/**
+ * Remove an agent worktree that `agentWorktreeRemovalProblem` finds nothing to keep in.
+ * Its branch, and so its commits, are kept. Ignored files in it (for example a local
+ * `.env` or build output) are deleted with it, as `git worktree remove` does. Other
+ * worktrees' registrations are never pruned.
+ */
+export function removeCleanAgentWorktree(path: string, root: string, branch: string): void {
+  const problem = agentWorktreeRemovalProblem(path, root, branch);
+  if (problem) throw new Error(`Refusing to remove ${path}: ${problem}.`);
+  const real = realpathSync(path);
+  // Run from the common Git directory, which also works for --separate-git-dir and
+  // bare repositories with linked worktrees.
+  git(worktreeLayout(real)!.commonDir, ['worktree', 'remove', real]);
 }
 
 export function assertSafeChangedPaths(files: string[]): void {
@@ -236,13 +532,9 @@ export function assertAgentWorktree(handle: WorktreeHandle): void {
   const refuse = (reason: string): never => {
     throw new Error(`Refusing to commit agent changes in ${handle.path}: ${reason}`);
   };
-  const paths = git(handle.path, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--show-toplevel']).trim().split(/\r?\n/);
-  // Git older than 2.31 echoes the unknown --path-format flag back as an extra
-  // line, so anything but exactly three absolute paths fails closed.
-  if (paths.length !== 3 || !paths.every((path) => isAbsolute(path))) {
-    refuse('could not determine its Git worktree layout (Git 2.31 or later is required).');
-  }
-  const [gitDir, commonDir, topLevel] = paths.map((path) => resolve(path));
+  const layout = worktreeLayout(handle.path);
+  if (!layout) refuse('could not determine its Git worktree layout (Git 2.31 or later is required).');
+  const { gitDir, commonDir, topLevel } = layout!;
   if (gitDir === commonDir) refuse('it is a repository\'s primary working tree, not a Code Conductor agent worktree.');
   if (!topLevel || realpathSync(topLevel) !== realpathSync(handle.path)) {
     refuse(`Git resolves its work tree to ${topLevel ?? 'nothing'}, not the agent worktree itself.`);
@@ -278,22 +570,96 @@ export function treeChangedFiles(path: string, from: string, toTree: string): st
   return git(path, ['diff-tree', '-r', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', from, toTree]).split('\0').filter(Boolean).sort();
 }
 
+/** Paths that are gitlinks (nested repositories) in `toTree` and were not, or pointed elsewhere, in `from`. */
+export function newGitlinks(path: string, from: string, toTree: string): string[] {
+  const fields = git(path, ['diff-tree', '-r', '-z', '--raw', '--no-abbrev', '--no-renames', '--ignore-submodules=none', from, toTree]).split('\0');
+  const links: string[] = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) if ((fields[index] ?? '').split(' ')[1] === '160000') links.push(fields[index + 1] ?? '');
+  return links.sort();
+}
+
 export interface CommitHistory { commits: string[]; files: string[] }
 
 /**
- * Commits on HEAD since `base`, newest first, and every path any of them touched,
+ * Commits on `head` since `base`, newest first, and every path any of them touched,
  * including paths a later commit removed again (their content stays in history).
  */
-export function commitsSince(path: string, base: string): CommitHistory {
-  const commits = git(path, ['rev-list', `${base}..HEAD`]).split('\n').filter(Boolean);
+export function commitsSince(path: string, base: string, head = 'HEAD'): CommitHistory {
+  const commits = git(path, ['rev-list', `${base}..${head}`]).split('\n').filter(Boolean);
   if (!commits.length) return { commits, files: [] };
-  const files = git(path, ['log', '-z', '--format=', '--name-only', '--no-renames', '-m', '--ignore-submodules=none', '--no-show-signature', `${base}..HEAD`]).split('\0').filter(Boolean);
+  const files = git(path, ['log', '-z', '--format=', '--name-only', '--no-renames', '-m', '--ignore-submodules=none', '--no-show-signature', `${base}..${head}`]).split('\0').filter(Boolean);
   return { commits, files: [...new Set(files)].sort() };
+}
+
+/** The full commit SHA a ref names; throws when it does not name a commit. */
+export function resolveCommit(path: string, ref: string): string {
+  return git(path, ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).trim();
+}
+
+/**
+ * A remote URL for display: no user name, password, token, query or fragment. A URL
+ * that cannot be parsed keeps nothing before its last `@`, so nothing that might be a
+ * credential is shown. Credential-looking strings anywhere else are redacted too.
+ */
+export function redactUrl(url: string): string {
+  let text: string;
+  try {
+    const parsed = new URL(url);
+    // `user:secret@host:path` parses as an opaque URL with scheme `user:`; only a URL with
+    // an authority has user information that can be removed field by field.
+    if (!parsed.host) throw new Error('no authority');
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    text = parsed.toString();
+  } catch {
+    text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`).replace(/[?#].*$/, '');
+  }
+  return redactSecrets(text).text;
+}
+
+/**
+ * Where a remote fetches from, and every URL a push to it goes to, after the person's own
+ * URL rewriting. A push goes to all of a remote's push URLs (or all of its URLs when it
+ * has none), so every one of them is listed.
+ */
+export function remoteUrls(path: string, remote: string): { fetch: string; push: string[] } {
+  return {
+    fetch: git(path, ['remote', 'get-url', '--', remote]).trim(),
+    push: git(path, ['remote', 'get-url', '--push', '--all', '--', remote]).split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+  };
+}
+
+/** Transports a push may use; GIT_ALLOW_PROTOCOL overrides any protocol.* configuration. */
+export const PUSH_PROTOCOLS = ['https', 'ssh'] as const;
+
+/**
+ * Push exactly `sha` to `refs/heads/<branch>` on `remote`, and nothing else: no tags
+ * (push.followTags), no submodules (push.recurseSubmodules), never forced, so a remote
+ * branch with other history is rejected. Only the HTTPS and SSH transports are allowed,
+ * so no remote helper, local or `ext::` transport runs. Repository hooks such as
+ * pre-push do not run (every Code Conductor git call disables them). Credentials are
+ * the person's own Git configuration; Code Conductor never sees them.
+ */
+export function pushCommit(path: string, remote: string, sha: string, branch: string, protocols: readonly string[] = PUSH_PROTOCOLS): void {
+  if (!/^[a-f0-9]{40,64}$/.test(sha)) throw new Error(`Refusing to push ${sha}: not a full commit SHA.`);
+  try { git(path, ['check-ref-format', `refs/heads/${branch}`]); } catch { throw new Error(`Refusing to push to invalid branch name ${branch}.`); }
+  git(path, ['push', '--porcelain', '--no-follow-tags', '--no-recurse-submodules', '--', remote, `${sha}:refs/heads/${branch}`], false, { ...withoutGitLocalEnv(), GIT_ALLOW_PROTOCOL: protocols.join(':') });
+}
+
+/**
+ * Whether `commit` is reachable from a remote-tracking branch of `remote`, as of its last
+ * fetch: if it is not, a push of anything descending from it also publishes it and its
+ * unpublished ancestors.
+ */
+export function onRemote(path: string, commit: string, remote: string): boolean {
+  return !git(path, ['rev-list', '-n', '1', commit, '--not', `--remotes=${remote}`]).trim();
 }
 
 /** Whether `ancestor` is reachable from `descendant` (for example base from an agent's HEAD). */
 export function isAncestor(path: string, ancestor: string, descendant = 'HEAD'): boolean {
-  const result = spawnSync('git', [...SAFE_GIT, 'merge-base', '--is-ancestor', ancestor, descendant], { cwd: path, env: withoutGitLocalEnv(), encoding: 'utf8', shell: false });
+  const result = runGit(path, ['merge-base', '--is-ancestor', ancestor, descendant], { encoding: 'utf8' });
   if (result.status === 0 || result.status === 1) return result.status === 0;
   throw new Error(`git merge-base --is-ancestor failed: ${result.stderr || result.error?.message || `exit ${String(result.status)}`}`);
 }
@@ -337,14 +703,16 @@ function commitApprovedTree(handle: WorktreeHandle, message: string, expectedTre
 
 /** Where Code Conductor creates agent worktrees unless a caller chooses otherwise. */
 export function defaultWorktreeRoot(): string {
-  return join(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'worktrees');
+  // Absolute, so a relative CODE_CONDUCTOR_HOME cannot place worktrees inside the
+  // repository Git runs in.
+  return resolve(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'worktrees');
 }
 
 export class WorktreeManager {
   readonly root: string;
 
   constructor(root = defaultWorktreeRoot()) {
-    this.root = root;
+    this.root = resolve(root);
     ensurePrivateDirectory(root);
   }
 
@@ -369,8 +737,9 @@ export class WorktreeManager {
     if (!force && gitChangedFiles(handle.path).length) {
       throw new Error(`Refusing to remove dirty worktree: ${handle.path}`);
     }
+    // `worktree remove` deletes this worktree's own registration; a prune would also drop
+    // other worktrees whose directories are only temporarily missing.
     git(handle.repositoryRoot, ['worktree', 'remove', ...(force ? ['--force'] : []), handle.path]);
-    git(handle.repositoryRoot, ['worktree', 'prune']);
     if (deleteBranch) git(handle.repositoryRoot, ['branch', '-D', handle.branch]);
   }
 }

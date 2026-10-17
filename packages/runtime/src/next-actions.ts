@@ -25,6 +25,8 @@ export interface NextAction {
 export interface NextActionOptions {
   /** Only worktrees under this directory are offered for native review (imported manifests may name arbitrary paths). */
   worktreeRoot?: string;
+  /** The shell commands will be pasted into; commands that cannot be pasted into it exactly are withheld. */
+  shell?: CommandShell;
 }
 
 /**
@@ -33,6 +35,10 @@ export interface NextActionOptions {
  * next actions never suggest running Git (status, diff, Source Control) in that state.
  */
 export const GIT_CONTROL_CHANGED = 'Git configuration or history files';
+/** Recorded when the official client reports no sign-in Code Conductor recognises. */
+export const CLIENT_NOT_SIGNED_IN = 'is not signed in through its official client';
+/** Recorded when a subscription assignment's client is signed in with a separately billed credential. */
+export const CLIENT_BILLS_SEPARATELY = 'a separately billed sign-in';
 
 const UNSAFE_DISPLAY = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
@@ -72,14 +78,32 @@ export function formatCommand(argv: readonly string[], shell: CommandShell = DEF
   }).join(' ');
 }
 
-/** Only commands whose every argument can be shown and quoted exactly are presented. */
-function presentable(commands: string[][]): string[][] | undefined {
-  return commands.every((argv) => argv.every((arg) => typeof arg === 'string' && !UNSAFE_DISPLAY.test(arg))) ? commands : undefined;
+// PowerShell's stop-parsing token. However it is quoted, PowerShell passes the rest of
+// the line on raw: re-split into new arguments and with %NAME% replaced by environment
+// values (about_Parsing). It is never a legitimate value here, on any platform.
+const STOP_PARSING = /^--%/;
+
+/**
+ * Whether an argument, once quoted by formatCommand, reaches the program as exactly that
+ * one argument when pasted into `shell`. Windows PowerShell 5.1 passes arguments to
+ * native programs by legacy rules that drop an empty argument and do not escape an
+ * embedded double quote, or the trailing backslash of an argument it wraps in quotes for
+ * containing a space, so each can drop, split or merge arguments there.
+ */
+function copyable(arg: unknown, shell: CommandShell): boolean {
+  if (typeof arg !== 'string' || UNSAFE_DISPLAY.test(arg) || STOP_PARSING.test(arg)) return false;
+  return shell !== 'powershell' || !(arg === '' || arg.includes('"') || (/\s/.test(arg) && arg.endsWith('\\')));
+}
+
+/** Only commands whose every argument can be shown and pasted exactly are presented. */
+function present(action: NextAction, shell: CommandShell): NextAction {
+  if (!action.commands || action.commands.every((argv) => argv.every((arg) => copyable(arg, shell)))) return action;
+  const { commands: _withheld, ...rest } = action;
+  return { ...rest, detail: `${action.detail} (The command is not shown because a value from the run record cannot be shown or pasted exactly; use the native surface directly.)` };
 }
 
 function withCommands(action: Omit<NextAction, 'commands'>, commands: string[][]): NextAction {
-  const safe = presentable(commands);
-  return safe ? { ...action, commands: safe } : { ...action, detail: `${action.detail} (The command is not shown because a value from the run record contains control characters; use the native surface directly.)` };
+  return { ...action, commands };
 }
 
 const PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
@@ -95,12 +119,26 @@ function within(root: string, path: string): boolean {
   } catch { return false; }
 }
 
+/**
+ * Worktree records that name a Code Conductor agent branch and base, and (with `root`)
+ * an existing directory under that root. Anything else in a record, which may have been
+ * imported or edited, is never handed to Git or offered for review.
+ */
+export function recordedAgentWorktrees(manifest: RunManifest, root?: string): WorktreeRecord[] {
+  return (manifest.worktrees ?? []).filter((record) => AGENT_BRANCH.test(record.branch) && SHA.test(record.baseSha) && (!root || within(root, record.path)));
+}
+
+/** Whether the run stopped because Git configuration or history files changed; then nothing may run Git in its worktrees. */
+export function stoppedForGitControl(manifest: RunManifest): boolean {
+  return (manifest.results ?? []).some((result) => (result.blockers ?? []).some((blocker) => blocker.includes(GIT_CONTROL_CHANGED)));
+}
+
 function label(assignment: AgentAssignment | undefined, result: AgentResult): string {
   return `${result.role} (${assignment?.harness ?? result.harness}${result.surface ? `@${result.surface}` : ''})`;
 }
 
 function runCommand(manifest: RunManifest): string[] {
-  return ['cc', 'run', '--repo', manifest.task.repository ?? '.', '--risk', manifest.task.risk, '--objective', manifest.task.objective, ...(manifest.task.specializations?.length ? ['--specializations', manifest.task.specializations.join(',')] : []), '--execute'];
+  return ['ccon', 'run', '--repo', manifest.task.repository ?? '.', '--risk', manifest.task.risk, '--objective', manifest.task.objective, ...(manifest.task.specializations?.length ? ['--specializations', manifest.task.specializations.join(',')] : []), '--execute'];
 }
 
 function approvalAction(manifest: RunManifest, result: AgentResult, assignment: AgentAssignment | undefined, record: ApprovalRecord): NextAction {
@@ -135,8 +173,8 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
   const actions: NextAction[] = [];
   const assignments = new Map((manifest.assignments ?? []).map((assignment) => [assignment.id, assignment]));
   const approvals = manifest.approvals ?? [];
-  const worktrees: WorktreeRecord[] = (manifest.worktrees ?? []).filter((record) => AGENT_BRANCH.test(record.branch) && SHA.test(record.baseSha) && (!options.worktreeRoot || within(options.worktreeRoot, record.path)));
-  const gitStopped = (manifest.results ?? []).some((result) => (result.blockers ?? []).some((blocker) => blocker.includes(GIT_CONTROL_CHANGED)));
+  const worktrees = recordedAgentWorktrees(manifest, options.worktreeRoot);
+  const gitStopped = stoppedForGitControl(manifest);
 
   for (const result of manifest.results ?? []) {
     const assignment = assignments.get(result.assignmentId);
@@ -153,7 +191,19 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
         surface: 'official_client' as const, assignmentId: result.assignmentId, evidenceIds: [],
       };
       // The harness name comes from the run record; only a plain name goes into a command.
-      actions.push(PLAIN_ID.test(harness) ? withCommands(action, [['cc', 'harness-smoke', harness, '--mode', mode]]) : { ...action, detail: `${action.detail} (No command is shown because the harness name is not plain.)` });
+      actions.push(PLAIN_ID.test(harness) ? withCommands(action, [['ccon', 'harness-smoke', harness, '--mode', mode]]) : { ...action, detail: `${action.detail} (No command is shown because the harness name is not plain.)` });
+      continue;
+    }
+    if (result.status === 'blocked' && (blockers.includes(CLIENT_NOT_SIGNED_IN) || blockers.includes(CLIENT_BILLS_SEPARATELY))) {
+      const harness = assignment?.harness ?? result.harness;
+      const billing = !blockers.includes(CLIENT_NOT_SIGNED_IN);
+      actions.push(withCommands({
+        kind: 'validate_harness', title: billing ? `Use your subscription sign-in for ${harness}` : `Sign in to ${harness} in its official client`,
+        detail: billing
+          ? 'The client is signed in with a credential billed separately from your subscription, so Code Conductor did not start it. Sign in with your subscription in the official client, or remove that credential from the client\'s own configuration, then run the task again.'
+          : 'The official client did not report a sign-in, so Code Conductor did not start it. `ccon doctor` shows each client\'s official sign-in command and documentation. Sign in there, then run the task again.',
+        surface: 'official_client', assignmentId: result.assignmentId, evidenceIds: [],
+      }, [['ccon', 'doctor']]));
       continue;
     }
     if (result.status === 'awaiting_external') {
@@ -161,11 +211,11 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
         actions.push({ kind: 'github_review', title: 'Review the change on GitHub', detail: 'GitHub review (Copilot review, required checks, branch protection) is the native gate. Push the agent branch and open a draft pull request yourself, then review there.', surface: 'github', assignmentId: result.assignmentId, evidenceIds: [] });
       } else {
         const modifies = assignment?.authority?.includes('modify_worktree');
-        const detail = `No supported unattended surface is available for this assignment. Print its exact prompt and run it yourself in the official client.${modifies ? ' It changes files: work in an isolated branch or worktree (for example `git worktree add`), never in a checkout that holds other work (AGENTS.md §6).' : ''} To keep the outcome with Code Conductor's evidence, record it as a RunManifest file and bring it in with \`cc import\`.`;
+        const detail = `No supported unattended surface is available for this assignment. Print its exact prompt and run it yourself in the official client.${modifies ? ' It changes files: work in an isolated branch or worktree (for example `git worktree add`), never in a checkout that holds other work (AGENTS.md §6).' : ''} To keep the outcome with Code Conductor's evidence, record it as a RunManifest file and bring it in with \`ccon import\`.`;
         const action = { kind: 'manual_handoff' as const, title: `Complete ${label(assignment, result)} manually`, detail, surface: 'manual' as const, assignmentId: result.assignmentId, evidenceIds: [] };
         // Only plain identifiers go into a command; anything else could break out of shell quoting.
         actions.push(PLAIN_ID.test(manifest.runId) && PLAIN_ID.test(result.assignmentId)
-          ? withCommands(action, [['cc', 'handoff', '--run', manifest.runId, '--assignment', result.assignmentId]])
+          ? withCommands(action, [['ccon', 'handoff', '--run', manifest.runId, '--assignment', result.assignmentId]])
           : { ...action, detail: `${detail} (No command is shown because the run or assignment identifier is not plain.)` });
       }
       continue;
@@ -216,5 +266,6 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
   } else if (manifest.mergeDecision?.decision === 'human_required' && !actions.some((action) => action.kind === 'approve_interactively' || action.kind === 'decide' || action.kind === 'manual_handoff' || action.kind === 'github_review' || action.kind === 'inspect_git_configuration')) {
     actions.push({ kind: 'decide', title: 'Human decision required', detail: manifest.mergeDecision.rationale, surface: 'github', evidenceIds: manifest.mergeDecision.evidenceIds });
   }
-  return actions;
+  const shell = options.shell ?? DEFAULT_SHELL;
+  return actions.map((action) => present(action, shell));
 }

@@ -29,14 +29,14 @@ The repository foundation is implemented rather than architecture-only:
 - initial Codex, Claude, Kiro, Antigravity, GitHub, APM, MCP, and workstation adapter boundaries exist;
 - the first-party context optimizer exists as a bounded context-preparation component with lossless default behavior, explicit aggressive mode, workspace/sensitive-path protection, and estimated-token telemetry;
 - the context optimizer's MCP transport is intentionally experimental pending official MCP TypeScript SDK/current-protocol validation;
-- `cc validate`, `doctor`, `plan`, `run`, `harness-smoke`, MCP/APM, GitHub-gate, `context-stats`, and `compress` command paths exist;
+- `ccon validate`, `doctor`, `plan`, `run`, `harness-smoke`, MCP/APM, GitHub-gate, `context-stats`, and `compress` command paths exist;
 - the VS Code extension exposes Team, Runs, Gates, Connections, Packs, and Usage and now bundles the compiled Code Conductor runtime for packaged use;
 - CodeQL, dependency-review configuration, repository CI, APM audit, npm lockfile validation, and secret scanning are part of the GitHub governance baseline;
 - repository-scoped Copilot CLI MCP configuration is minimal under `.github/mcp.json`; GitHub.com Copilot MCP configuration remains a repository-settings/platform concern rather than a custom token-minting workflow;
 - multiple GitHub Copilot Gatekeeper review rounds have been exercised and concrete findings have been addressed with targeted regression coverage;
 - GitHub issue #7 now owns durable product roadmap capture so substantive approved ideas are not left only in chat;
 - issues #8-#18 capture the approved thin-client, startup, harness, Kiro, routing, agent-catalog, release, tooling, APM/Kiro, Perplexity, and Antigravity workstreams;
-- ADR 0008 locks the no-standalone-app/thin VS Code + optional `cc` client and lazy startup model;
+- ADR 0008 locks the no-standalone-app/thin VS Code + optional `ccon` client and lazy startup model;
 - ADR 0009 locks the surface-aware harness model, provider-native capability preservation, Kiro ACP-first preference, provider specializations, and deterministic-tool separation;
 - the surface-aware capability schema/routing implementation is on `main`, including explicit execution surfaces and specialization tests;
 - the guarded Kiro ACP SDK client path is on `main`; live subscription/policy and read/modify trust remain fail-closed until workstation validation;
@@ -65,7 +65,7 @@ The architecture/runtime delta from #10/#11/#12 is implemented. Do not reopen it
 ## Locked operating model
 
 - VS Code is the primary cockpit; Code Conductor v0.x does not require a standalone desktop application.
-- The thin VS Code extension and optional thin `cc` CLI/TUI use the same versioned core/runtime.
+- The thin VS Code extension and optional thin `ccon` CLI/TUI use the same versioned core/runtime.
 - First run performs explicit bootstrap/discovery; warm starts use cached non-secret state and lazy provider/MCP/APM activation.
 - Code Conductor owns runtime orchestration, risk, authority, context-preparation policy, evidence, and readiness.
 - APM owns reusable agent-pack dependency/distribution/integrity concerns.
@@ -94,7 +94,7 @@ The architecture/runtime delta from #10/#11/#12 is implemented. Do not reopen it
 npm ci --ignore-scripts
 npm run typecheck
 npm test
-npm run cc:validate
+npm run ccon:validate
 apm audit --ci --policy ./apm-policy.yml --no-fail-fast
 ```
 

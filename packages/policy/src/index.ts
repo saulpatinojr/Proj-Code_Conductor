@@ -253,7 +253,7 @@ const GATE_TOOLS: Record<string, GateShape> = {
   },
 };
 
-/** Why a gate command may never run, or undefined. Shared by `cc validate` and the gate planner. */
+/** Why a gate command may never run, or undefined. Shared by `ccon validate` and the gate planner. */
 export function gateCommandProblem(command: unknown, args: unknown = []): { code: string; message: string } | undefined {
   if (typeof command !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) return { code: 'gates.command', message: 'it must name a plain executable (no shell, no path)' };
   if (!Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) return { code: 'gates.command', message: 'args must be a list of strings' };

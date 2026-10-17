@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -8,7 +8,7 @@ import { RunStore } from '../../packages/evidence/src/index.js';
 import type { Approver } from '../../packages/policy/src/index.js';
 import { assertContract, type ApprovalRequest } from '../../packages/schemas/src/index.js';
 import { createTask, executeTask } from '../../packages/runtime/src/index.js';
-import { git, rewriteKeepingTimes, SandboxWorktrees, WritingAdapter } from './fixtures.js';
+import { FakeAdapter, git, rewriteKeepingTimes, SandboxWorktrees, WritingAdapter } from './fixtures.js';
 
 const approveAll: Approver = { decide: async () => ({ approved: true, approver: 'test' }) };
 
@@ -23,7 +23,7 @@ class CountingAdapter extends WritingAdapter {
 const temps: string[] = [];
 afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
 
-async function run(approver: Approver | undefined, gateCalls = { count: 0 }, setup: { codex?: CountingAdapter; sandbox?: (repository: string) => void } = {}) {
+async function run(approver: Approver | undefined, gateCalls = { count: 0 }, setup: { codex?: CountingAdapter; sandbox?: (repository: string) => void; keepWorktrees?: boolean; gate?: (cwd: string) => void } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'cc-approval-test-'));
   temps.push(temp);
   const codex = setup.codex ?? new CountingAdapter('codex', 'openai');
@@ -31,13 +31,16 @@ async function run(approver: Approver | undefined, gateCalls = { count: 0 }, set
   const adapters = new Map<string, HarnessAdapter>([['codex', codex], ['claude', claude]]);
   const worktrees = new SandboxWorktrees(temp);
   setup.sandbox?.(worktrees.sandboxRepository);
+  const store = new RunStore(temp);
   const outcome = await executeTask(resolve('.'), createTask('approval-gated R1 run', 'R1', resolve('.')), {
-    execute: true, adapters, store: new RunStore(temp), worktrees,
-    gateExecutor: () => { gateCalls.count += 1; return { status: 0, stdout: 'ok', stderr: '' }; },
+    execute: true, adapters, store, worktrees,
+    gateExecutor: (cwd) => { gateCalls.count += 1; setup.gate?.(cwd); return { status: 0, stdout: 'ok', stderr: '' }; },
     isHarnessTrusted: () => true,
     ...(approver ? { approver } : {}),
+    ...(setup.keepWorktrees !== undefined ? { keepWorktrees: setup.keepWorktrees } : {}),
   });
-  return { outcome, codex, claude, gateCalls, sandbox: worktrees.sandboxRepository };
+  const events = (): string => { try { return readFileSync(join(store.runDirectory(outcome.plan.runId), 'events.jsonl'), 'utf8'); } catch { return ''; } };
+  return { outcome, codex, claude, gateCalls, sandbox: worktrees.sandboxRepository, events };
 }
 
 // The builder's first start writes a file and fails without a result; the retry completes.
@@ -278,7 +281,8 @@ describe('pre-action approval enforcement (#44)', () => {
           execFileSync('git', ['update-index', '--refresh'], { cwd: request.cwd, stdio: 'ignore' });
           rewriteKeepingTimes(file, (text) => text.replace('fixture', 'FIXTURE'));
           const payload = { status: 'completed', changes: ['README.md'], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: 'review' };
-          return { harness: this.id, surface: this.executionSurface, command: 'fake', args: [], exitCode: 0, signal: null, stdout: `CC_RESULT_JSON:${JSON.stringify(payload)}\n`, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
+          const message = `CC_RESULT_JSON:${JSON.stringify(payload)}\n`;
+          return { harness: this.id, surface: this.executionSurface, command: 'fake', args: [], exitCode: 0, signal: null, stdout: message, message, stderr: '', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), timedOut: false };
         }
         return super.execute(request);
       }
@@ -388,6 +392,29 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 
+  it('blocks when an agent commit added a credential, even one a later commit removed', async () => {
+    const token = `ghp_${'a'.repeat(36)}`;
+    class CredentialHistory extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          const commit = (message: string): void => { git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', message); };
+          writeFileSync(join(request.cwd, 'config.ts'), `export const token = '${token}';\n`);
+          git(request.cwd, 'add', 'config.ts'); commit('add token');
+          writeFileSync(join(request.cwd, 'config.ts'), 'export const token = process.env.TOKEN;\n');
+          git(request.cwd, 'add', 'config.ts'); commit('remove token');
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new CredentialHistory('codex', 'openai') });
+    const builder = outcome.manifest.results[0]!;
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+    expect(builder.status).toBe('blocked');
+    expect(builder.blockers.join(' ')).toContain('add credential-looking strings (config.ts:1 GitHub token)');
+    expect(builder.blockers.join(' ')).not.toContain(token);
+  });
+
   it('flags an agent branch that no longer descends from its base', async () => {
     class Resetter extends CountingAdapter {
       override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
@@ -405,7 +432,7 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 
-  it('stops before running Git under configuration a provider changed, so its filter never runs', async () => {
+  it.each([['kept', true], ['cleanup requested', false]])('stops before running Git under configuration a provider changed, so its filter never runs (worktrees %s)', async (_label, keepWorktrees) => {
     const marker = join(mkdtempSync(join(tmpdir(), 'cc-filter-marker-')), 'ran');
     temps.push(join(marker, '..'));
     class ConfigWriter extends CountingAdapter {
@@ -419,9 +446,13 @@ describe('pre-action approval enforcement (#44)', () => {
     }
     const seen: ApprovalRequest[] = [];
     const gateCalls = { count: 0 };
-    const { outcome, claude } = await run(decideWith(() => true, seen), gateCalls, { codex: new ConfigWriter('codex', 'openai') });
+    const { outcome, claude, events } = await run(decideWith(() => true, seen), gateCalls, { codex: new ConfigWriter('codex', 'openai'), keepWorktrees });
     const [builder, ...rest] = outcome.manifest.results;
     expect(existsSync(marker)).toBe(false);
+    // Cleanup would run Git in the worktree; it is kept, and so is its record for `ccon next`.
+    expect(existsSync(outcome.worktrees[0]!.path)).toBe(true);
+    expect(outcome.manifest.worktrees).toHaveLength(1);
+    if (!keepWorktrees) expect(events()).toContain('worktree.retained');
     expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
     expect(builder?.blockers.join(' ')).toContain('Git configuration or history files');
     expect(seen.some((request) => request.action === 'commit')).toBe(false);
@@ -429,6 +460,63 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(rest.every((result) => result.status === 'blocked')).toBe(true);
     expect(claude.calls + gateCalls.count).toBe(0);
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it.each([['kept', true], ['cleanup requested', false]])('stops before running Git in a repository a provider nested in its worktree, so its filter never runs (worktrees %s)', async (_label, keepWorktrees) => {
+    const marker = join(mkdtempSync(join(tmpdir(), 'cc-nested-marker-')), 'ran');
+    temps.push(join(marker, '..'));
+    class Nester extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          // A committed gitlink to a repository whose own configuration runs a program
+          // whenever Git re-reads its file (status and add enter checked-out submodules).
+          const nested = join(request.cwd, 'vendor-lib');
+          git(request.cwd, 'init', '-q', 'vendor-lib');
+          writeFileSync(join(nested, 'lib.txt'), 'lib\n');
+          git(nested, 'add', 'lib.txt');
+          git(nested, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'lib');
+          git(nested, 'config', 'filter.x.clean', `touch '${marker}'; cat`);
+          writeFileSync(join(nested, '.git', 'info', 'attributes'), '* filter=x\n');
+          git(request.cwd, 'add', 'vendor-lib');
+          git(request.cwd, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'gitlink');
+          const later = new Date(Date.now() + 5000);
+          utimesSync(join(nested, 'lib.txt'), later, later);
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new Nester('codex', 'openai'), keepWorktrees });
+    const builder = outcome.manifest.results[0];
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(outcome.worktrees[0]!.path)).toBe(true);
+    expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
+    expect(builder?.blockers.join(' ')).toContain('repositories nested in the work tree');
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+  });
+
+  it('never commits a nested repository Git did not report, for example one under paths the agent staged', async () => {
+    class Concealer extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          const nested = join(request.cwd, 'sub');
+          git(request.cwd, 'init', '-q', 'sub');
+          writeFileSync(join(nested, 'lib.txt'), 'lib\n');
+          git(nested, 'add', 'lib.txt');
+          git(nested, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'lib');
+          // An outer index entry under its directory hides it from `ls-files --others`.
+          const blob = git(request.cwd, 'hash-object', '-w', join(request.cwd, 'README.md'));
+          git(request.cwd, 'update-index', '--add', '--cacheinfo', `100644,${blob},sub/hidden.txt`);
+        }
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new Concealer('codex', 'openai') });
+    const builder = outcome.manifest.results[0];
+    expect(builder?.status).toBe('blocked');
+    expect(builder?.blockers.join(' ')).toContain('adds nested Git repositories (sub)');
+    expect(git(outcome.worktrees[0]!.path, 'rev-list', '--count', `${outcome.worktrees[0]!.baseSha}..HEAD`)).toBe('0');
   });
 
   it('leads commit summaries with how many files can change what later runs', async () => {
@@ -495,5 +583,99 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(outcome.manifest.results.at(-1)).toMatchObject({ role: 'validator', status: 'failed' });
     expect(outcome.manifest.results.at(-1)?.blockers[0]).toContain('Unknown gate profile: no-such-profile');
     expect(outcome.manifest.mergeDecision?.decision).toBe('changes_required');
+  });
+
+  it('refuses to commit new credential-looking content and preserves it uncommitted', async () => {
+    class LeakyBuilder extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') writeFileSync(join(request.cwd, 'deploy.ts'), `export const key = '${['AKIA', 'Q3EXAMPLEKEY12345'].join('').slice(0, 20)}';\n`);
+        return super.execute(request);
+      }
+    }
+    const seen: ApprovalRequest[] = [];
+    const { outcome, events } = await run(decideWith(() => true, seen), { count: 0 }, { codex: new LeakyBuilder('codex', 'openai') });
+    const worktree = outcome.worktrees[0]!;
+    expect(seen.some((request) => request.action === 'commit')).toBe(false);
+    expect(outcome.manifest.results[0]?.status).toBe('blocked');
+    expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain('deploy.ts:1 AWS access key id');
+    const value = ['AKIA', 'Q3EXAMPLEKEY12345'].join('').slice(0, 20);
+    expect(JSON.stringify(outcome.manifest)).not.toContain(value);
+    expect(events()).not.toContain(value);
+    expect(git(worktree.path, 'rev-parse', 'HEAD')).toBe(worktree.baseSha);
+    expect(git(worktree.path, 'status', '--porcelain')).toContain('deploy.ts');
+  });
+
+  it('cleans up only clean worktrees on request and still returns the run outcome', async () => {
+    // Refuse the commit so the builder worktree stays dirty and must be retained.
+    const { outcome } = await run(decideWith((request) => request.action !== 'commit'), { count: 0 }, { keepWorktrees: false });
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+    expect(outcome.worktrees).toHaveLength(1);
+    expect(git(outcome.worktrees[0]!.path, 'status', '--porcelain')).toContain('agent-output.txt');
+  });
+
+  it('removes a clean worktree on request and keeps its branch and commit', async () => {
+    const { outcome, sandbox, events } = await run(approveAll, { count: 0 }, { keepWorktrees: false });
+    const committed = outcome.manifest.results[0]!;
+    expect(committed.changes).toEqual(['agent-output.txt']);
+    expect(outcome.worktrees).toHaveLength(0);
+    expect(outcome.manifest.worktrees ?? []).toEqual([]);
+    expect(events()).toContain('worktree.removed');
+    const branch = git(sandbox, 'branch', '--list', 'cc/*', '--format=%(refname:short)');
+    expect(git(sandbox, 'show', `${branch}:agent-output.txt`)).toBe('agent change');
+  });
+
+  it('keeps a worktree whose edit only content comparison sees, when its commit is refused', async () => {
+    class StealthBuilder extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          const file = join(request.cwd, 'README.md');
+          const past = new Date(Date.now() - 3_600_000);
+          utimesSync(file, past, past);
+          execFileSync('git', ['update-index', '--refresh'], { cwd: request.cwd, stdio: 'ignore' });
+          rewriteKeepingTimes(file, (text) => text.replace('fixture', 'FIXTURE'));
+          // Only the hidden edit: git status must see nothing to keep.
+          return FakeAdapter.prototype.execute.call(this, request);
+        }
+        return super.execute(request);
+      }
+    }
+    const { outcome } = await run(decideWith((request) => request.action !== 'commit'), { count: 0 }, {
+      codex: new StealthBuilder('codex', 'openai'), keepWorktrees: false,
+      sandbox: (repository) => { git(repository, 'config', 'core.checkStat', 'minimal'); git(repository, 'config', 'core.trustctime', 'false'); },
+    });
+    const worktree = outcome.worktrees[0]!;
+    expect(git(worktree.path, 'status', '--porcelain')).toBe('');
+    expect(existsSync(worktree.path)).toBe(true);
+    expect(readFileSync(join(worktree.path, 'README.md'), 'utf8')).toContain('FIXTURE');
+  });
+
+  it('keeps a worktree whose agent detached HEAD, so its commits are not orphaned', async () => {
+    class Detacher extends CountingAdapter {
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'builder') {
+          git(request.cwd, 'switch', '-q', '--detach');
+          writeFileSync(join(request.cwd, 'detached.txt'), 'x\n');
+          git(request.cwd, 'add', 'detached.txt');
+          git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', 'detached');
+          // Nothing uncommitted: only the detached HEAD keeps the worktree.
+          return FakeAdapter.prototype.execute.call(this, request);
+        }
+        return super.execute(request);
+      }
+    }
+    const { outcome } = await run(approveAll, { count: 0 }, { codex: new Detacher('codex', 'openai'), keepWorktrees: false });
+    const worktree = outcome.worktrees[0]!;
+    expect(git(worktree.path, 'status', '--porcelain')).toBe('');
+    expect(existsSync(worktree.path)).toBe(true);
+    expect(git(worktree.path, 'log', '-1', '--format=%s')).toBe('detached');
+  });
+
+  it('stops when a gate command changes Git configuration, and keeps the worktree', async () => {
+    const { outcome } = await run(approveAll, { count: 0 }, { keepWorktrees: false, gate: (cwd) => git(cwd, 'config', 'filter.gate.clean', 'cat') });
+    const validator = outcome.manifest.results.find((result) => result.harness === 'internal-validator');
+    expect(validator).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
+    expect(validator?.blockers.join(' ')).toContain('Git configuration or history files');
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+    expect(outcome.worktrees).toHaveLength(1);
   });
 });

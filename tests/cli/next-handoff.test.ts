@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { RunManifest } from '../../packages/schemas/src/index.js';
+import { safeRunDirectoryName } from '../../packages/evidence/src/index.js';
 
 // Runs the built CLI against a private, throwaway run store.
 const HOME = mkdtempSync(join(tmpdir(), 'cc-next-cli-'));
@@ -23,7 +24,7 @@ const manifest: RunManifest = {
   results: [{ taskId: 'T-1', assignmentId: 'A-2', agentId: 'reviewer-claude', role: 'reviewer', stance: 'critical', provider: 'anthropic', harness: 'claude', surface: 'cli', billingChannel: 'subscription', status: 'completed', changes: [], tests: [], evidence: [], findings: [{ id: 'F-1', severity: 'low', summary: FORGED, evidenceIds: [], blocking: true }], risks: [], blockers: [], recommendation: 'changes_required' }],
 };
 
-describe('cc next and cc handoff', () => {
+describe('ccon next and ccon handoff', () => {
   it('prints untrusted run text on single lines, so it cannot forge steps, commands or terminal escapes', () => {
     store('RUN-EVIL', manifest);
     const result = cli('next', '--run', 'RUN-EVIL');
@@ -37,8 +38,8 @@ describe('cc next and cc handoff', () => {
     store('RUN-JSON', { ...manifest, runId: 'RUN-JSON', task: { ...task, objective: 'Plain objective' }, results: [{ ...manifest.results[0]!, status: 'awaiting_external', findings: [] }] });
     const result = cli('next', '--run', 'RUN-JSON', '--json');
     const action = (JSON.parse(result.stdout) as { nextActions: Array<{ argv?: string[][]; commands?: string[] }> }).nextActions[0];
-    expect(action?.argv).toEqual([['cc', 'handoff', '--run', 'RUN-JSON', '--assignment', 'A-2']]);
-    expect(action?.commands).toEqual(['cc handoff --run RUN-JSON --assignment A-2']);
+    expect(action?.argv).toEqual([['ccon', 'handoff', '--run', 'RUN-JSON', '--assignment', 'A-2']]);
+    expect(action?.commands).toEqual(['ccon handoff --run RUN-JSON --assignment A-2']);
   });
 
   it('prints only the exact prompt on stdout when redirected, and refuses unknown assignments', () => {
@@ -49,6 +50,35 @@ describe('cc next and cc handoff', () => {
     const unknown = cli('handoff', '--run', 'RUN-EVIL', '--assignment', 'A-9');
     expect(unknown.status).toBe(1);
     expect(unknown.stderr).toContain('A-9 is not part of RUN-EVIL');
+  });
+
+  it('prints errors that carry run text through printable(), and --json without raw format characters', () => {
+    const hostile = 'x\u001b]0;PWNED\u0007\u001b[2J';
+    store('RUN-HOSTILE', { ...manifest, runId: hostile, handoffs: [{ id: 'HP-12345678', to: 'A-2', sha256: 'c'.repeat(64), expiresAt: '2099-01-01T00:00:00.000Z' }] });
+    const packets = join(HOME, 'runs', safeRunDirectoryName(hostile), 'handoffs');
+    mkdirSync(packets, { recursive: true });
+    writeFileSync(join(packets, 'HP-12345678.json'), '{}');
+    const refused = cli('handoff', '--run', 'RUN-HOSTILE', '--assignment', 'A-2');
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('does not match the digest');
+    expect(refused.stderr).not.toMatch(/[\u001b\u0007]/u);
+    store('RUN-BIDI', { ...manifest, runId: 'RUN-BIDI', results: [{ ...manifest.results[0]!, findings: [{ id: 'F-1', severity: 'low', summary: 'evil \u202e\u009b text', evidenceIds: [], blocking: true }] }] });
+    const json = cli('next', '--run', 'RUN-BIDI', '--json');
+    expect(json.stdout).not.toMatch(/[\u202e\u009b]/u);
+    expect(JSON.stringify(JSON.parse(json.stdout))).toContain('\u202e');
+  });
+
+  it('keeps runs it cannot read, and is not stopped by a stray directory', () => {
+    const old = new Date(Date.now() - 10 * 86_400_000);
+    mkdirSync(join(HOME, 'runs', 'RUN-UNREADABLE'), { recursive: true });
+    writeFileSync(join(HOME, 'runs', 'RUN-UNREADABLE', 'manifest.json'), '{ not json');
+    utimesSync(join(HOME, 'runs', 'RUN-UNREADABLE', 'manifest.json'), old, old);
+    mkdirSync(join(HOME, 'runs', 'not a run id'), { recursive: true });
+    writeFileSync(join(HOME, 'runs', 'not a run id', 'manifest.json'), '{}');
+    const result = cli('runs', '--older-than', '1', '--apply');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^KEEP RUN-UNREADABLE: its manifest cannot be read/m);
+    expect(cli('runs').status).toBe(0);
   });
 
   it('refuses a stored manifest that breaks the contract', () => {

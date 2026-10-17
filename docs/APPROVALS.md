@@ -95,7 +95,7 @@ reset or rewrote so that it no longer descends from its base is flagged too. Eit
 makes the run `human_required`.
 
 Every decision is single-use. Nothing reads approval records back as
-authority, so a stored record cannot approve a later action, and `cc import` rejects
+authority, so a stored record cannot approve a later action, and `ccon import` rejects
 manifests that carry approval records.
 
 A refused provider start removes the fresh, unused agent worktree. A refused commit
@@ -121,7 +121,7 @@ isolation: only the client process itself is terminated.
 
 ## Using it
 
-`cc run --execute` prompts in the invoking terminal on stderr. Stdout keeps the JSON
+`ccon run --execute` prompts in the invoking terminal on stderr. Stdout keeps the JSON
 result. The prompt shows the action, recipient, repository, revision, every bound value and
 the approval digest, then asks you to type a six-character confirmation code derived from
 exactly those requests. Input typed before the prompt appeared, such as while a provider
@@ -140,9 +140,14 @@ truncated, review the full diff before approving. If the approver itself fails, 
 still completes with `human_required`. Dry runs ask nothing because they execute nothing.
 There is intentionally no flag that pre-approves or auto-approves.
 
-`cc harness-smoke` is unchanged: it is itself an explicit, single-action command with a
+`ccon harness-smoke` is unchanged: it is itself an explicit, single-action command with a
 fixed, documented smoke prompt and remains the trust step that must pass before any
 execution is offered.
+
+Client diagnostics (`--version`, and each client's official sign-in status command) are
+not gated. They receive no prompt, repository or task context, and run in an empty
+private directory with the provider environment
+([`AUTHENTICATION.md`](AUTHENTICATION.md#client-states-before-a-provider-starts)).
 
 ## Evidence
 
@@ -154,12 +159,14 @@ stored, only their digests and sizes. Each decision is also appended to the run'
 
 ## Not covered here
 
-- No deployment connector exists yet. Any future deploy, PR-creation or other external
-  side-effect path must call `ApprovalGate.authorize` before dispatch (#35, #32
-  deployment boundary). Native environment protection rules remain authoritative.
-- Commits an agent makes itself are not approved here, only reported and checked for
-  sensitive paths (see above). Their content is not scanned for secrets yet; that is
-  tracked under #36.
+- No deployment connector exists yet. Any future deploy or other external side-effect
+  path must call `ApprovalGate.authorize` before dispatch (#32 deployment boundary).
+  Native environment protection rules remain authoritative. Draft pull-request creation
+  (`ccon pr --create`, #35) already does: it asks for a `context_disclosure` approval bound
+  to the exact push and pull-request text ([`GITHUB.md`](GITHUB.md)).
+- Commits an agent makes itself are not approved here, only reported and checked (see
+  above and [`WORKTREES.md`](WORKTREES.md)). Every file version they introduced is
+  scanned for credentials; history past the scan budget blocks the run.
 - Gate commands run in the validation worktree as it is on disk. The approval binds
   tracked and untracked non-ignored content, but not ignored files the agent wrote,
   working trees of nested repositories or submodules (only their commit pointers),
@@ -175,7 +182,7 @@ stored, only their digests and sizes. Each decision is also appended to the run'
   and the Git operation after it is not detected.
 - `core.hooksPath` disables Git's hook directory. If a future Git release adds hooks
   defined directly in configuration, re-check this boundary before upgrading.
-- Not bound: the environment variables a provider process inherits (`cc doctor` warns
+- Not bound: the environment variables a provider process inherits (`ccon doctor` warns
   about API-key variables that would bypass subscription billing), and ignored files such
   as `.env`, which a provider with repository access may still be able to read. Keep
   secrets out of repositories you hand to an agent.

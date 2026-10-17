@@ -16,5 +16,9 @@ for (const name of GIT_LOCAL_ENV_VARS) delete process.env[name];
 const home = mkdtempSync(join(tmpdir(), 'cc-test-home-'));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
+// Hermetic Git: no system or global configuration (identity, hooks, filters, signing).
+process.env.XDG_CONFIG_HOME = home;
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+process.env.GIT_CONFIG_GLOBAL = join(home, '.gitconfig');
 delete process.env.CODE_CONDUCTOR_HOME;
 afterAll(() => rmSync(home, { recursive: true, force: true }));

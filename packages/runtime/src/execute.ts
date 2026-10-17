@@ -1,16 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
-import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
-import { createBuiltinAdapters } from '@code-conductor/adapters';
+import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, HandoffPacket, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
+import { buildHandoffPacket, describeHandoff, handoffExpired, renderHandoff, validHandoffTtl } from './handoff.js';
+import type { ClientAuthStatus, HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
+import { configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
-import { GIT_CONTROL_CHANGED } from './next-actions.js';
+import { CLIENT_BILLS_SEPARATELY, CLIENT_NOT_SIGNED_IN, GIT_CONTROL_CHANGED } from './next-actions.js';
+import { shortList, summarizeFiles } from './change-summary.js';
 
 export interface ExecuteOptions {
   execute?: boolean;
@@ -20,7 +22,8 @@ export interface ExecuteOptions {
   gateExecutor?: CommandExecutor;
   timeoutMs?: number;
   keepWorktrees?: boolean;
-  isHarnessTrusted?: (harness: string, mode: 'read' | 'modify', surface?: string) => boolean;
+  /** Workstation trust for this harness, mode and surface, bound to the installed client version when given. */
+  isHarnessTrusted?: (harness: string, mode: 'read' | 'modify', surface?: string, clientVersion?: string) => boolean;
   /**
    * Asked immediately before each consequential action: starting a provider
    * process, disclosing context to it, running gate commands and committing.
@@ -30,12 +33,14 @@ export interface ExecuteOptions {
   /** Gate profiles a person chose for this run; otherwise profiles are detected. */
   gateProfiles?: string[];
   approvalTtlMs?: number;
+  /** How long a handoff packet stays valid (default 24 hours). */
+  handoffTtlMs?: number;
   now?: () => number;
 }
 export interface ExecuteOutcome { plan: TaskPlan; manifest: RunManifest; manifestPath: string; pendingExternal: AgentAssignment[]; worktrees: WorktreeHandle[] }
 
 /** The exact prompt an assignment receives; also used for a person-driven manual handoff. */
-export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment): string {
+export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment, handoff?: { packet: HandoffPacket; sha256?: string }): string {
   return [
     `Code Conductor task ${task.id}.`, `Objective: ${task.objective}`, `Role: ${assignment.role}. Stance: ${assignment.stance}.`,
     `Harness: ${assignment.harness}. Surface: ${assignment.surface ?? 'unspecified'}.`,
@@ -44,39 +49,20 @@ export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment
     `Specializations: ${task.specializations?.length ? task.specializations.join(', ') : 'Use approved routing/configuration.'}`,
     'Read AGENTS.md and applicable repository instructions before acting.',
     'Do not reveal private chain-of-thought. Return conclusions, evidence, changes, tests, findings, risks, blockers, and recommendation only.',
+    ...(handoff ? [renderHandoff(handoff.packet, handoff.sha256)] : []),
     'Your FINAL line MUST be CC_RESULT_JSON:<single-line JSON object> matching AgentResult fields that you control: status, changes, tests, evidence, findings, risks, blockers, recommendation, and optionally notVerified (a list of checks you did not perform or could not verify).',
   ].join('\n');
 }
 
 function sha256(text: string): string { return createHash('sha256').update(text).digest('hex'); }
 
-// Files that can change what later runs: CI, Git hooks, scripts, dependencies and
-// package-manager settings, Git behaviour, and agent, editor or dev-container
-// configuration that clients load automatically. Matched case-insensitively, because
-// case-insensitive file systems load `.Claude/` as `.claude/`.
-const EXECUTION_RELEVANT_FILES = new Set([
-  'package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
-  '.npmrc', '.yarnrc', '.yarnrc.yml', '.pnpmfile.cjs', '.envrc', 'makefile', 'dockerfile', 'jenkinsfile',
-  '.gitattributes', '.gitmodules', '.gitignore', '.pre-commit-config.yaml', 'lefthook.yml', 'lefthook.yaml', '.lefthook.yml',
-  '.gitlab-ci.yml', 'azure-pipelines.yml', '.mcp.json', 'agents.md', 'claude.md', 'gemini.md', 'apm.yml', 'apm.lock.yaml', 'apm-policy.yml',
-]);
-const EXECUTION_RELEVANT_DIRECTORIES = new Set(['.github', '.husky', '.githooks', 'scripts', '.circleci', '.devcontainer', '.vscode', '.claude', '.codex', '.cursor', '.gemini', '.kiro']);
-const EXECUTABLE = /\.(sh|bash|zsh|ps1|psm1|cmd|bat|exe)$/;
-function executionRelevant(file: string): boolean {
-  const segments = file.toLowerCase().split('/');
-  const leaf = segments.at(-1) ?? '';
-  return EXECUTION_RELEVANT_FILES.has(leaf) || EXECUTABLE.test(leaf) || segments.slice(0, -1).some((segment) => EXECUTION_RELEVANT_DIRECTORIES.has(segment));
+// Location and kind only, never the matched value.
+function describeSecrets(secrets: ReadonlyArray<{ path: string; line: number; kind: string }>): string {
+  return `${secrets.slice(0, 10).map((item) => `${item.path}:${item.line} ${item.kind}`).join('; ')}${secrets.length > 10 ? `; and ${secrets.length - 10} more` : ''}`;
 }
-// Leads with the counts, so a truncated display still says how many files can change
-// what later runs; those files are listed before any others.
-function summarizeFiles(files: readonly string[]): string {
-  const relevant = files.filter(executionRelevant);
-  const others = files.filter((file) => !executionRelevant(file));
-  const shown = others.slice(0, 20);
-  return `${files.length} changed file(s), ${relevant.length} of them able to change what later runs (CI, hooks, scripts, dependencies, agent or editor configuration)${relevant.length ? `: ${relevant.join(', ')}` : ''}. ${others.length ? `Other files: ${shown.join(', ')}${others.length > shown.length ? `, … (${others.length - shown.length} more)` : ''}` : 'No other files'}`;
-}
-function shortList(shas: readonly string[], limit = 10): string {
-  return `${shas.slice(0, limit).map((sha) => sha.slice(0, 12)).join(', ')}${shas.length > limit ? `, … (${shas.length - limit} more)` : ''}`;
+// Content Code Conductor did not scan is never committed by it.
+function describeUnscanned(files: readonly string[]): string {
+  return `${files.length} file(s) past the ${MAX_SCAN_BYTES / (1024 * 1024)} MiB credential-scan budget were not scanned: ${files.slice(0, 10).join(', ')}${files.length > 10 ? `, … (${files.length - 10} more)` : ''}`;
 }
 
 function mergeDecision(task: TaskEnvelope, results: AgentResult[], gates: GateExecution[], approvals: readonly ApprovalRecord[]): MergeDecision {
@@ -98,6 +84,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   const available = new Set([...adapters.entries()].filter(([, adapter]) => adapter.available()).map(([id]) => id));
   const plan = planTask(root, task, { availableHarnesses: available.size ? available : undefined });
   const manifest: RunManifest = { runId: plan.runId, task, assignments: plan.assignments, results: [], gates: [] };
+  if (options.handoffTtlMs !== undefined && !validHandoffTtl(options.handoffTtlMs)) throw new Error('Handoff TTL must be a positive number of milliseconds, at most 7 days.');
+  const clock = options.now ?? Date.now;
   const approvals = new ApprovalGate({ ...(options.approver ? { approver: options.approver } : {}), ...(options.approvalTtlMs !== undefined ? { ttlMs: options.approvalTtlMs } : {}), ...(options.now ? { now: options.now } : {}) });
   // Every consequential action goes through here. A request that cannot even be
   // built (for example Git failing to report the working tree) fails closed.
@@ -112,6 +100,23 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     }
   };
   const blockedResult = (assignment: AgentAssignment, blocker: string): AgentResult => ({ ...externalAwaitingResult(assignment, blocker), status: 'blocked', recommendation: 'human_required' });
+  // Versioned handoff from the completed work an assignment depends on: explicit
+  // recipient, expiry, prior findings, unresolved disagreements and provenance. Only
+  // called after the Git-control check for `cwd` passed, because its provenance hashes
+  // the working tree with `git add`, which runs filters the configuration defines.
+  const prepareHandoff = (assignment: AgentAssignment, cwd: string): { handoff?: { packet: HandoffPacket; sha256: string }; blocker?: string } => {
+    if (!assignment.dependsOn.length) return {};
+    try {
+      const state = workingTreeState(cwd);
+      const packet = buildHandoffPacket(manifest, assignment, { repository: cwd, revision: state.revision, tree: state.tree }, { ...(options.handoffTtlMs !== undefined ? { ttlMs: options.handoffTtlMs } : {}), now: clock() });
+      if (!packet) return {};
+      const digest = store.saveHandoff(packet);
+      manifest.handoffs = [...(manifest.handoffs ?? []), { id: packet.id, to: assignment.id, sha256: digest, expiresAt: packet.expiresAt }];
+      return { handoff: { packet, sha256: digest } };
+    } catch (error) {
+      return { blocker: `The handoff packet for ${assignment.id} could not be prepared (${error instanceof Error ? error.message : String(error)}).` };
+    }
+  };
   const pendingExternal: AgentAssignment[] = [];
   const createdWorktrees: WorktreeHandle[] = [];
   const executedGates: GateExecution[] = [];
@@ -138,7 +143,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         else if (baseline !== digest) changed = 'changed since Code Conductor first read them in this run';
       }
     } catch { changed = 'could not be read'; }
-    return changed && `${GIT_CONTROL_CHANGED} (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates) for ${cwd} ${changed} (checked ${when}). Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\` and the repository's .git directory before running again. Agent changes are preserved uncommitted.`;
+    return changed && `${GIT_CONTROL_CHANGED} (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates, repositories nested in the work tree) for ${cwd} ${changed} (checked ${when}). Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\`, the repository's .git directory and any repository nested in the work tree before running again. Agent changes are preserved uncommitted.`;
   };
   const save = (): string => store.saveManifest(manifest);
   store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'run.planned', message: `Planned ${plan.assignments.length} assignment(s).` });
@@ -191,6 +196,9 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           const skipped = dropped.length ? ` Detected profile(s) not run because you chose others: ${dropped.join(', ')}.` : '';
           const untrusted = validationRoot === primaryBuilderWorktree?.path ? ' Prerequisites such as installed dependencies, .terraform or build output in this agent worktree were created during the run, possibly by the agent, and are not bound by this approval.' : '';
           const approval = await authorize(() => {
+            // Built again after the person decides: Git configuration may have changed meanwhile.
+            stopped = controlChange(validationRoot, 'while gate commands were being approved');
+            if (stopped) throw new Error(stopped);
             const state = workingTreeState(validationRoot);
             return [{
               action: 'local_execution', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: validationRoot, revision: state.revision, recipient: 'local:deterministic-gates',
@@ -199,7 +207,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             }];
           });
           if (!approval.approved) {
-            manifest.results.push(blockedResult(assignment, approval.blocker));
+            manifest.results.push(blockedResult(assignment, stopped ? `${stopped} The gate commands did not run.` : approval.blocker));
             save();
             continue;
           }
@@ -208,11 +216,13 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         executedGates.push(...gateExecutions);
         manifest.gates.push(...gateExecutions.map((item) => item.result));
         const failed = blockingGateFailure(gateExecutions);
+        // Gate commands run the repository's own scripts, which can change Git configuration too.
+        stopped = controlChange(validationRoot, 'after running gate commands');
         manifest.results.push({
           taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance,
-          provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: 'local', status: failed ? 'failed' : 'completed', changes: [],
+          provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: 'local', status: stopped ? 'blocked' : failed ? 'failed' : 'completed', changes: [],
           tests: gateExecutions.map((item) => item.result), evidence: gateExecutions.map((item) => item.evidence), findings: [], risks: [],
-          blockers: failed ? ['Blocking deterministic gate failed.'] : [], recommendation: failed ? 'changes_required' : 'continue',
+          blockers: [...(failed ? ['Blocking deterministic gate failed.'] : []), ...(stopped ? [stopped] : [])], recommendation: stopped ? 'human_required' : failed ? 'changes_required' : 'continue',
         });
         store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'validation.completed', assignmentId: assignment.id, message: failed ? 'failed' : 'completed' });
         save();
@@ -221,7 +231,12 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
 
       const adapter = adapters.get(assignment.harness);
       if (!adapter || !adapter.available()) {
-        const result = externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? 'unknown'} requires manual/platform integration or is unavailable on this workstation.`);
+        // A person completes it with `ccon handoff`, which prints the same packet.
+        const manualCwd = primaryBuilderWorktree?.path ?? root;
+        stopped = assignment.dependsOn.length ? controlChange(manualCwd, 'before preparing a manual handoff') : undefined;
+        if (stopped) { manifest.results.push(blockedResult(assignment, stopped)); save(); continue; }
+        const prepared = prepareHandoff(assignment, manualCwd);
+        const result = externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? 'unknown'} requires manual/platform integration or is unavailable on this workstation.${prepared.blocker ? ` ${prepared.blocker}` : ''}`);
         manifest.results.push(result); pendingExternal.push(assignment); save(); continue;
       }
 
@@ -232,55 +247,98 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       }
 
       const trustMode = assignment.authority.includes('modify_worktree') ? 'modify' : 'read';
-      if (!options.isHarnessTrusted?.(assignment.harness, trustMode, assignment.surface ?? adapter.executionSurface)) {
-        manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? adapter.executionSurface} has not passed Code Conductor workstation ${trustMode} smoke validation.`), status: 'blocked', recommendation: 'changes_required' });
+      const clientVersion = adapter.version();
+      if (!options.isHarnessTrusted?.(assignment.harness, trustMode, assignment.surface ?? adapter.executionSurface, clientVersion)) {
+        manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? adapter.executionSurface} has not passed Code Conductor workstation ${trustMode} smoke validation${clientVersion ? ` for its installed version (${clientVersion})` : ''}.`), status: 'blocked', recommendation: 'changes_required' });
+        save(); continue;
+      }
+      // A client whose user configuration lives in the repository would take the
+      // repository's hooks, env block and credential helper as "user" settings, which the
+      // sign-in probe cannot see.
+      const inside = configurationInsideRepository(assignment.harness, root);
+      if (inside.length) {
+        manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} would read its user configuration from inside the repository: ${inside.join(', ')}. The repository could then supply the client's settings (hooks, environment, credential helper) after the sign-in check. Point it outside the repository. The provider was not started.`), status: 'blocked', recommendation: 'changes_required' });
+        save(); continue;
+      }
+      // Installed and trusted is not signed in: ask the official client, before any
+      // worktree or approval, and never start a provider that is not signed in or would
+      // bill an assignment meant for a subscription separately.
+      const signInProblem = adapter.authStatus ? await (async () => {
+        let auth: ClientAuthStatus;
+        try { auth = await adapter.authStatus!(); } catch { auth = { state: 'unknown', billing: 'unknown', command: [adapter.command ?? assignment.harness] }; }
+        const command = `\`${auth.command.join(' ')}\``;
+        if (auth.state !== 'authenticated') return `Harness ${assignment.harness} ${CLIENT_NOT_SIGNED_IN}: ${command} ${auth.state === 'unauthenticated' ? 'reports that it is not signed in' : 'did not report a sign-in state Code Conductor recognises'}. Sign in with the official client (\`ccon doctor\` shows how), then run the task again. The provider was not started.`;
+        if (assignment.billingChannel === 'subscription' && auth.billing !== 'subscription') return `Harness ${assignment.harness} ${auth.billing === 'separately_billed' ? 'would use' : 'may use'} ${CLIENT_BILLS_SEPARATELY} (${auth.method ?? 'unrecognised method'}, from ${command}) for an assignment billed to the subscription (subscription_first). Sign in with your subscription in the official client, or remove that credential from the client's own configuration. The provider was not started.`;
+        return undefined;
+      })() : undefined;
+      if (signInProblem) {
+        manifest.results.push({ ...externalAwaitingResult(assignment, signInProblem), status: 'blocked', recommendation: 'changes_required' });
         save(); continue;
       }
 
       let cwd = root;
       let assignmentWorktree: WorktreeHandle | undefined;
       if (assignment.authority.includes('modify_worktree')) {
+        // `git worktree add` checks files out, which runs smudge filters.
+        stopped = controlChange(root, 'before creating an agent worktree');
+        if (stopped) { manifest.results.push(blockedResult(assignment, `${stopped} The provider was not started.`)); save(); continue; }
         assignmentWorktree = worktrees.create(root, task.id, assignment.agentId);
         createdWorktrees.push(assignmentWorktree); cwd = assignmentWorktree.path;
         manifest.worktrees = [...(manifest.worktrees ?? []), { assignmentId: assignment.id, path: assignmentWorktree.path, branch: assignmentWorktree.branch, baseSha: assignmentWorktree.baseSha }];
       } else if (primaryBuilderWorktree) cwd = primaryBuilderWorktree.path;
 
-      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment) };
+      const surface = assignment.surface ?? adapter.executionSurface;
+      const recipient = `${assignment.provider}/${assignment.harness}@${surface}`;
+      stopped = controlChange(cwd, `before starting ${recipient}`);
+      const prepared = stopped ? {} : prepareHandoff(assignment, cwd);
+      const handoff = prepared.handoff;
+      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment, handoff) };
       // Starting the client and disclosing the prompt plus repository access are
       // approved together but recorded separately, each bound to this recipient.
       // Every start, including a retry, is a new process and a new disclosure, so
       // each attempt needs its own approval of the then-current working tree.
-      const surface = assignment.surface ?? adapter.executionSurface;
-      const recipient = `${assignment.provider}/${assignment.harness}@${surface}`;
       const promptBytes = Buffer.byteLength(request.prompt, 'utf8');
       const invocation = adapter.invocation?.(request) ?? { command: adapter.command ?? 'platform', args: [] };
       // The prompt is bound by digest; redact it wherever an adapter embeds it.
       const argv = [invocation.command, ...invocation.args.map((arg) => (request.prompt && arg.includes(request.prompt) ? arg.replaceAll(request.prompt, '<prompt>') : arg))];
       const authorizeStart = (attempt: number) => authorize((): ApprovalRequest[] => {
+        // Also checked when the request is rebuilt after the decision: a packet that expired
+        // while the person was deciding is never disclosed.
+        if (handoff && handoffExpired(handoff.packet, clock())) throw new Error(`handoff packet ${handoff.packet.id} expired at ${handoff.packet.expiresAt}`);
+        // Git configuration may have changed while the person was deciding; hashing the tree
+        // under changed configuration would run its filters.
+        stopped = controlChange(cwd, `while ${recipient}'s start was being approved`);
+        if (stopped) throw new Error(stopped);
         const state = workingTreeState(cwd);
         const bound = { runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: cwd, revision: state.revision, recipient };
         const prefix = attempt ? `Retry attempt ${attempt + 1}: ` : '';
         return [
           { ...bound, action: 'local_execution', bindings: { attempt: String(attempt + 1), tree: state.tree, argv: sha256(JSON.stringify(argv)), surface, authority: assignment.authority.join(','), billingChannel: assignment.billingChannel }, summary: `${prefix}Start \`${argv.join(' ')}\` (${surface}, ${assignment.billingChannel}) as ${assignment.role} with authority ${assignment.authority.join(', ')} in ${cwd}.` },
-          { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt to ${recipient}, running in ${cwd} at ${state.revision.slice(0, 12)}. What else it can read is set by that client's own sandbox and permissions, not by Code Conductor.` },
+          { ...bound, action: 'context_disclosure', bindings: { attempt: String(attempt + 1), tree: state.tree, prompt: sha256(request.prompt), promptBytes: String(promptBytes) }, summary: `${prefix}Disclose the ${promptBytes}-byte task prompt${handoff ? `, including ${describeHandoff(handoff.packet, handoff.sha256)},` : ''} to ${recipient}, running in ${cwd} at ${state.revision.slice(0, 12)}. What else it can read is set by that client's own sandbox and permissions, not by Code Conductor.` },
         ];
       });
-      stopped = controlChange(cwd, `before starting ${recipient}`);
-      const approval = stopped ? { approved: false, blocker: `${stopped} The provider was not started.` } : await authorizeStart(0);
+      const approval = stopped ? { approved: false, blocker: `${stopped} The provider was not started.` }
+        : prepared.blocker ? { approved: false, blocker: `${prepared.blocker} The provider was not started.` }
+          : await authorizeStart(0);
       if (!approval.approved) {
+        // A configuration change found while the approval was rebuilt is recorded as such, so
+        // `ccon next` and `ccon worktrees` run no Git for this run either.
+        let blocker = stopped && !approval.blocker.includes(GIT_CONTROL_CHANGED) ? `${stopped} The provider was not started.` : approval.blocker;
         if (assignmentWorktree) {
-          // Nothing ran in the fresh worktree; remove it and its branch rather than leave them behind.
+          // Nothing ran in the fresh worktree; remove it and its branch rather than leave them
+          // behind, unless Git configuration changed: removal would run Git under it.
           const unused = assignmentWorktree;
-          let cleanup = '';
-          try { worktrees.remove(unused, true, false); }
-          catch (error) { cleanup = ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
+          if (stopped) blocker += ` The unused worktree ${unused.path} and its branch ${unused.branch} were kept, because removing them would run Git under the changed configuration; remove them after checking it.`;
+          else {
+            try { worktrees.remove(unused, true, false); }
+            catch (error) { blocker += ` Cleanup of the unused worktree/branch ${unused.branch} was incomplete: ${error instanceof Error ? error.message : String(error)}`; }
+          }
           if (!existsSync(unused.path)) {
             createdWorktrees.splice(createdWorktrees.indexOf(unused), 1);
             manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== unused.path);
           }
-          approval.blocker += cleanup;
         }
-        manifest.results.push(blockedResult(assignment, approval.blocker));
+        manifest.results.push(blockedResult(assignment, blocker));
         save();
         continue;
       }
@@ -338,6 +396,11 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${history.commits[0]}`, summary: `Agent-authored commits on ${handle.branch} since ${handle.baseSha.slice(0, 12)}: ${shortList(history.commits)}. Paths touched: ${history.files.join(', ')}` });
             const sensitive = history.files.filter(isSensitiveRepositoryPath);
             if (sensitive.length) throw new Error(`The agent's own commits on ${handle.branch} touch sensitive repository paths: ${sensitive.join(', ')}. Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
+            // Every file version the commits introduced is scanned, so a credential added and
+            // removed again is still found; history past the scan budget fails closed.
+            const scan = scanHistoryForNewSecrets(handle.path, handle.baseSha);
+            if (scan.findings.length) throw new Error(`The agent's own commits on ${handle.branch} add credential-looking strings (${describeSecrets(scan.findings)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
+            if (scan.unscanned.length) throw new Error(`The agent's own commits on ${handle.branch} could not be fully scanned for credentials: ${describeUnscanned(scan.unscanned)}. Code Conductor committed nothing; review the branch before using it.`);
           }
           // An agent can also move its branch away from the base (for example reset to an
           // older commit); the net file list then includes undoing the base's own changes.
@@ -364,6 +427,13 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
                 // Shown files, the sensitive-path check and the bound tree come from one snapshot.
                 const files = treeChangedFiles(handle.path, handle.baseSha, state.tree);
                 assertSafeChangedPaths(files);
+                // A nested repository Git did not report as one (for example under paths the
+                // agent staged) would be recorded as a gitlink, which Git then enters.
+                const links = newGitlinks(handle.path, handle.baseSha, state.tree);
+                if (links.length) throw new Error(`the change adds nested Git repositories (${links.join(', ')}), which Code Conductor never commits. Inspect them yourself`);
+                const scan = scanForNewSecrets(handle.path, handle.baseSha, state.tree);
+                if (scan.findings.length) throw new Error(`possible credentials in changed files (${describeSecrets(scan.findings)}). Remove them, or commit yourself after review if they are not secrets`);
+                if (scan.unscanned.length) throw new Error(`${describeUnscanned(scan.unscanned)}. Review them and commit yourself`);
                 expectedTree = state.tree;
                 expectedHead = state.revision;
                 return [{
@@ -412,12 +482,28 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     return { plan, manifest, manifestPath, pendingExternal, worktrees: createdWorktrees };
   } finally {
     // Keep modifying worktrees by default so agent changes and commits cannot be
-    // silently discarded. Cleanup must be an explicit caller choice.
+    // silently discarded. Cleanup is an explicit caller choice and applies the same rule
+    // as `ccon worktrees --remove-clean`: only a content-clean worktree on its own agent
+    // branch is removed (branches and their commits stay). Removal runs Git in the
+    // worktree, so nothing is removed once Git configuration changed. It never hides or
+    // changes the run outcome.
     if (options.keepWorktrees === false) {
-      for (const handle of createdWorktrees) worktrees.remove(handle, false, false);
-      // Removed worktrees are no longer offered for review.
-      manifest.worktrees = (manifest.worktrees ?? []).filter((record) => existsSync(record.path));
-      save();
+      const note = (type: 'worktree.removed' | 'worktree.retained', message: string): void => {
+        try { store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type, message }); } catch { /* The outcome is still returned to the caller. */ }
+      };
+      for (const handle of [...createdWorktrees]) {
+        const changed = stopped ?? controlChange(handle.path, 'before removing agent worktrees');
+        let kept = changed ? 'Git configuration or history files changed during the run; check them before removing it' : undefined;
+        if (!kept) {
+          try { removeCleanAgentWorktree(handle.path, worktrees.root, handle.branch); }
+          catch (error) { kept = error instanceof Error ? error.message : String(error); }
+        }
+        if (existsSync(handle.path)) { note('worktree.retained', `${handle.path}: ${kept ?? 'still present after removal'}`); continue; }
+        createdWorktrees.splice(createdWorktrees.indexOf(handle), 1);
+        manifest.worktrees = (manifest.worktrees ?? []).filter((record) => record.path !== handle.path);
+        note('worktree.removed', kept ? `${handle.path} was already gone (branch ${handle.branch} kept)` : `${handle.path} (branch ${handle.branch} kept)`);
+      }
+      try { store.saveManifest(manifest); } catch { /* The outcome is still returned to the caller. */ }
     }
   }
 }

@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const files = [
   resolve('apps/vscode/dist/extension.js'),
-  resolve('apps/vscode/dist/cc.js'),
+  resolve('apps/vscode/dist/ccon.js'),
 ];
 
 const stats = new Map();

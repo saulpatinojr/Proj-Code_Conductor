@@ -1,23 +1,23 @@
 #!/usr/bin/env node
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, printable, importRunManifest, nextActions, planTask, parseAgentResult, type NextAction } from '@code-conductor/runtime';
+import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, stoppedForGitControl, type NextAction, type PullRequestOptions } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
-import { defaultWorktreeRoot } from '@code-conductor/git';
-import { assertContract, type RunManifest } from '@code-conductor/schemas';
-import { createBuiltinAdapters } from '@code-conductor/adapters';
+import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
+import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
+import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, providerEnvironment } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
-import { githubAuthStatus, pullRequestChecks, pullRequestStatus } from '@code-conductor/github-gate';
+import { gh, githubAuthStatus, pullRequestStatus, summarizePullRequest, type PullRequestSummary } from '@code-conductor/github-gate';
 import { ContextOptimizer } from '@code-conductor/context-optimizer';
 import { TerminalApprover } from './approval-prompt.js';
-import { terminalText } from './terminal-text.js';
+import { terminalSafeJson, terminalText } from './terminal-text.js';
 
 const VERSION = '0.1.0';
 function hasCommand(command: string): boolean { const probe = process.platform === 'win32' ? 'where' : 'which'; return spawnSync(probe, [command], { stdio: 'ignore' }).status === 0; }
@@ -55,7 +55,7 @@ function vscodeExtensions(): Set<string> {
   return new Set(result.stdout.split(/\r?\n/).map((value) => value.trim().toLowerCase()).filter(Boolean));
 }
 
-function doctor(root: string): number {
+async function doctor(root: string): Promise<number> {
   const requiredClients = [['node', ['node']], ['git', ['git']], ['github', ['gh']]] as const;
   const optionalTools = [['apm', ['apm']], ['terraform', ['terraform']], ['ansible', ['ansible']], ['powershell', ['pwsh']], ['azure-cli', ['az']], ['aws-cli', ['aws']], ['gcloud', ['gcloud']], ['kubectl', ['kubectl']], ['helm', ['helm']]] as const;
   const workstation = new WorkstationStore();
@@ -78,9 +78,26 @@ function doctor(root: string): number {
     if (id === 'internal-validator') continue;
     const hint = signIn[id];
     const official = hint?.command ? ` sign-in=\`${formatCommand(hint.command)}\`${hint.docs ? ` (${hint.docs})` : ''}` : '';
-    console.log(`${adapter.available() ? 'OK' : 'INFO'} harness ${id}: surface=${adapter.executionSurface} command=${adapter.command ?? 'platform/manual'} version=${adapter.version() ?? 'unknown/not-applicable'}${official}`);
+    const installed = adapter.available();
+    const version = installed ? adapter.version() : undefined;
+    console.log(`${installed ? 'OK' : 'INFO'} harness ${id}: surface=${adapter.executionSurface} command=${adapter.command ?? 'platform/manual'} version=${version ? printable(version) : 'unknown/not-applicable'}${official}`);
+    if (!installed) continue;
+    // Four separate states: installed (above), signed in, healthy and trusted.
+    if (adapter.authStatus) {
+      const auth = await adapter.authStatus();
+      const how = `\`${formatCommand(auth.command)}\``;
+      if (auth.state === 'authenticated') console.log(`${auth.billing === 'subscription' ? 'OK' : 'WARN'} signed-in ${id}: ${printable(auth.method ?? 'unknown method')} (${auth.billing === 'subscription' ? 'subscription' : auth.billing === 'separately_billed' ? 'billed separately; subscription assignments will not start' : 'billing not recognised; subscription assignments will not start'}) per ${how}`);
+      else console.log(`WARN signed-in ${id}: ${auth.state === 'unauthenticated' ? 'not signed in' : 'state not recognised'} per ${how}; assignments will not start until it is.`);
+      console.log(`${version && auth.state !== 'unknown' ? 'OK' : 'WARN'} healthy ${id}: ${version ? 'reports its version' : 'does not report its version'} and ${auth.state !== 'unknown' ? 'its sign-in state' : 'no recognisable sign-in state'}`);
+    }
+    for (const mode of ['read', 'modify'] as const) {
+      const record = state.harnesses[`${id}@${adapter.executionSurface}`];
+      const trusted = workstation.isTrusted(id, mode, adapter.executionSurface, version);
+      if (trusted) console.log(`OK trusted ${id} ${mode}: smoke test passed for ${printable(version ?? '')}`);
+      else console.log(`INFO trusted ${id} ${mode}: ${record?.clientVersion && record.clientVersion !== version && (record.readValidatedAt || record.modifyValidatedAt) ? `smoke test passed for ${printable(record.clientVersion)}, not the installed version; ` : ''}run \`ccon harness-smoke ${id} --mode ${mode}\``);
+    }
   }
-  console.log('INFO authentication stays in each official client; installed or detected does not mean signed in, healthy or trusted. Code Conductor never reads or stores credentials.');
+  console.log('INFO authentication stays in each official client; Code Conductor runs only its documented status command and never reads or stores credentials.');
 
   const knownExtensions = [
     ['claude', 'anthropic.claude-code'],
@@ -100,19 +117,19 @@ function doctor(root: string): number {
     console.log(`${found ? 'OK' : 'INFO'} tool ${name}: ${found ? candidates.find(hasCommand) : 'not found (optional unless repository profile requires it)'}`);
   }
 
-  for (const [key, record] of Object.entries(state.harnesses)) console.log(`TRUST ${key}: read=${Boolean(record.readValidatedAt || record.modifyValidatedAt)} modify=${Boolean(record.modifyValidatedAt)} version=${record.clientVersion ?? 'unknown'}`);
-  for (const variable of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY']) if (process.env[variable]) console.log(`WARN billing.api_credential_detected: ${variable} is set; subscription-first policy may be bypassed. Value is intentionally not displayed.`);
+  for (const variable of BILLING_CREDENTIAL_VARIABLES) if (process.env[variable]) console.log(`WARN billing.api_credential_detected: ${variable} is set in this shell; Code Conductor removes it from provider processes (subscription-first), but other tools may still use it. Value is intentionally not displayed.`);
+  for (const variable of BILLING_ROUTING_VARIABLES) if (process.env[variable]) console.log(`WARN billing.provider_selection_detected: ${variable} is set in this shell and selects a separately billed provider, endpoint or credential; Code Conductor removes it from provider processes (subscription-first). Value is intentionally not displayed.`);
   if (hasCommand('gh')) console.log(`${githubAuthStatus(root).ok ? 'OK' : 'WARN'} github-auth`);
   if (hasCommand('apm')) { console.log(`${apmTargets(root).ok ? 'OK' : 'WARN'} apm-targets`); console.log(`${apmLockPresent(root) ? 'OK' : 'WARN'} apm-lock`); }
   const inventory = inventoryNativeCustomizations(root);
   const count = (kind: string, scope: string): number => inventory.entries.filter((entry) => entry.kind === kind && entry.scope === scope).length;
-  console.log(`INFO native-inventory: project agents=${count('agent', 'project')} skills=${count('skill', 'project')}; user agents=${count('agent', 'user')} skills=${count('skill', 'user')}${inventory.truncated ? ' (truncated)' : ''}. Details: cc agents`);
+  console.log(`INFO native-inventory: project agents=${count('agent', 'project')} skills=${count('skill', 'project')}; user agents=${count('agent', 'user')} skills=${count('skill', 'user')}${inventory.truncated ? ' (truncated)' : ''}. Details: ccon agents`);
   if (inventory.unmanagedProjectPaths.length) console.log(`INFO native-inventory.unmanaged: ${inventory.unmanagedProjectPaths.length} project file(s) not recorded in apm.lock.yaml (informational; apm audit is authoritative): ${inventory.unmanagedProjectPaths.join(', ')}`);
   let configStatus = 0;
   try {
     for (const name of ['roles', 'risk', 'capabilities', 'authorities', 'gates', 'mcp-catalog', 'references'] as const) loadConfiguration(root, name);
     console.log('OK packaged runtime configuration (not source-repository scaffold validation)');
-    if (isCodeConductorSource(root)) console.log('INFO source-repository: run `cc validate .` for the strict Code Conductor configuration/scaffold check.');
+    if (isCodeConductorSource(root)) console.log('INFO source-repository: run `ccon validate .` for the strict Code Conductor configuration/scaffold check.');
   } catch (error) { console.error(error instanceof Error ? error.message : String(error)); configStatus = 1; }
   return missingRequired || configStatus !== 0 ? 1 : 0;
 }
@@ -135,14 +152,14 @@ async function run(args: string[]): Promise<number> {
   if (!objective) { console.error('ERROR run.objective_required: --objective is required.'); return 2; }
   const execute = args.includes('--execute'); const workstation = new WorkstationStore();
   const task = createTask(objective, risk, root, listOption(args, '--specializations'));
-  const outcome = await executeTask(root, task, { execute, keepWorktrees: !args.includes('--cleanup-worktrees'), isHarnessTrusted: (harness, mode, surface) => workstation.isTrusted(harness, mode, surface), approver: new TerminalApprover(), ...(listOption(args, '--gate-profiles').length ? { gateProfiles: listOption(args, '--gate-profiles') } : {}) });
+  const outcome = await executeTask(root, task, { execute, keepWorktrees: !args.includes('--cleanup-worktrees'), isHarnessTrusted: (harness, mode, surface, clientVersion) => workstation.isTrusted(harness, mode, surface ?? 'cli', clientVersion), approver: new TerminalApprover(), ...(listOption(args, '--gate-profiles').length ? { gateProfiles: listOption(args, '--gate-profiles') } : {}) });
   console.log(JSON.stringify({ runId: outcome.plan.runId, execute, manifestPath: outcome.manifestPath, mergeDecision: outcome.manifest.mergeDecision, assignments: outcome.plan.assignments.map((a) => ({ role: a.role, harness: a.harness, surface: a.surface, stance: a.stance, authority: a.authority })), approvals: (outcome.manifest.approvals ?? []).map((a) => ({ action: a.action, recipient: a.recipient, status: a.status, requestDigest: a.requestDigest })), nextActions: nextActions(outcome.manifest, { worktreeRoot: defaultWorktreeRoot() }).map(presentAction), pendingExternal: outcome.pendingExternal.map((a) => a.id), worktrees: outcome.worktrees.map((w) => ({ path: w.path, branch: w.branch, baseSha: w.baseSha })) }, null, 2));
   return outcome.manifest.mergeDecision && outcome.manifest.mergeDecision.decision !== 'ready' ? 1 : 0;
 }
 
 async function harnessSmoke(args: string[]): Promise<number> {
   const harness = args[0]; const mode = (getOption(args, '--mode') ?? 'read') as HarnessTrustMode;
-  if (!harness || !['read', 'modify'].includes(mode)) { console.error('Usage: cc harness-smoke <codex|claude|kiro> --mode <read|modify> [--ack-kiro-policy]'); return 2; }
+  if (!harness || !['read', 'modify'].includes(mode)) { console.error('Usage: ccon harness-smoke <codex|claude|kiro> --mode <read|modify> [--ack-kiro-policy]'); return 2; }
   if (harness === 'antigravity') { console.error('BLOCKED: Antigravity unattended smoke is disabled pending current permission/sandbox revalidation.'); return 1; }
   const adapter = createBuiltinAdapters().get(harness);
   if (!adapter?.available()) { console.error(`ERROR: harness ${harness} is not available.`); return 1; }
@@ -157,12 +174,33 @@ async function harnessSmoke(args: string[]): Promise<number> {
       console.error('BLOCKED: Kiro ACP smoke may consume Kiro subscription credits. Read the current Kiro subscription/automation policy and rerun with --ack-kiro-policy only if this ACP-compatible development workflow is permitted for your account/use case.');
       return 1;
     }
-    if (mode === 'modify' && !workstation.isTrusted('kiro', 'read', 'acp')) {
-      console.error('BLOCKED: Run and pass the Kiro ACP read smoke before attempting modify smoke.');
+    if (mode === 'modify' && !workstation.isTrusted('kiro', 'read', 'acp', adapter.version())) {
+      console.error('BLOCKED: Run and pass the Kiro ACP read smoke (for the installed version) before attempting modify smoke.');
       return 1;
     }
   }
+  // The smoke test runs the provider for real: the same refusal as a run. In a repository,
+  // against its top level and against the folder Code Conductor was started in (a
+  // folder's own Git metadata, such as core.worktree, can move the top level elsewhere).
+  // Outside one, against that folder, for a relative value, which names a place in it.
+  const started = process.cwd();
+  const environment = providerEnvironment();
+  let topLevel: string | undefined;
+  try { topLevel = resolveRepositoryRoot(started); } catch { /* Not in a repository. */ }
+  const relativeOnly = Object.fromEntries(Object.entries(environment).filter(([name]) => { const raw = process.env[name]; return raw !== undefined && raw !== '' && !isAbsolute(raw); }));
+  const inside = [...new Set(topLevel
+    ? [...configurationInsideRepository(harness, topLevel, environment), ...configurationInsideRepository(harness, started, environment)]
+    : configurationInsideRepository(harness, started, relativeOnly))];
+  if (inside.length) { console.error(`BLOCKED: ${harness} would read its user configuration from inside the repository: ${printable(inside.join(', '), 2000)}. The repository could then supply the client's settings (hooks, environment, credential helper). Point it outside the repository.`); return 1; }
+  if (adapter.authStatus) {
+    const auth = await adapter.authStatus();
+    if (auth.state !== 'authenticated') { console.error(`BLOCKED: ${harness} is not signed in (\`${formatCommand(auth.command)}\` reported ${auth.state}). Sign in with the official client first; \`ccon doctor\` shows how.`); return 1; }
+    if (auth.billing !== 'subscription') { console.error(`BLOCKED: ${harness} is signed in with ${printable(auth.method ?? 'an unrecognised method')}, which ${auth.billing === 'separately_billed' ? 'is billed separately from your subscription' : 'Code Conductor cannot confirm as subscription billing'}. Sign in with your subscription first.`); return 1; }
+  }
 
+  // Trust is recorded for the version that ran, so it must not change during the test.
+  const clientVersion = adapter.version();
+  if (!clientVersion) { console.error(`BLOCKED: ${harness} does not report its version (\`${printable(adapter.command ?? harness)} --version\`). Trust is bound to the client version, so a smoke test without one could never be used.`); return 1; }
   const root = mkdtempSync(join(tmpdir(), 'cc-smoke-')); const workspace = join(root, 'workspace');
   try {
     spawnSync('git', ['init', workspace], { stdio: 'ignore' });
@@ -179,7 +217,8 @@ async function harnessSmoke(args: string[]): Promise<number> {
       : outcome.exitCode === 0;
     const ok = processOk && parsed.status === 'completed' && writeOk;
     if (!ok) { console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} changed=${changed.join(',') || 'none'}`); return 1; }
-    workstation.record(harness, mode, adapter.version(), `Temporary ${mode} smoke passed on ${adapter.executionSurface} without storing credentials.`, adapter.executionSurface);
+    if (adapter.version() !== clientVersion) { console.error(`SMOKE FAIL ${harness}: the client changed during the smoke test (${printable(clientVersion ?? 'no version')} before, ${printable(adapter.version() ?? 'no version')} after); run it again.`); return 1; }
+    workstation.record(harness, mode, clientVersion, `Temporary ${mode} smoke passed on ${adapter.executionSurface} without storing credentials.`, adapter.executionSurface);
     console.log(`SMOKE PASS ${harness} ${adapter.executionSurface} ${mode}`); return 0;
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
@@ -211,13 +250,13 @@ function nextCommand(args: string[]): number {
   try {
     const manifest = storedManifest(store, runId);
     const actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() });
-    if (args.includes('--json')) { console.log(JSON.stringify({ runId: manifest.runId, mergeDecision: manifest.mergeDecision, nextActions: actions.map(presentAction) }, null, 2)); return 0; }
+    if (args.includes('--json')) { console.log(terminalSafeJson({ runId: manifest.runId, mergeDecision: manifest.mergeDecision, nextActions: actions.map(presentAction) })); return 0; }
     // Everything taken from the run record is untrusted (runs can be imported): each
     // value is printed on one line, so it can neither rewrite the terminal nor forge a
     // step or a command line. Only Code Conductor starts a `$` line, with argv it built
     // and quoted for this platform's shell (nextActions drops commands it cannot show exactly).
     console.log(`Run ${printable(manifest.runId)}: ${manifest.mergeDecision ? `${printable(manifest.mergeDecision.decision)} — ${printable(manifest.mergeDecision.rationale)}` : 'planned (not executed)'}`);
-    if (!actions.length) console.log(manifest.mergeDecision ? 'No further step is needed from you for this run.' : 'No next action recorded. Dry-run plans execute nothing; use `cc run --execute` from an interactive terminal.');
+    if (!actions.length) console.log(manifest.mergeDecision ? 'No further step is needed from you for this run.' : 'No next action recorded. Dry-run plans execute nothing; use `ccon run --execute` from an interactive terminal.');
     const prompt = DEFAULT_SHELL === 'powershell' ? 'PS>' : '$';
     for (const [index, action] of actions.entries()) {
       // Titles and details mix Code Conductor's text with record values; control and format
@@ -230,29 +269,107 @@ function nextCommand(args: string[]): number {
   } catch (error) { console.error(`ERROR next.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
 }
 
+function worktreesCommand(args: string[]): number {
+  const store = new RunStore();
+  const root = defaultWorktreeRoot();
+  const removeClean = args.includes('--remove-clean');
+  const only = getOption(args, '--run');
+  const seen = new Set<string>();
+  let failures = 0;
+  for (const runId of only ? [only] : store.listRunIds()) {
+    let manifest: RunManifest;
+    try { manifest = storedManifest(store, runId); } catch { continue; }
+    // Only records naming an agent branch and an existing directory under the root, as for `ccon next`.
+    const stopped = stoppedForGitControl(manifest);
+    for (const record of recordedAgentWorktrees(manifest, root)) {
+      if (seen.has(record.path)) continue;
+      seen.add(record.path);
+      const where = `${printable(record.path)} branch=${printable(record.branch)} base=${record.baseSha.slice(0, 12)} run=${printable(manifest.runId)}`;
+      // Checking or removing a worktree runs Git in it (status, clean filters), so neither
+      // happens under configuration that changed during the run, nor while a run may still use it.
+      if (stopped) {
+        console.log(`INSPECT ${where}: the run stopped because Git configuration or history files changed, so no Git command was run here. Check them first: ${printable(formatCommand(['git', '-C', record.path, 'config', '--list', '--show-origin']), 4000, false)}`);
+        continue;
+      }
+      if (!manifest.mergeDecision) {
+        console.log(`ACTIVE ${where}: the run has no outcome (still running, or interrupted), so it was not checked`);
+        continue;
+      }
+      let problem: string | undefined;
+      try { problem = agentWorktreeRemovalProblem(record.path, root, record.branch); }
+      catch (error) { problem = error instanceof Error ? error.message : String(error); }
+      if (problem || !removeClean) { console.log(problem ? `KEEP ${where}: ${printable(problem)}` : `CLEAN ${where}`); continue; }
+      try { removeCleanAgentWorktree(record.path, root, record.branch); console.log(`REMOVED ${where} (the branch and its commits are kept)`); }
+      catch (error) { failures += 1; console.log(`KEPT ${where}: ${printable(error instanceof Error ? error.message : String(error))}`); }
+    }
+  }
+  if (!seen.size) console.log('No Code Conductor agent worktrees recorded in stored runs.');
+  else if (!removeClean) console.log('Worktrees are kept until you remove them. `ccon worktrees --remove-clean` removes only CLEAN ones (ignored files in them are deleted too) and keeps their branches; review the others in Source Control first.');
+  return failures ? 1 : 0;
+}
+
+function runsCommand(args: string[]): number {
+  const store = new RunStore();
+  const olderThan = getOption(args, '--older-than');
+  const days = olderThan === undefined ? undefined : Number(olderThan);
+  if (days !== undefined && (!Number.isFinite(days) || days < 1)) { console.error('ERROR runs.invalid_age: --older-than takes a number of days (1 or more).'); return 2; }
+  const apply = args.includes('--apply');
+  let candidates = 0;
+  for (const runId of store.listRunIds()) {
+    const age = store.runAgeMs(runId);
+    const name = printable(runId);
+    let manifest: RunManifest | undefined;
+    try { manifest = storedManifest(store, runId); } catch { manifest = undefined; }
+    const decision = manifest ? manifest.mergeDecision?.decision ?? 'planned' : 'unreadable';
+    const active = (manifest?.worktrees ?? []).filter((record) => existsSync(record.path)).map((record) => record.path);
+    const ageText = age === undefined ? 'age unknown' : `${(age / 86_400_000).toFixed(1)}d`;
+    if (days === undefined) { console.log(`${name} ${decision} ${ageText}${active.length ? ` worktrees=${active.length}` : ''}`); continue; }
+    if (age === undefined || age / 86_400_000 < days) continue;
+    // A run that cannot be read might still record a live worktree, so it is never deleted here.
+    if (!manifest) { console.log(`KEEP ${name}: its manifest cannot be read, so whether a worktree still uses it is unknown; inspect and remove it yourself.`); continue; }
+    if (active.length) { console.log(`KEEP ${name}: its worktree still exists (${active.map((path) => printable(path)).join(', ')}); remove or review it first.`); continue; }
+    candidates += 1;
+    if (apply) { store.deleteRun(runId); console.log(`DELETED ${name} (${ageText} old)`); }
+    else console.log(`WOULD DELETE ${name} (${ageText} old, ${decision})`);
+  }
+  if (days !== undefined && !apply && candidates) console.log('Preview only. Re-run with --apply to delete these runs\' local evidence (manifests, events, handoff packets); worktrees and branches are never touched.');
+  return 0;
+}
+
 function handoff(args: string[]): number {
   const runId = getOption(args, '--run'); const assignmentId = getOption(args, '--assignment');
-  if (!runId || !assignmentId) { console.error('Usage: cc handoff --run <runId> --assignment <assignmentId>'); return 2; }
+  if (!runId || !assignmentId) { console.error('Usage: ccon handoff --run <runId> --assignment <assignmentId>'); return 2; }
   try {
     const manifest = storedManifest(new RunStore(), runId);
     const assignment = manifest.assignments.find((item) => item.id === assignmentId);
     if (!assignment) { console.error(`ERROR handoff.unknown_assignment: ${assignmentId} is not part of ${runId}.`); return 1; }
+    const store = new RunStore();
+    const reference = [...(manifest.handoffs ?? [])].reverse().find((item) => item.to === assignmentId);
+    let handoff: { packet: HandoffPacket; sha256: string } | undefined;
+    if (reference) {
+      const packet = store.readHandoff(manifest.runId, reference.id, reference.sha256);
+      assertContract('HandoffPacket', packet);
+      const problem = handoffProblem(packet as HandoffPacket, reference, manifest.runId);
+      if (problem) { console.error(`ERROR handoff.refused: ${printable(problem)}.`); return 1; }
+      handoff = { packet: packet as HandoffPacket, sha256: reference.sha256 };
+    }
+    if (args.includes('--json')) { console.log(terminalSafeJson(handoff?.packet ?? null)); return 0; }
     // stderr carries guidance; stdout is only the prompt so it can be piped or copied exactly.
     console.error(`Manual handoff for ${printable(assignment.role)} (${printable(assignment.harness)}@${printable(assignment.surface ?? 'manual')}). Paste the prompt below into the official client yourself; this disclosure is your decision. Keep the client's result with run ${printable(runId)}.`);
-    const text = assignmentPrompt(manifest.task, assignment);
+    const text = assignmentPrompt(manifest.task, assignment, handoff);
     if (!process.stdout.isTTY) { process.stdout.write(`${text}\n`); return 0; }
     // On a terminal, untrusted task text must not drive it: each line is shown with
     // control and format characters replaced. Redirect stdout for the exact bytes.
     const shown = terminalText(text);
     console.log(shown.text);
-    if (shown.replaced) console.error('Some characters were replaced with "?" for display. Redirect the output (cc handoff … > prompt.txt) to get the exact prompt.');
+    if (shown.replaced) console.error('Some characters were replaced with "?" for display. Redirect the output (ccon handoff … > prompt.txt) to get the exact prompt.');
     return 0;
-  } catch (error) { console.error(`ERROR handoff.unavailable: ${error instanceof Error ? error.message : String(error)}`); return 1; }
+  } catch (error) { console.error(`ERROR handoff.unavailable: ${printable(error instanceof Error ? error.message : String(error))}`); return 1; }
 }
 
 function importRun(args: string[]): number {
   const file = args.find((value) => !value.startsWith('--') && args[args.indexOf(value) - 1] !== '--source');
-  if (!file) { console.error('Usage: cc import <run-manifest.json> [--source <label>] [--force]'); return 2; }
+  if (!file) { console.error('Usage: ccon import <run-manifest.json> [--source <label>] [--force]'); return 2; }
   try {
     const outcome = importRunManifest(resolve(file), { source: getOption(args, '--source') ?? 'external', force: args.includes('--force') });
     console.log(JSON.stringify(outcome, null, 2));
@@ -262,9 +379,80 @@ function importRun(args: string[]): number {
     return 1;
   }
 }
-function mcpList(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root); const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api'); console.log(JSON.stringify({ profiles, allowSeparatelyBilledApi: allowApi, servers: selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({ id, publisher: server.publisher, maturity: server.maturity, authentication: server.authentication, defaultAccess: server.default_access })) }, null, 2)); return 0; }
+// Selection only: Code Conductor starts no MCP server and grants no authority (I08, #40).
+const MCP_SELECTION_NOTE = 'Selected by repository profile only. Code Conductor starts no MCP server and grants no authority: each native client activates, authenticates and authorizes its own servers. A listed server is not verified to work on this workstation until its profile is validated (W-004).';
+function mcpList(args: string[]): number {
+  const root = resolve(getOption(args, '--repo') ?? '.'); const catalog = loadMcpCatalog(root);
+  const profiles = getOption(args, '--profiles')?.split(',').filter(Boolean) ?? detectRepositoryProfiles(root); const allowApi = args.includes('--allow-api');
+  const servers = selectMcpServers(catalog, profiles, allowApi).map(([id, server]) => ({
+    id, publisher: server.publisher, official: server.official, provenance: server.provenance ?? (server.official ? 'vendor_official' : 'third_party'), maturity: server.maturity, source: server.source,
+    ...(server.transport ? { transport: server.transport } : {}),
+    authentication: server.authentication, defaultAccess: server.default_access, separatelyBilledApi: server.separately_billed_api === true,
+    // The exact endpoint (or template) or pinned launch command a native client would be configured with, where recorded.
+    ...(server.endpoint ? { endpoint: server.endpoint } : {}), ...(server.endpoint_template ? { endpointTemplate: server.endpoint_template } : {}),
+    ...(server.command ? { launch: [server.command, ...(server.args ?? [])] } : {}),
+  }));
+  console.log(JSON.stringify({ note: MCP_SELECTION_NOTE, profiles, allowSeparatelyBilledApi: allowApi, servers }, null, 2)); return 0;
+}
 function apmCheck(rootArg?: string): number { const root = resolve(rootArg ?? '.'); if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; } const result = apmAudit(root); process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.ok ? 0 : 1; }
-function githubGate(args: string[]): number { const root = resolve(getOption(args, '--repo') ?? '.'); if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required.'); return 1; } const status = pullRequestStatus(root); process.stdout.write(status.stdout); process.stderr.write(status.stderr); if (!status.ok) return 1; const checks = pullRequestChecks(root); process.stdout.write(checks.stdout); process.stderr.write(checks.stderr); return checks.ok ? 0 : 1; }
+// Names, branches, authors and URLs come from GitHub, where anyone who can open a pull
+// request or post a check chooses them: each is shown on one line with control and
+// format characters replaced.
+function printPullRequestSummary(summary: PullRequestSummary): void {
+  const p = (value: string): string => printable(value, 300);
+  console.log(`Pull request #${summary.number} ${p(summary.url)}\n  ${p(summary.state)}${summary.draft ? ' (draft)' : ''}: ${p(summary.head)}@${p(summary.headSha.slice(0, 12))} into ${p(summary.base)}`);
+  console.log(`  checks: ${summary.checks.passed}/${summary.checks.total} passed${summary.checks.failed.length ? `, failed: ${summary.checks.failed.map((item) => `${p(item.name)}${item.url ? ` <${p(item.url)}>` : ''}`).join(', ')}` : ''}${summary.checks.pending.length ? `, pending: ${summary.checks.pending.map((item) => p(item.name)).join(', ')}` : ''}`);
+  console.log(`  review decision: ${p(summary.reviewDecision)}; merge state: ${p(summary.mergeState)}`);
+  for (const review of summary.reviews) console.log(`  review by ${p(review.author)}: ${p(review.state)}${review.stale === true ? ' (on an earlier commit)' : ''}`);
+  console.log(summary.ready ? 'READY: every native signal is green. Merging remains your decision in GitHub.' : `NOT READY:\n${summary.blockers.map((blocker) => `  - ${printable(blocker, 2000)}`).join('\n')}`);
+}
+
+// Read-only: summarizes native GitHub state for a pull request (the current branch's by default).
+function githubGate(args: string[]): number {
+  const root = resolve(getOption(args, '--repo') ?? '.');
+  if (!hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
+  const status = pullRequestStatus(root, getOption(args, '--pr'));
+  if (!status.ok) { console.error(`ERROR github.pr: ${printable(status.stderr.trim() || `gh pr view exited ${String(status.status)}`, 2000)}`); return 1; }
+  let summary: PullRequestSummary;
+  try { summary = summarizePullRequest(JSON.parse(status.stdout)); }
+  catch (error) { console.error(`ERROR github.pr: gh returned unreadable JSON (${printable(error instanceof Error ? error.message : String(error))}).`); return 1; }
+  if (args.includes('--json')) console.log(terminalSafeJson(summary));
+  else printPullRequestSummary(summary);
+  return summary.ready ? 0 : 1;
+}
+
+// Previews by default; --create pushes the exact agent commit and opens a draft PR only after approval.
+async function pullRequestCommand(args: string[]): Promise<number> {
+  const store = new RunStore();
+  const runId = getOption(args, '--run') ?? store.latestRunId();
+  if (!runId) { console.error('No stored runs. Run a task first.'); return 1; }
+  const options: PullRequestOptions = { worktreeRoot: defaultWorktreeRoot() };
+  for (const [flag, key] of [['--assignment', 'assignmentId'], ['--base', 'base'], ['--remote', 'remote'], ['--title', 'title']] as const) {
+    const value = getOption(args, flag);
+    if (value !== undefined) options[key] = value;
+  }
+  try {
+    const manifest = storedManifest(store, runId);
+    const preview = !args.includes('--create');
+    if (preview && args.includes('--json')) { const plan = planPullRequest(manifest, options); console.log(terminalSafeJson(plan)); return plan.refusals.length ? 1 : 0; }
+    if (!preview && !hasCommand('gh')) { console.error('ERROR github.missing: gh executable is required (https://cli.github.com).'); return 1; }
+    // The preview is shown before --create asks too: the approval names the text only by its digest.
+    if (!args.includes('--json')) {
+      const plan = planPullRequest(manifest, options);
+      // Run records and Git output are untrusted text: one line each, with control and format characters replaced.
+      console.log(`Draft pull request ${preview ? 'preview' : 'to approve'} for run ${printable(plan.runId)}, assignment ${printable(plan.assignmentId)}:\n  push ${plan.head} (${plan.commits.length} commit(s), ${plan.files.length} file(s)) to ${printable(plan.remote)} ${printable(plan.pushUrls.join(', '))} as ${printable(plan.branch)}, and nothing else\n  open a draft in ${printable(plan.repository || 'an unrecognized repository')} into ${printable(plan.base)}: ${printable(plan.title)}`);
+      if (plan.uncommitted.length) console.log(`  not included (uncommitted): ${printable(plan.uncommitted.join(', '), 2000)}`);
+      console.log(`\n${terminalText(plan.body).text}\n\nPull request text sha256 ${plan.textDigest.slice(0, 16)}${plan.redacted ? `; ${plan.redacted} credential-looking string(s) replaced` : ''}.`);
+      if (plan.refusals.length) { console.log(`REFUSED:\n${plan.refusals.map((item) => `  - ${printable(item, 2000)}`).join('\n')}`); return 1; }
+      if (preview) { console.log('Nothing was pushed. Re-run with --create in an interactive terminal to push and open this draft after approving it.'); return 0; }
+    }
+    const outcome = await openDraftPullRequest(manifest, options, { gh, approver: new TerminalApprover(), store });
+    if (args.includes('--json')) console.log(terminalSafeJson({ status: outcome.status, url: outcome.url, blocker: outcome.blocker, approvals: outcome.approvals }));
+    else if (outcome.status === 'created') console.log(`Draft pull request opened: ${printable(outcome.url ?? '(gh did not print a URL)')}\nCheck it with: ccon github-gate --pr ${printable(outcome.url ?? outcome.plan?.branch ?? '')}`);
+    else console.error(`REFUSED: ${printable(outcome.blocker ?? 'not approved', 4000)}`);
+    return outcome.status === 'created' ? 0 : 1;
+  } catch (error) { console.error(`ERROR pr.unavailable: ${printable(error instanceof Error ? error.message : String(error), 2000)}`); return 1; }
+}
 function contextStats(): number { const optimizer = new ContextOptimizer(); console.log(JSON.stringify(optimizer.getStats(), null, 2)); return 0; }
 function compressFile(args: string[]): number {
   const filePath = args[0];
@@ -281,13 +469,13 @@ function compressFile(args: string[]): number {
     return 1;
   }
 }
-function usage(): void { console.log('Usage: cc <validate|workspace-validate|doctor|plan|run|next|handoff|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory). Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.'); }
+function usage(): void { console.log('Usage: ccon <validate|workspace-validate|doctor|plan|run|next|handoff|worktrees|runs|harness-smoke|mcp|agents|import|apm-audit|github-gate|context-stats|pr|compress|version> [options]\n\nplan/run accept optional --specializations <comma,separated,hints>; otherwise routing uses the small inspectable objective-signal map in config/capabilities.yaml.\n\nrun defaults to dry-run; pass --execute only after surface-specific harness smoke passes. A provider starts only when its smoke test passed for the installed client version and its official client reports a subscription sign-in (codex login status, claude auth status, kiro-cli whoami); ccon doctor shows installed, signed-in, healthy and trusted separately. --gate-profiles <a,b> chooses deterministic gate profiles for the validator instead of detection (for example terraform,terraform-plan; plan review is never detected, and advisory profiles alone never establish readiness). Executing runs ask in this terminal before each consequential action (starting a provider, disclosing context to it, running gate commands, committing) and bind the approval to the exact recipient, revision, content and diff; a non-interactive run cannot approve and those actions fail closed. Modifying worktrees are preserved by default; pass --cleanup-worktrees only to remove clean worktrees after the run.\n\nKiro ACP smoke requires --ack-kiro-policy after reading the current Kiro subscription/automation policy; run read smoke before modify smoke.\n\ncompress <file> defaults to lossless preparation scoped to --root <dir> (default: current directory), and reads files only on Linux (including WSL), where the opened file\'s location can be verified. Use --aggressive only when comment/whitespace removal is explicitly acceptable.\n\nagents [--repo <dir>] [--json] lists provider-native agents and skills (project and user scope) read-only, marking project files APM did not deploy.\n\nmcp [--repo <dir>] [--profiles <a,b>] [--allow-api] prints, as JSON, the MCP servers selected for the repository\'s profiles (detected unless --profiles is given). Selection only: Code Conductor starts none, and each native client activates and authorizes its own. Separately billed servers are listed only with --allow-api.\n\nimport <run-manifest.json> [--source <label>] [--force] validates an external RunManifest (for example from Code Workflow) and stores it in the private run store as import-<runId>; manifests carrying a mergeDecision or a ready recommendation are rejected.\n\nnext [--run <runId>] [--json] shows the next native steps for the latest (or given) run: review in Source Control, approve in an interactive terminal, validate a harness, hand off manually, or open a draft PR yourself. Commands are shown, never executed.\n\nhandoff --run <runId> --assignment <id> prints the exact prompt for an assignment you will complete in an official client yourself.\n\nworktrees [--run <runId>] [--remove-clean] lists agent worktrees recorded by runs (CLEAN, or KEEP with the reason; branch, base, run). Worktrees are kept by default; --remove-clean removes only CLEAN ones (content-exact, on their own cc/ branch) and keeps their branches and commits. No Git runs in worktrees of a run that stopped for a Git configuration change (INSPECT) or has no outcome yet (ACTIVE).\n\nruns [--older-than <days> [--apply]] lists stored runs, or previews/deletes local run evidence older than the given age. Runs whose worktrees still exist are kept.\n\nhandoff --json prints the handoff packet for that assignment (recipient, expiry, prior findings, disagreements, provenance); expired packets are refused.\n\ngithub-gate [--repo <dir>] [--pr <number|url|branch>] [--json] summarizes native GitHub state for a pull request (checks, reviews, stale approvals, merge state) read-only, and exits 0 only when every signal is green.\n\npr [--run <runId>] [--assignment <id>] [--base main] [--remote origin] [--title <text>] [--create] previews the draft pull request for a run\'s agent branch. With --create it asks in this terminal, then pushes that exact commit (never forced, no hooks) with your own Git credentials and opens a draft with gh. Branches whose history touches sensitive paths or adds credential-looking strings are refused.'); }
 
 const [command = 'help', ...args] = process.argv.slice(2); let exitCode = 0;
 switch (command) {
   case 'workspace-validate': exitCode = validateWorkspace(resolve(args[0] ?? '.')); break;
   case 'validate': exitCode = printValidation(resolve(args[0] ?? '.')); break;
-  case 'doctor': exitCode = doctor(resolve(args[0] ?? '.')); break;
+  case 'doctor': exitCode = await doctor(resolve(args[0] ?? '.')); break;
   case 'plan': exitCode = plan(args); break;
   case 'run': exitCode = await run(args); break;
   case 'harness-smoke': exitCode = await harnessSmoke(args); break;
@@ -296,8 +484,11 @@ switch (command) {
   case 'import': exitCode = importRun(args); break;
   case 'next': exitCode = nextCommand(args); break;
   case 'handoff': exitCode = handoff(args); break;
+  case 'worktrees': exitCode = worktreesCommand(args); break;
+  case 'runs': exitCode = runsCommand(args); break;
   case 'apm-audit': exitCode = apmCheck(args[0]); break;
   case 'github-gate': exitCode = githubGate(args); break;
+  case 'pr': exitCode = await pullRequestCommand(args); break;
   case 'context-stats': exitCode = contextStats(); break;
   case 'compress': exitCode = compressFile(args); break;
   case 'version': case '--version': case '-v': console.log(VERSION); break;

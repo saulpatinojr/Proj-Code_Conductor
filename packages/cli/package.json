@@ -1,10 +1,11 @@
 {
   "name": "@code-conductor/cli",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "bin": { "cc": "dist/index.js" },
+  "bin": { "ccon": "dist/index.js" },
   "dependencies": {
     "@code-conductor/adapters": "0.1.0",
     "@code-conductor/apm-adapter": "0.1.0",

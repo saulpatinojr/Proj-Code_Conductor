@@ -62,13 +62,37 @@
       "type": "object", "additionalProperties": false, "required": ["requestDigest", "action", "runId", "taskId", "revision", "status", "approver", "requestedAt", "summary"],
       "properties": { "requestDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "action": { "type": "string", "enum": ["local_execution", "context_disclosure", "commit", "deployment"] }, "runId": { "type": "string", "minLength": 1 }, "taskId": { "type": "string", "minLength": 1 }, "assignmentId": { "type": "string", "minLength": 1 }, "recipient": { "type": "string", "minLength": 1 }, "revision": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["approved", "denied", "missing", "expired", "changed"] }, "approver": { "type": "string", "minLength": 1 }, "requestedAt": { "type": "string", "format": "date-time" }, "decidedAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" }, "summary": { "type": "string" } }
     },
+    "HandoffParty": {
+      "type": "object", "additionalProperties": false, "required": ["assignmentId", "agentId", "role", "provider", "harness"],
+      "properties": { "assignmentId": { "type": "string", "minLength": 1 }, "agentId": { "type": "string", "minLength": 1 }, "role": { "type": "string", "minLength": 1 }, "provider": { "type": "string", "minLength": 1 }, "harness": { "type": "string", "minLength": 1 }, "surface": { "type": "string" } }
+    },
+    "Disagreement": {
+      "type": "object", "additionalProperties": false, "required": ["topic", "status", "positions"],
+      "properties": { "topic": { "type": "string", "minLength": 1 }, "status": { "const": "unresolved" }, "positions": { "type": "array", "minItems": 2, "items": { "type": "object", "additionalProperties": false, "required": ["agentId", "role", "stance", "recommendation", "evidenceIds"], "properties": { "agentId": { "type": "string" }, "role": { "type": "string" }, "stance": { "$ref": "#/$defs/Stance" }, "recommendation": { "type": "string", "enum": ["continue", "review", "changes_required", "ready", "human_required"] }, "evidenceIds": { "type": "array", "items": { "type": "string" } } } } } }
+    },
+    "HandoffPacket": {
+      "type": "object", "additionalProperties": false, "required": ["version", "id", "runId", "taskId", "from", "to", "createdAt", "expiresAt", "context", "priorFindings", "disagreements", "provenance"],
+      "properties": {
+        "version": { "const": 1 }, "id": { "type": "string", "pattern": "^HP-[A-Za-z0-9-]{8,80}$" }, "runId": { "type": "string", "minLength": 1 }, "taskId": { "type": "string", "minLength": 1 },
+        "from": { "type": "array", "items": { "$ref": "#/$defs/HandoffParty" } }, "to": { "$ref": "#/$defs/HandoffParty" },
+        "createdAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" },
+        "context": { "type": "object", "additionalProperties": false, "required": ["objective", "acceptanceCriteria", "constraints", "reportedChanges", "notVerified", "risks"], "properties": { "objective": { "type": "string" }, "acceptanceCriteria": { "type": "array", "items": { "type": "string" } }, "constraints": { "type": "array", "items": { "type": "string" } }, "reportedChanges": { "type": "array", "items": { "type": "string" } }, "notVerified": { "type": "array", "items": { "type": "string" } }, "risks": { "type": "array", "items": { "type": "string" } } } },
+        "priorFindings": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+        "disagreements": { "type": "array", "items": { "$ref": "#/$defs/Disagreement" } },
+        "provenance": { "type": "object", "additionalProperties": false, "required": ["repository", "revision", "tree", "evidenceIds"], "properties": { "repository": { "type": "string" }, "revision": { "type": "string" }, "tree": { "type": "string" }, "evidenceIds": { "type": "array", "items": { "type": "string" } } } }
+      }
+    },
+    "HandoffReference": {
+      "type": "object", "additionalProperties": false, "required": ["id", "to", "sha256", "expiresAt"],
+      "properties": { "id": { "type": "string", "pattern": "^HP-[A-Za-z0-9-]{8,80}$" }, "to": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "expiresAt": { "type": "string", "format": "date-time" } }
+    },
     "WorktreeRecord": {
       "type": "object", "additionalProperties": false, "required": ["assignmentId", "path", "branch", "baseSha"],
       "properties": { "assignmentId": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 }, "branch": { "type": "string", "minLength": 1 }, "baseSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" } }
     },
     "RunManifest": {
       "type": "object", "additionalProperties": false, "required": ["runId", "task", "assignments", "results", "gates"],
-      "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "worktrees": { "type": "array", "items": { "$ref": "#/$defs/WorktreeRecord" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
+      "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "worktrees": { "type": "array", "items": { "$ref": "#/$defs/WorktreeRecord" } }, "handoffs": { "type": "array", "items": { "$ref": "#/$defs/HandoffReference" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
     }
   }
 }

@@ -1,8 +1,15 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
-import { KILL_GRACE_MS, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
+import { KILL_GRACE_MS, resolveExecutable, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
+import { withoutGitLocalEnv } from '@code-conductor/git';
+import { officialAuthStatus, type ClientAuthStatus } from './client-status.js';
+
+export { hasOfficialAuthStatus, officialAuthStatus, parseClaudeAuthStatus, parseCodexLoginStatus, parseKiroWhoami, probeClient, type ClientAuthStatus, type ProbeOutcome } from './client-status.js';
 
 export type HarnessExecutionSurface = 'cli' | 'acp' | 'platform' | 'manual' | 'ide' | 'local' | 'mcp_api';
 
@@ -26,6 +33,38 @@ export interface HarnessExecutionOutcome {
   startedAt: string;
   finishedAt: string;
   timedOut: boolean;
+  /** The client's final message, from its documented machine-readable output (see `finalMessage`). */
+  message?: string;
+}
+
+/** Harnesses whose documented machine-readable output carries a final message. */
+export function hasFinalMessage(harness: string): boolean { return harness === 'claude' || harness === 'codex'; }
+
+/**
+ * The final message from a client's documented machine-readable output, so only what
+ * the model said last is read for its result, never tool or command output:
+ * - Claude Code `-p --output-format json` prints one JSON object with the text in
+ *   `result` (https://code.claude.com/docs/en/headless).
+ * - Codex `exec --json` prints JSON Lines events; the last `item.completed` whose item is
+ *   an `agent_message` holds the final text (https://developers.openai.com/codex/non-interactive-mode).
+ * Undefined when the output does not have that shape.
+ */
+export function finalMessage(harness: string, stdout: string): string | undefined {
+  if (!hasFinalMessage(harness)) return undefined;
+  const parse = (text: string): unknown => { try { return JSON.parse(text) as unknown; } catch { return undefined; } };
+  if (harness === 'claude') {
+    const value = parse(stdout.trim()) as { result?: unknown } | undefined;
+    return typeof value?.result === 'string' ? value.result : undefined;
+  }
+  if (harness === 'codex') {
+    let message: string | undefined;
+    for (const line of stdout.split(/\r?\n/)) {
+      const event = parse(line) as { type?: unknown; item?: { type?: unknown; text?: unknown } } | undefined;
+      if (event?.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') message = event.item.text;
+    }
+    return message;
+  }
+  return undefined;
 }
 
 export interface HarnessAdapter {
@@ -37,23 +76,125 @@ export interface HarnessAdapter {
   version(): string | undefined;
   /** The exact process invocation execute() would use, so pre-action approval can bind it. */
   invocation?(request: HarnessExecutionRequest): { command: string; args: string[] };
+  /** Sign-in state from the official client's own status command, for clients that have one. */
+  authStatus?(): Promise<ClientAuthStatus>;
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome>;
 }
 
-function commandExists(command: string): boolean {
-  const probe = process.platform === 'win32' ? 'where' : 'which';
-  return spawnSync(probe, [command], { stdio: 'ignore' }).status === 0;
+/**
+ * The one file a client command runs as: an absolute path as given, or a plain name found
+ * on absolute PATH entries only. The version probe, the sign-in probe and the launch all
+ * use it, so they cannot reach different programs: a relative entry such as
+ * `node_modules/.bin`, an empty entry, or (on Windows) the working directory would
+ * otherwise resolve against the repository a client runs in.
+ */
+function clientExecutable(command: string): string | undefined {
+  if (isAbsolute(command)) return existsSync(command) ? command : undefined;
+  return resolveExecutable(command).path;
 }
 
-function commandVersion(command: string): string | undefined {
-  const result = spawnSync(command, ['--version'], { encoding: 'utf8', shell: false, timeout: 15000 });
-  return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;
+// Like the sign-in status probe: no repository, so a repository's own client
+// configuration cannot change what the client reports.
+function commandVersion(executable: string): string | undefined {
+  const directory = mkdtempSync(join(tmpdir(), 'cc-probe-'));
+  try {
+    const result = spawnSync(executable, ['--version'], { cwd: directory, env: providerEnvironment(), encoding: 'utf8', shell: false, timeout: 15000, maxBuffer: 64 * 1024, windowsHide: true });
+    return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 // Provider clients run isolated from the controlling terminal, in their own process
 // group, and are reaped on exit or interruption (shared with gate commands; see
 // @code-conductor/core/processes for what this does and does not contain).
 export { spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
+
+// Subscription-first billing (D-019/D-056 policy): the environment variables that make a
+// provider client use separately billed API credentials instead of its subscription
+// sign-in are not passed to it. Claude Code ranks cloud-provider selection, bearer
+// tokens, API keys, named profiles and federation above /login
+// (code.claude.com/docs/en/authentication, /env-vars); Codex uses an API key when one
+// is set. Not removed: subscription credentials such as CLAUDE_CODE_OAUTH_TOKEN, and
+// KIRO_API_KEY, whose usage draws on the Kiro subscription's credits and which a
+// browser sign-in outranks (kiro.dev/docs/getting-started/authentication). Credentials
+// a client reads from its own configuration files are not affected by this.
+export const BILLING_CREDENTIAL_VARIABLES = [
+  'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_AWS_API_KEY', 'ANTHROPIC_FOUNDRY_API_KEY', 'ANTHROPIC_FOUNDRY_AUTH_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK',
+  'OPENAI_API_KEY', 'CODEX_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'PERPLEXITY_API_KEY',
+] as const;
+/** Variables that select a separately billed provider, endpoint or credential source. */
+export const BILLING_ROUTING_VARIABLES = [
+  'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_ANTHROPIC_AWS',
+  'ANTHROPIC_BASE_URL', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID', 'ANTHROPIC_ORGANIZATION_ID',
+] as const;
+// Git's repository-local variables are removed too, so an inherited GIT_DIR or
+// GIT_INDEX_FILE cannot point the client's own git at another repository.
+// Each directory a client reads its configuration, sign-in or profile from must be the
+// same for the sign-in probe (run in an empty temporary directory) and the run (in the
+// repository); otherwise the repository could supply the run's "user" settings. A
+// relative value is made absolute against the directory Code Conductor started in (on
+// Windows this also gives a root-relative value its drive), and an empty one is removed:
+// Claude Code reads an empty CLAUDE_CONFIG_DIR as the working directory, not as unset.
+const CLIENT_CONFIG_DIRECTORIES = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'HOME', 'USERPROFILE'] as const;
+// Directories whose clients ignore a relative value: the XDG base directories (the
+// specification says so) and the Anthropic profile directory (Claude Code skips a
+// non-absolute one). A relative or empty value is removed, so the client falls back to
+// its default for the probe and the run alike.
+const ABSOLUTE_ONLY_DIRECTORIES = ['ANTHROPIC_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'] as const;
+/** Absolute in the strict sense: on Windows a root-relative path (`\cfg`) depends on the current drive. */
+function fullyAbsolute(value: string): boolean {
+  return isAbsolute(value) && (process.platform !== 'win32' || /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(value));
+}
+export function providerEnvironment(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): NodeJS.ProcessEnv {
+  const scrubbed = withoutGitLocalEnv(env);
+  for (const name of [...BILLING_CREDENTIAL_VARIABLES, ...BILLING_ROUTING_VARIABLES]) delete scrubbed[name];
+  for (const name of CLIENT_CONFIG_DIRECTORIES) {
+    const value = scrubbed[name];
+    if (value === '') delete scrubbed[name];
+    else if (value !== undefined) scrubbed[name] = resolve(cwd, value);
+  }
+  for (const name of ABSOLUTE_ONLY_DIRECTORIES) if (scrubbed[name] !== undefined && !fullyAbsolute(scrubbed[name])) delete scrubbed[name];
+  return scrubbed;
+}
+
+/** The configuration directories each client reads its user settings and sign-in from, when set explicitly. */
+const HARNESS_CONFIG_DIRECTORIES: Record<string, readonly string[]> = { claude: ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_CONFIG_DIR'], codex: ['CODEX_HOME'] };
+
+/**
+ * Explicit client configuration directories that lie inside `repository`, as `NAME (path)`.
+ * The sign-in probe cannot see a repository's hooks or `env` block, so "user" settings
+ * the repository supplies would apply to the run unchecked; such a provider is not started.
+ * Containment is decided by file identity (device and inode of each existing ancestor),
+ * not by spelling, so symlinks, case-insensitive file systems and alternative Windows
+ * spellings (8.3 names, `\\?\`) cannot hide it. HOME is not checked: a repository at the
+ * home folder (dotfiles) is the user's own configuration by definition.
+ */
+export function configurationInsideRepository(harness: string, repository: string, env: NodeJS.ProcessEnv = providerEnvironment()): string[] {
+  // `undefined` when the path does not exist; UNVERIFIABLE when it cannot be examined
+  // (permission denied, a symlink loop, a name too long), which counts as inside.
+  const UNVERIFIABLE = 'unverifiable';
+  const identity = (path: string) => {
+    try { const stat = statSync(path, { bigint: true, throwIfNoEntry: false }); return stat ? `${stat.dev}:${stat.ino}` : undefined; } catch { return UNVERIFIABLE; }
+  };
+  const root = identity(repository);
+  if (!root || root === UNVERIFIABLE) return [];
+  const found: string[] = [];
+  for (const name of HARNESS_CONFIG_DIRECTORIES[harness] ?? []) {
+    const value = env[name];
+    if (!value) continue;
+    // From the directory (or, if it does not exist yet, its nearest existing ancestor),
+    // symlinks resolved, up through each real parent to the file-system root.
+    let start = resolve(value);
+    while (identity(start) === undefined && dirname(start) !== start) start = dirname(start);
+    try { start = realpathSync(start); } catch { /* Compare the spelled path. */ }
+    for (let current = start; ; current = dirname(current)) {
+      const here = identity(current);
+      if (here === UNVERIFIABLE) { found.push(`${name} (${value}; its location cannot be verified)`); break; }
+      if (here === root) { found.push(`${name} (${value})`); break; }
+      if (dirname(current) === current) break;
+    }
+  }
+  return found;
+}
 
 function appendTail(current: string, next: string, limit = 256 * 1024): string {
   const combined = current + next;
@@ -83,9 +224,16 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
     case 'codex':
       return ['exec', '--json', '--ask-for-approval', 'never', '--sandbox', writeAllowed ? 'workspace-write' : 'read-only', '--cd', request.cwd, request.prompt];
     case 'claude':
+      // --setting-sources user: the repository's .claude/settings*.json and .mcp.json are
+      // not read. Under -p Claude Code would otherwise apply their env block, apiKeyHelper
+      // and hooks without a trust prompt, so a repository could switch a subscription run
+      // to its own credential or endpoint after the sign-in check, which sees only your
+      // user and managed settings (https://code.claude.com/docs/en/permissions, "What
+      // runs before you trust a folder"). Only user-level and managed CLAUDE.md, skills
+      // and commands load; the repository's own are not loaded under this flag.
       return writeAllowed
-        ? ['-p', '--output-format', 'json', '--permission-mode', 'acceptEdits', '--max-turns', '40', request.prompt]
-        : ['-p', '--output-format', 'json', '--permission-mode', 'plan', '--max-turns', '20', request.prompt];
+        ? ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'acceptEdits', '--max-turns', '40', request.prompt]
+        : ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '20', request.prompt];
     default:
       return [request.prompt];
   }
@@ -94,14 +242,17 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
 class SubprocessAdapter implements HarnessAdapter {
   readonly executionSurface: HarnessExecutionSurface = 'cli';
   constructor(public readonly id: string, public readonly provider: string, public readonly command: string) {}
-  available(): boolean { return commandExists(this.command); }
-  version(): string | undefined { return this.available() ? commandVersion(this.command) : undefined; }
+  available(): boolean { return clientExecutable(this.command) !== undefined; }
+  version(): string | undefined { const executable = clientExecutable(this.command); return executable ? commandVersion(executable) : undefined; }
   invocation(request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: this.command, args: argsFor(this.id, request) }; }
+  authStatus(): Promise<ClientAuthStatus> { return officialAuthStatus(this.id, this.command, providerEnvironment(), clientExecutable(this.command)); }
   execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const args = argsFor(this.id, request);
     const startedAt = new Date().toISOString();
+    const executable = clientExecutable(this.command);
+    if (!executable) return Promise.reject(new Error(`${this.command} was not found on an absolute PATH entry.`));
     return new Promise((resolve, reject) => {
-      const child = spawnIsolated(this.command, args, { cwd: request.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+      const child = spawnIsolated(executable, args, { cwd: request.cwd, env: providerEnvironment(), stdio: ['ignore', 'pipe', 'pipe'], shell: false });
       let stdout = '';
       let stderr = '';
       let timedOut = false;
@@ -126,7 +277,8 @@ class SubprocessAdapter implements HarnessAdapter {
         clearTimeout(timer); clearTimeout(escalation); clearTimeout(release);
         // The client exited; do not let anything it left running keep touching the worktree.
         terminateGroup(child, 'SIGKILL');
-        resolve({ harness: this.id, surface: this.executionSurface, command: this.command, args, exitCode, signal, stdout, stderr, startedAt, finishedAt: new Date().toISOString(), timedOut });
+        const message = finalMessage(this.id, stdout);
+        resolve({ harness: this.id, surface: this.executionSurface, command: this.command, args, exitCode, signal, stdout, stderr, startedAt, finishedAt: new Date().toISOString(), timedOut, ...(message !== undefined ? { message } : {}) });
       };
       child.on('close', finish);
       // A descendant that left the process group can keep the output pipes open after
@@ -159,20 +311,25 @@ export class KiroAcpAdapter implements HarnessAdapter {
   readonly command: string;
   readonly args: string[];
   private readonly env: NodeJS.ProcessEnv;
+  /** Only the official `kiro-cli` is asked for its sign-in state, as only it reports a version. */
+  readonly authStatus?: () => Promise<ClientAuthStatus>;
 
   constructor(options: KiroAcpAdapterOptions = {}) {
     this.command = options.command ?? 'kiro-cli';
     this.args = options.args ?? ['acp'];
-    this.env = options.env ?? process.env;
+    this.env = options.env ?? providerEnvironment();
+    if (this.command === 'kiro-cli') this.authStatus = () => officialAuthStatus('kiro', this.command, this.env, clientExecutable(this.command));
   }
 
-  available(): boolean { return commandExists(this.command); }
-  version(): string | undefined { return this.command === 'kiro-cli' && this.available() ? commandVersion(this.command) : undefined; }
+  available(): boolean { return clientExecutable(this.command) !== undefined; }
+  version(): string | undefined { const executable = this.command === 'kiro-cli' ? clientExecutable(this.command) : undefined; return executable ? commandVersion(executable) : undefined; }
   invocation(_request: HarnessExecutionRequest): { command: string; args: string[] } { return { command: this.command, args: [...this.args] }; }
 
   async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
     const startedAt = new Date().toISOString();
-    const child = spawnIsolated(this.command, this.args, { cwd: request.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    const executable = clientExecutable(this.command);
+    if (!executable) throw new Error(`${this.command} was not found on an absolute PATH entry.`);
+    const child = spawnIsolated(executable, this.args, { cwd: request.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
     const spawnFailure = new Promise<never>((_, reject) => child.once('error', reject));
     if (!child.stdin || !child.stdout || !child.stderr) {
       child.kill('SIGTERM');

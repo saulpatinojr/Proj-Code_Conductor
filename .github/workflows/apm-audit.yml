@@ -1,17 +1,9 @@
 name: APM audit
 
+# Runs for every pull request, so it can be a required check: a path-filtered required
+# check never reports for other changes and leaves the pull request pending.
 on:
   pull_request:
-    paths:
-      - 'apm.yml'
-      - 'apm.lock.yaml'
-      - 'apm-policy.yml'
-      - '.apm/**'
-      - '.github/**'
-      - '.claude/**'
-      - '.codex/**'
-      - '.kiro/**'
-      - '.agents/**'
   push:
     branches:
       - main
@@ -20,16 +12,6 @@ on:
       - 'fix/**'
       - 'docs/**'
       - 'chore/**'
-    paths:
-      - 'apm.yml'
-      - 'apm.lock.yaml'
-      - 'apm-policy.yml'
-      - '.apm/**'
-      - '.github/**'
-      - '.claude/**'
-      - '.codex/**'
-      - '.kiro/**'
-      - '.agents/**'
 
 permissions:
   contents: read
@@ -39,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: microsoft/apm-action@d723bb64ed70c135bbaf87d126b721dd2dae0439 # v1.10.0
         with:
           apm-version: '0.30.0'

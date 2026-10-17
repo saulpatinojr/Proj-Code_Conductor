@@ -13,7 +13,7 @@ VS Code remains the operator surface. Code Conductor adds lightweight orchestrat
 Code Conductor v0.x does **not** require a standalone MAUI/Electron/tray application. The supported product surfaces are:
 
 - thin Code Conductor VS Code extension;
-- optional thin `cc` CLI/TUI;
+- optional thin `ccon` CLI/TUI;
 - the same versioned core/runtime behind both.
 
 The production extension must not require a customer repository to contain Code Conductor source or run `npm run build`.
@@ -125,7 +125,7 @@ Its boundaries are:
 
 - conservative/lossless mode by default;
 - explicit aggressive mode only when comment/whitespace removal is acceptable;
-- workspace-root and sensitive-file enforcement before local file reads;
+- workspace-root and sensitive-file enforcement before local file reads. A file is read through one descriptor opened without following a final symlink, and the kernel's path for that descriptor must be exactly the checked path, so a directory swapped for a symlink mid-read is refused. Only Linux exposes that path to Node, so context files are read only on Linux (including WSL). Hard-linked files are refused, because a hard link can make a file from outside the workspace appear inside it. Reads are size-bounded (ADR 0007);
 - provider-neutral core output;
 - approximate token-reduction telemetry, never vendor billing/quota truth;
 - private local telemetry and time-bounded in-memory original-content cache;
@@ -245,7 +245,7 @@ VS Code
   |
   +-- Code Conductor Core
          |
-         +-- optional cc CLI/TUI
+         +-- optional ccon CLI/TUI
          +-- Policy + Risk + DAG + Evidence
          +-- Startup/Capability Discovery Cache
          +-- Context Preparation
@@ -312,7 +312,7 @@ v0.1 is local/workstation-first:
 
 - VS Code on the operator workstation
 - WSL2/dev container recommended where stronger Linux sandbox/tool compatibility is useful
-- local Code Conductor core plus optional `cc` CLI/TUI
+- local Code Conductor core plus optional `ccon` CLI/TUI
 - local runtime state/cache
 - Git worktrees on local disk
 - outbound HTTPS/OAuth to GitHub and vendor/cloud services
@@ -328,7 +328,7 @@ Customer-facing distribution targets:
 - Marketplace pre-release channel for beta/RC testing;
 - VSIX for offline/enterprise/manual installation;
 - GitHub Releases for auditable release history/artifacts;
-- optional `cc` CLI distribution under the same version/release policy.
+- optional `ccon` CLI distribution under the same version/release policy.
 
 Production artifacts must be CI-built and traceable to source/release provenance before public release.
 

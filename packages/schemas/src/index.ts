@@ -16,8 +16,28 @@ export type ApprovalStatus = 'approved' | 'denied' | 'missing' | 'expired' | 'ch
 export interface ApprovalRequest { action: ApprovalAction; runId: string; taskId: string; assignmentId?: string; repository: string; revision: string; recipient?: string; bindings: Record<string, string>; summary: string }
 /** Non-secret evidence of one pre-action approval decision. Records are evidence only and never authorize a later action. */
 export interface ApprovalRecord { requestDigest: string; action: ApprovalAction; runId: string; taskId: string; assignmentId?: string; recipient?: string; revision: string; status: ApprovalStatus; approver: string; requestedAt: string; decidedAt?: string; expiresAt?: string; summary: string }
+/** One side of a handoff: who produced prior work, or who receives the packet. */
+export interface HandoffParty { assignmentId: string; agentId: string; role: string; provider: string; harness: string; surface?: string }
+/** Positions that conflict and are not yet resolved by evidence or arbitration. */
+export interface Disagreement { topic: string; status: 'unresolved'; positions: Array<{ agentId: string; role: string; stance: Stance; recommendation: AgentResult['recommendation']; evidenceIds: string[] }> }
+/**
+ * Versioned context handed to one recipient assignment: what it is authorised to see,
+ * prior claims to verify, unresolved disagreements and where they came from. Packets
+ * are local, owner-private run evidence with an expiry; they are claims, not proof.
+ */
+export interface HandoffPacket {
+  version: 1; id: string; runId: string; taskId: string;
+  from: HandoffParty[]; to: HandoffParty;
+  createdAt: string; expiresAt: string;
+  context: { objective: string; acceptanceCriteria: string[]; constraints: string[]; reportedChanges: string[]; notVerified: string[]; risks: string[] };
+  priorFindings: Finding[];
+  disagreements: Disagreement[];
+  provenance: { repository: string; revision: string; tree: string; evidenceIds: string[] };
+}
+/** A manifest's reference to a stored packet. */
+export interface HandoffReference { id: string; to: string; sha256: string; expiresAt: string }
 /** An isolated agent worktree created for a run, so native Source Control review can find it. */
 export interface WorktreeRecord { assignmentId: string; path: string; branch: string; baseSha: string }
-export interface RunManifest { runId: string; task: TaskEnvelope; assignments: AgentAssignment[]; results: AgentResult[]; gates: GateResult[]; approvals?: ApprovalRecord[]; worktrees?: WorktreeRecord[]; mergeDecision?: MergeDecision }
+export interface RunManifest { runId: string; task: TaskEnvelope; assignments: AgentAssignment[]; results: AgentResult[]; gates: GateResult[]; approvals?: ApprovalRecord[]; worktrees?: WorktreeRecord[]; handoffs?: HandoffReference[]; mergeDecision?: MergeDecision }
 
 export { validateContract, assertContract, type ContractName, type ContractValidationResult } from './validate.js';

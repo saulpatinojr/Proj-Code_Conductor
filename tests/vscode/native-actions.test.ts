@@ -21,12 +21,17 @@ describe('native operations for next actions', () => {
     }
   });
 
-  it('starts only read-only cc commands with plain arguments; everything else is copied, never run', () => {
-    expect(nativeOperation(action({ commands: [['cc', 'handoff', '--run', 'CC-1', '--assignment', 'A-4']] }), ROOT)).toEqual({ type: 'run_cli', args: ['handoff', '--run', 'CC-1', '--assignment', 'A-4'] });
-    expect(nativeOperation(action({ commands: [['cc', 'run', '--objective', 'x', '--execute']] }), ROOT)).toMatchObject({ type: 'copy_command' });
-    expect(nativeOperation(action({ commands: [['cc', 'handoff', '--run', '$(evil)']] }), ROOT)).toMatchObject({ type: 'copy_command' });
+  it('starts only read-only ccon commands with plain arguments; everything else is copied, never run', () => {
+    expect(nativeOperation(action({ commands: [['ccon', 'handoff', '--run', 'CC-1', '--assignment', 'A-4']] }), ROOT)).toEqual({ type: 'run_cli', args: ['handoff', '--run', 'CC-1', '--assignment', 'A-4'] });
+    expect(nativeOperation(action({ commands: [['ccon', 'run', '--objective', 'x', '--execute']] }), ROOT)).toMatchObject({ type: 'copy_command' });
+    expect(nativeOperation(action({ commands: [['ccon', 'handoff', '--run', '$(evil)']] }), ROOT)).toMatchObject({ type: 'copy_command' });
+    // There is no `cc` alias: the old name is neither run nor pointed at the bundled runtime.
+    expect(nativeOperation(action({ commands: [['cc', 'next']] }), ROOT, '/x/dist/ccon.js')).toEqual({ type: 'copy_command', text: 'cc next' });
     expect(nativeOperation(action({ commands: [['git', 'push'], ['gh', 'pr', 'create']] }), ROOT)).toEqual({ type: 'copy_command', text: 'git push\ngh pr create' });
-    expect(nativeOperation(action({ commands: [['cc', 'run', '--objective', "it's"]] }), ROOT)).toEqual({ type: 'copy_command', text: formatCommand(['cc', 'run', '--objective', "it's"]) });
+    expect(nativeOperation(action({ commands: [['ccon', 'run', '--objective', "it's"]] }), ROOT)).toEqual({ type: 'copy_command', text: formatCommand(['ccon', 'run', '--objective', "it's"]) });
+    // From an installed extension, copied ccon commands run its bundled runtime: no ccon is on PATH.
+    // The same text in POSIX shells and PowerShell: only the runtime path needs quoting.
+    expect(nativeOperation(action({ commands: [['ccon', 'worktrees', '--remove-clean'], ['git', 'status']] }), ROOT, '/ext dir/dist/ccon.js')).toEqual({ type: 'copy_command', text: "node '/ext dir/dist/ccon.js' worktrees --remove-clean\ngit status" });
     expect(nativeOperation(action({}), ROOT)).toEqual({ type: 'show', text: 'Title\nDetail' });
     expect(nativeOperation(action({ title: 'T\x1b[2J', detail: 'line\nforged' }), ROOT)).toEqual({ type: 'show', text: 'T?[2J\nline?forged' });
   });

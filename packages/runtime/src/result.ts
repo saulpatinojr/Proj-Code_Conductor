@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { validateContract, type AgentAssignment, type AgentResult, type Evidence } from '@code-conductor/schemas';
-import type { HarnessExecutionOutcome } from '@code-conductor/adapters';
+import { hasFinalMessage, type HarnessExecutionOutcome } from '@code-conductor/adapters';
 
 const marker = 'CC_RESULT_JSON:';
 
@@ -9,7 +9,7 @@ function fallbackResult(assignment: AgentAssignment, outcome: HarnessExecutionOu
     id: `E-${randomUUID()}`,
     kind: 'agent_output',
     source: `${assignment.harness}:${assignment.surface ?? outcome.surface}:${assignment.agentId}`,
-    summary: [outcome.stdout.trim(), outcome.stderr.trim()].filter(Boolean).join('\n').slice(0, 12000) || 'Agent returned no structured result.',
+    summary: [(outcome.message ?? outcome.stdout).trim(), outcome.stderr.trim()].filter(Boolean).join('\n').slice(0, 12000) || 'Agent returned no structured result.',
   };
   return {
     taskId: assignment.taskId,
@@ -32,10 +32,17 @@ function fallbackResult(assignment: AgentAssignment, outcome: HarnessExecutionOu
   };
 }
 
+/**
+ * The agent's result from the last `CC_RESULT_JSON:` line of its final message. For a
+ * client whose machine-readable output carries a final message (Claude Code, Codex),
+ * only that message is read, and output without one has no result: tool and command
+ * output, which share stdout, can never supply it.
+ */
 export function parseAgentResult(assignment: AgentAssignment, outcome: HarnessExecutionOutcome): AgentResult {
-  const markerIndex = outcome.stdout.lastIndexOf(marker);
+  const text = outcome.message ?? (hasFinalMessage(outcome.harness) ? '' : outcome.stdout);
+  const markerIndex = text.lastIndexOf(marker);
   if (markerIndex >= 0) {
-    const raw = outcome.stdout.slice(markerIndex + marker.length).trim().split(/\r?\n/)[0] ?? '';
+    const raw = text.slice(markerIndex + marker.length).trim().split(/\r?\n/)[0] ?? '';
     try {
       const candidate = JSON.parse(raw) as Partial<AgentResult>;
       const result: AgentResult = {

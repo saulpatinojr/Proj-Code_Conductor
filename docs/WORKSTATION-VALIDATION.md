@@ -6,9 +6,27 @@ This runbook follows ADR 0008/0009: the workstation is VS Code-centered, startup
 
 ## 1. Baseline
 
-Use an up-to-date VS Code installation, Git, Node 22+ (24 recommended), GitHub CLI, APM, and the official provider/tool clients required by the repository. On Windows, prefer WSL2 or another supported OS-level containment environment for unattended agent work whenever the harness documents stronger isolation there.
+Use an up-to-date VS Code installation, Git, Node 22+ (24 recommended), GitHub CLI, and the official provider/tool clients required by the repository. APM is needed only for repositories that package agent packs (§5). On Windows, prefer WSL2 or another supported OS-level containment environment for unattended agent work whenever the harness documents stronger isolation there.
 
-The Code Conductor release installation must eventually work in an ordinary repository without the Code Conductor source tree or a local `npm run build`. Until #8/#14 production packaging lands, development validation may still use this repository build explicitly and must label that fact.
+Install Code Conductor from a release `.vsix` ([`INSTALL.md`](INSTALL.md)) after verifying it ([`RELEASE.md`](RELEASE.md#verify-a-package)). For a pull-request build, use the `vsix-preflight-<run>` artifact of the Release preflight workflow instead, which is packaged under a validation-only publisher. The installation must work in an ordinary repository without the Code Conductor source tree or a local `npm run build`. Validation that uses this repository's own build instead must say so in its evidence.
+
+**How commands are written here.** The extension does not put `ccon` on `PATH` ([`INSTALL.md`](INSTALL.md#run-ccon-commands-yourself)). Set the path of its bundled runtime once, then run each command through `node`.
+
+bash or zsh:
+
+```bash
+CC_JS="$HOME/.vscode/extensions/<publisher>.code-conductor-vscode-<version>/dist/ccon.js"
+node "$CC_JS" <command>
+```
+
+PowerShell:
+
+```powershell
+$CC_JS = "$env:USERPROFILE\.vscode\extensions\<publisher>.code-conductor-vscode-<version>\dist\ccon.js"
+node $CC_JS <command>
+```
+
+In a remote workspace (WSL, SSH, Dev Containers) the extension runs on the remote host, so use `$HOME/.vscode-server/extensions/…` there instead of `$HOME/.vscode/extensions/…`. In a development checkout, `node packages/cli/dist/index.js <command>` after `npm run build` is the equivalent.
 
 ## 2. Validate native VS Code surfaces
 
@@ -53,23 +71,17 @@ ansible --version
 pwsh --version
 ```
 
-For the **current development checkout**, run Doctor through the repository script so the local TypeScript build is produced explicitly:
+Then run Doctor from the installed extension, either with **Code Conductor: Doctor** in the Command Palette, or in a terminal:
 
 ```bash
-npm run cc:doctor
+node "$CC_JS" doctor .
 ```
 
-For an **installed release** after #8/#14 packaging lands, the equivalent customer-facing invocation is:
-
-```bash
-cc doctor .
-```
-
-Do not assume `cc` is already on `PATH` when validating an un-packaged development checkout.
+In a development checkout, `npm run ccon:doctor` builds and runs the same command.
 
 Missing optional tool commands are not failures when the active repository profile does not require them.
 
-`cc doctor` should evolve under #10/#15 to report, without secrets:
+`ccon doctor` should evolve under #10/#15 to report, without secrets:
 
 - provider name and official auth boundary;
 - available native IDE surface;
@@ -78,10 +90,11 @@ Missing optional tool commands are not failures when the active repository profi
 - MCP capability/profile state;
 - manual-only vs automated lane;
 - deterministic tool availability;
-- installed-version smoke/trust state;
+- installed-version smoke/trust state (trust is bound to the smoke-tested client version; an upgrade needs a new smoke test);
+- official sign-in state and billing class (see [`AUTHENTICATION.md`](AUTHENTICATION.md#client-states-before-a-provider-starts));
 - billing lane conflicts that can be safely inferred.
 
-## 5. APM validation
+## 5. APM validation (repositories with agent packs only)
 
 ```bash
 apm targets
@@ -105,13 +118,13 @@ kiro-cli acp --help
 Before consuming Kiro subscription-backed execution, review the current Kiro subscription/automation policy for the installed/current service terms. Code Conductor requires an explicit acknowledgement on the smoke command so this step is not silently skipped:
 
 ```bash
-cc harness-smoke kiro --mode read --ack-kiro-policy
+node "$CC_JS" harness-smoke kiro --mode read --ack-kiro-policy
 ```
 
 Only after read smoke passes should modify authority be tested in the disposable smoke repository:
 
 ```bash
-cc harness-smoke kiro --mode modify --ack-kiro-policy
+node "$CC_JS" harness-smoke kiro --mode modify --ack-kiro-policy
 ```
 
 Important safety behavior:
@@ -157,10 +170,10 @@ For Codex:
 The existing smoke commands remain useful for current CLI adapters:
 
 ```bash
-cc harness-smoke codex --mode read
-cc harness-smoke claude --mode read
-cc harness-smoke codex --mode modify
-cc harness-smoke claude --mode modify
+node "$CC_JS" harness-smoke codex --mode read
+node "$CC_JS" harness-smoke claude --mode read
+node "$CC_JS" harness-smoke codex --mode modify
+node "$CC_JS" harness-smoke claude --mode modify
 ```
 
 If a smoke test fails, do not mark the harness trusted manually; inspect the installed client's permissions/sandbox configuration and current official documentation.
@@ -208,6 +221,21 @@ Restart/reload VS Code and verify that normal startup:
 - does not reinstall/materialize APM when inputs are unchanged;
 - degrades gracefully if temporarily offline.
 
+### Measure startup (#9)
+
+Use VS Code's own measurement. Do not time it by hand.
+
+1. Run **Developer: Show Running Extensions**. Record Code Conductor's activation time for a first run (new workspace), for a warm start (reload with nothing changed), and for a start after a configuration change.
+2. Right after a warm start, open **Developer: Open Process Explorer** and check every child process of the extension host. None may be a Claude, Codex, `kiro-cli`, MCP or APM process started by Code Conductor: its command line names `dist/ccon.js` or one of those clients. The native Claude Code and Codex extensions share the extension host and may start their own processes, so a name alone does not decide it. If it is unclear, repeat the warm start with Code Conductor disabled and compare. A name search with `pgrep` or `Get-Process` is not enough: it also finds the native extensions' and terminals' own processes.
+3. Repeat the warm start while offline. The views should show cached state, and no error should block activation.
+
+**Initial budget, to be confirmed by this first baseline:**
+
+- A warm start activates in under 250 ms and starts no child process.
+- A first run, or a start after a configuration change, adds only the `PATH` lookups for the tools in the Connections view, 16 bounded probes.
+
+Record the measured values with the machine, OS and VS Code version. If they exceed the budget, open an issue with them before changing code.
+
 ## 11. MCP/reference validation
 
 Activate the minimum profile required for the repository. Confirm:
@@ -215,13 +243,13 @@ Activate the minimum profile required for the repository. Confirm:
 - authenticated MCPs retain their official IAM/RBAC boundary;
 - write-capable tools are not granted globally by default;
 - Code Conductor first-party MCP adapters require explicit catalog approval;
-- context-optimizer MCP remains experimental until official SDK/current-protocol validation;
-- Perplexity automated MCP/API remains disabled unless explicit separately billed policy is enabled.
+- the context optimizer is used through `ccon compress`; its experimental MCP transport is not in the catalog (W-006). On Linux and WSL, `ccon compress <file>` reads a workspace file; on Windows and macOS it refuses with the reason, because the opened file's location cannot be verified there (ADR 0007);
+- Perplexity automated MCP/API stays off unless you list it with `--allow-api` and configure your own key ([`AUTHENTICATION.md`](AUTHENTICATION.md)).
 
 ## 12. First real dry run and dogfood
 
 ```bash
-cc run --repo . --risk R1 --objective "Review the Code Conductor foundation"
+node "$CC_JS" run --repo . --risk R1 --objective "Review the Code Conductor foundation"
 ```
 
 This plans and persists a run but does not launch paid clients unless `--execute` is explicitly supplied.
@@ -229,26 +257,38 @@ This plans and persists a run but does not launch paid clients unless `--execute
 Only after required surface-specific trust validation passes:
 
 ```bash
-cc run --repo . --risk R1 --objective "Implement the approved test task" --execute
+node "$CC_JS" run --repo . --risk R1 --objective "Implement the approved test task" --execute
 ```
 
 The run asks in the terminal before each consequential action: starting a provider, disclosing the prompt and repository to it, running gate commands, and committing. Each request is bound to the exact recipient, revision, content and diff ([`APPROVALS.md`](APPROVALS.md)). Validate on the workstation that the prompt appears in the integrated/task terminal, that only the literal `approve` proceeds, and that a denial leaves the run `human_required` with changes preserved.
 
 A modifying agent receives an isolated worktree. Review/validation remains independent, and GitHub PR/merge remains a separate gate.
 
-Then repeat/raise the scenario to R2 with a different-provider challenger and GitHub Gatekeeper review/re-review.
+Then repeat the scenario at R2, with a different-provider challenger, and take it through GitHub:
+
+```bash
+node "$CC_JS" run --repo . --risk R2 --objective "<the approved R2 task>" --execute
+node "$CC_JS" next                      # the native next steps for the run
+node "$CC_JS" pr                        # preview the draft pull request
+node "$CC_JS" pr --create               # approve, push the exact commit, open the draft
+node "$CC_JS" github-gate --pr <number> # native checks and reviews, read-only
+```
+
+Request a Copilot review on the draft, address it, and request a re-review. `github-gate` must report every signal green before a person merges.
 
 ## 13. Release evidence to retain
 
-For the v0.1 release candidate, retain non-secret evidence of:
+For the v0.1 release candidate, attach non-secret evidence to #4 as a checklist:
 
-- installed provider/tool versions;
-- extension/surface inventory;
-- first-run and warm-start behavior;
-- Kiro ACP capability/policy validation;
-- Claude/Codex read and isolated modify validation on the actual selected surfaces;
-- minimum MCP/tool profiles;
-- R1/R2 structured results and deterministic gates;
-- Git/worktree/PR state;
-- GitHub Gatekeeper review/re-review;
-- final readiness decision.
+- [ ] the package: version, `sha256sum -c SHA256SUMS` and `gh attestation verify` output ([`RELEASE.md`](RELEASE.md#verify-a-package));
+- [ ] OS, VS Code version, and whether the workspace is local, WSL, SSH or a container;
+- [ ] installed provider and tool versions (section 4);
+- [ ] `ccon doctor` output, showing installed, signed in, healthy and trusted for each client;
+- [ ] `ccon harness-smoke` read and modify results for each client and version (Kiro with `--ack-kiro-policy`);
+- [ ] measured first-run, warm-start and changed-configuration activation times, and the process check (section 10);
+- [ ] the minimum MCP and tool profiles used;
+- [ ] the R1 and R2 run IDs, their structured results and their deterministic gates;
+- [ ] the worktree and draft pull request: the `ccon pr` preview, the PR URL, and `ccon github-gate` output before and after re-review;
+- [ ] the final readiness decision, and who made it.
+
+Never paste tokens, email addresses, `config.json` contents or `~/.code-conductor/runs` evidence that holds repository content.

@@ -97,16 +97,7 @@ servers:
     default_access: read
     profiles: [research-automated]
 
-  context-optimizer:
-    publisher: Code Conductor
-    official: false
-    provenance: code_conductor_first_party
-    maturity: experimental
-    source: packages/context-optimizer
-    transport: stdio
-    command: node
-    args: [packages/context-optimizer/dist/index.js]
-    authentication: none
-    default_access: read
-    profiles: [context-optimization, token-reduction]
-    note: First-party context-preparation adapter. Lossless mode is the default; aggressive removal is explicit. Local file access is workspace-scoped and sensitive paths are blocked. MCP transport remains experimental pending migration to the official MCP TypeScript SDK and protocol validation before GA.
+# The context optimizer's experimental MCP transport is not listed: its server exists only
+# in a source checkout, not in the packaged extension, and stays out of the catalog until
+# W-006 validates it against the official MCP TypeScript SDK (ADR 0007). Its direct path,
+# `ccon compress`, is supported.

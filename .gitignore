@@ -33,3 +33,7 @@ archive work/
 packages/policy/defaults/
 apps/vscode/defaults/
 apps/vscode/schema/
+# Left behind only by a build killed while writing them (scripts/package-defaults.mjs).
+packages/policy/.defaults.staging-*/
+apps/vscode/.defaults.staging-*/
+apps/vscode/.schema.staging-*/
