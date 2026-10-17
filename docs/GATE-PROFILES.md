@@ -105,8 +105,9 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   case-insensitively and without `.exe`/`.cmd` extensions. The planner refuses other
   gates, and `ccon validate` rejects them in the catalog (`gates.tool`, `gates.shape`,
   `gates.infrastructure_change`, `gates.auto_approve`, `gates.command`), as well as a
-  catalog the planner could not read (`gates.catalog`: a profile that is not a mapping
-  with a `gates` list, or a gate that is not a mapping). Production apply belongs to a native pipeline
+  catalog the planner could not read (`gates.catalog`: an empty file, a document,
+  `profiles` or profile that is not a mapping, a profile without a `gates` list, or a gate
+  that is not a mapping). Production apply belongs to a native pipeline
   with environment protection and its own approval (#32 deployment boundary, C02
   `deployment` action).
 

@@ -270,9 +270,10 @@ export function gateCommandProblem(command: unknown, args: unknown = []): { code
 }
 
 /**
- * Problems in a parsed gate catalog. Every level comes from YAML, so each is checked before
- * it is read: a malformed catalog is reported, never thrown, and never passes with a shape
- * the gate planner cannot use (a profile with no `gates` list would stop every gate run).
+ * Problems in a parsed gate catalog. Its structure comes from YAML, so each level (the
+ * document, `profiles`, each profile, its `gates` list, each gate) is checked before it is
+ * read: a malformed one is reported, never thrown, and never passes. Leaf fields such as
+ * `detect` and `requires` are not shape-checked here.
  */
 export function validateGateCatalog(catalog: unknown): ValidationIssue[] {
   const profiles = isMapping(catalog) ? catalog.profiles : undefined;

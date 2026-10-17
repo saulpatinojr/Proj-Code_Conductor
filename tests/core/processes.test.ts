@@ -55,7 +55,9 @@ setInterval(() => {}, 1000);`;
       for (let attempt = 0; attempt < 100 && isRunning(gate); attempt += 1) await new Promise((done) => setTimeout(done, 20));
       expect(isRunning(gate)).toBe(false);
     } finally {
-      // If an assertion failed, the gate's group may still run: never leave it behind.
+      // If an assertion failed, the gate's group may still run. Kill it and the parent,
+      // reading the pid file again in case it appeared after the wait gave up.
+      if (!gate && existsSync(pidFile)) gate = Number(readFileSync(pidFile, 'utf8'));
       for (const pid of [gate ? -gate : 0, parent.pid ?? 0]) { try { if (pid) process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
     }
   }, 20_000);
