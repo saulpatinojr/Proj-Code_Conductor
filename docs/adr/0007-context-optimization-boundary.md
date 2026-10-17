@@ -1,6 +1,6 @@
 # ADR 0007: Context optimization boundary
 
-- **Status:** Accepted (decision 4 amended 2026-10-16, #42)
+- **Status:** Accepted (decision 4 amended 2026-10-16, #42; platform decision 2026-10-17, D-070)
 - **Date:** 2026-09-12
 
 ## Context
@@ -18,6 +18,7 @@ Those behaviors conflict with the existing principles that Code Conductor owns p
    - *Amended 2026-10-16 (#42).* Checking a path and then opening it by name is racy: a directory swapped for a symlink in between redirects the open, and checking the path again by name cannot be tied to what was opened (an independent review read files from outside the workspace in about 3% of attempts). So the checked file is read through one descriptor, opened without following a final symlink, without blocking on a FIFO and without taking a controlling terminal, and the kernel's path for that descriptor must be exactly the checked path. The descriptor must name a regular file with a single link, within the size limit, that does not grow while read.
    - Residual, for the owner to accept or not: the path is still resolved by name (`realpath`) before it is opened. When a caller that can also rename folders in the workspace swaps a checked folder for a symlink to an outside location, that walk succeeds about twice as often when the outside entry exists and is not a symlink. The signal is the ratio between the two refusal messages ("does not exist or is outside" and "changed while it was being opened"): an independent review measured "changed" in 36–45% of refusals for an existing target and 17–26% for a missing one, and classified a path correctly in 15 of 15 trials of about 100 reads each. So such a caller can learn, one bit per path, whether an outside entry exists. No outside content is returned and a single read reveals nothing. Closing it would need descriptor-relative resolution (`openat2`), which Node does not expose.
    - The kernel's path for a descriptor is available to Node only on Linux (`/proc/self/fd`). Elsewhere, context files are not read and the command says why; content passed in directly is unaffected. Accepting the residual race on macOS or Windows instead is an owner decision and would need this ADR amended again.
+   - *Owner decision 2026-10-17 (D-070).* The refusal stays: the race is not accepted on macOS or Windows, and file reads there wait for a descriptor-bound location check.
 5. Context-optimizer telemetry is local, owner-private where POSIX permissions are available, best-effort, and non-authoritative. Token counts are explicitly labeled **estimates** and are not billing/quota data.
 6. MCP is an optional interoperability adapter for this capability. The Code Conductor server is identified as **first-party experimental**, not vendor-official or GA, and is not auto-enabled for every project/profile.
 7. The handwritten MCP compatibility adapter may remain for v0.1 experimentation, but migration to the official MCP TypeScript SDK and validation against the then-current MCP protocol is required before the adapter can be promoted to GA.

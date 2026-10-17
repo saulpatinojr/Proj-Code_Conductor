@@ -73,7 +73,7 @@ Parallel work continues under #13 for the actual legacy corpus migration and #14
 - #12 explicit provider role/capability routing matrix: **implemented with representative routing tests**.
 - #13 full legacy Agent Catalog/APM migration: **immutable intake/lineage tooling landed; the real corpus still requires inventory, semantic review, canonicalization, and 100% lineage closure**.
 - #14 Marketplace/VSIX/CLI/provenance/customer trust: **VSIX packaging foundation landed; Marketplace publication, provenance/SBOM/attestation and release automation remain**.
-- #15 deterministic engineering-tool model: **policy/model locked; expand representative Terraform/Ansible/PowerShell/cloud profiles as dogfood requires them**.
+- #15 deterministic engineering-tool model: **met for Terraform and Ansible; the PowerShell profile is deferred (D-069) until a real repository needs it**.
 - #16 APM Agent Plugin ↔ Kiro Powers interoperability: **research/validation remains open**.
 - #17 Perplexity manual Pro vs paid automation boundary: **policy locked; automation remains optional/later**.
 - #18 Antigravity current `agy` safety revalidation: **still required before unattended execution**.

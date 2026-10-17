@@ -117,6 +117,8 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   run created. A fresh checkout of exactly the approved commit, with dependencies you
   installed yourself, would need project bootstrap and is deferred.
 - npm, pnpm and yarn gates do not run on native Windows (batch shims, see above). The approval binding's limits are listed in [`APPROVALS.md`](APPROVALS.md).
-- Further ecosystems (Python, Go, Rust, PowerShell, Kubernetes/Helm) can be added as
-  profiles with the same prerequisite and safety rules when a real repository needs them
-  (#15).
+- Further ecosystems (Python, Go, Rust, Kubernetes/Helm) can be added as profiles with
+  the same prerequisite and safety rules when a real repository needs them (#15).
+- A PowerShell profile is deferred (D-069). `pwsh` is a shell, which these rules refuse,
+  so one needs an ADR allowing a fixed shape such as
+  `pwsh -NoProfile -NonInteractive -File <repository script>`.
