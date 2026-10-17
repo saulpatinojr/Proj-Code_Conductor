@@ -327,6 +327,8 @@ function forgeCommitGraph(file: string, child: string, parent: string): void {
   const ids = Array.from({ length: count }, (_, index) => data.subarray(lookup + 20 * index, lookup + 20 * index + 20).toString('hex'));
   data.writeUInt32BE(ids.indexOf(parent), offsets.get('CDAT')! + 36 * ids.indexOf(child) + 20);
   createHash('sha1').update(data.subarray(0, -20)).digest().copy(data, data.length - 20);
+  // Git writes the file read-only; its owner, as an agent would be, can still replace it.
+  chmodSync(file, 0o644);
   writeFileSync(file, data);
 }
 
