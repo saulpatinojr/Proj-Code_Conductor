@@ -240,11 +240,18 @@ describe('agent history and Git control state', () => {
     const agent = gitControlState(handle.path)!;
     expect(agent.commonDir).toBe(primary.commonDir);
     const only = (state: GitControlState, other: GitControlState): string[] => [...state.sources.keys()].filter((name) => !other.sources.has(name) && !name.startsWith('local config '));
-    expect(only(primary, agent)).toEqual([`worktree config file:${join(repo, '.git', 'config.worktree')}`]);
+    expect(only(primary, agent)).toEqual([`worktree config file:${join(repo, '.git', 'config.worktree')}`, `git directory ${join(repo, '.git')}`]);
     expect([...primary.sources.keys()]).toEqual(expect.arrayContaining([`local config file:${join(repo, '.git', 'branch.inc')}`, `local config file:${join(repo, '.git', 'gitdir.inc')}`]));
     expect([...agent.sources.keys()].filter((name) => name.endsWith('.inc'))).toEqual([]);
     git(handle.path, 'config', 'filter.agent.clean', 'cat');
     expect(controlStateChanges(primary, gitControlState(repo)!)).toEqual([`local config file:${join(repo, '.git', 'config')} changed`]);
     expect(controlStateChanges(agent, gitControlState(handle.path)!)).toEqual([`local config file:${join(repo, '.git', 'config')} changed`]);
+    // A .git file pointed at the primary checkout's Git directory reads its HEAD and history.
+    const before = gitControlState(handle.path)!;
+    writeFileSync(join(handle.path, '.git'), `gitdir: ${join(repo, '.git')}\n`);
+    expect(controlStateChanges(before, gitControlState(handle.path)!).filter((change) => change.startsWith('git directory '))).toEqual([
+      `git directory ${join(repo, '.git')} appeared`,
+      `git directory ${join(repo, '.git', 'worktrees', 'builder-control')} disappeared`,
+    ]);
   });
 });

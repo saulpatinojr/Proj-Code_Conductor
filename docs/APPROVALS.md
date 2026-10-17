@@ -67,12 +67,16 @@ Git configuration defines further programs that Code Conductor's own `git add` r
 (clean and process filters), and grafts or a shallow file change which history Git
 reports. Code Conductor therefore records a digest of the effective configuration of
 every scope, includes followed, and of `info/attributes`, `info/grafts`, `shallow` and
-`objects/info/alternates`, one digest per file. It reads them the first time it meets a
-directory in a run. Git reports configuration as seen from where it runs: origin paths
-and `includeIf "gitdir:..."` or `"onbranch:..."` differ between an agent worktree and the
-primary checkout. So a directory is compared only with its own first reading, and the
-directory that first read the repository is read again whenever another of its worktrees
-is checked. Every later check compares with those first readings:
+`objects/info/alternates`, one digest per file, plus the Git directory each worktree
+uses. It reads them the first time it meets a directory in a run. Git reports
+configuration as seen from where it runs: origin paths and `includeIf "gitdir:..."` or
+`"onbranch:..."` differ between an agent worktree and the primary checkout. So a
+directory is compared only with its own first reading, and the directory that first read
+the repository is read again whenever another of its worktrees is checked. Repositories
+nested in that directory are compared only when it is checked itself, since only Git run
+there enters them. A directory that stops being a Git work tree after its first reading
+(a rewritten `.git` file or `core.worktree`) is a change too. Every later check compares
+with those first readings:
 - before each provider starts and before a retry;
 - after the provider finishes;
 - while a commit approval is built and rebuilt;
@@ -85,6 +89,12 @@ the run is `human_required`, and agent changes stay uncommitted. The stop names 
 configuration file, control file or nested repository that changed, appeared or
 disappeared. Only the digests are kept, never a value, because configuration can hold
 credentials.
+
+An agent worktree is first read when it is created, so a file only it reads is checked
+from then on. Such a file exists only through a conditional include that matches agent
+worktrees and not the primary checkout, such as `includeIf "onbranch:cc/**"`. If you have
+one, its target is yours to protect: a change made to it earlier in the run, before the
+worktree existed, is part of that first reading.
 
 Ordinary Git activity during a run also stops it, by design. Examples: `husky` setting
 `core.hooksPath` during `npm install`, `git push -u` or `git branch --set-upstream-to`

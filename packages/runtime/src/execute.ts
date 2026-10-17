@@ -7,7 +7,7 @@ import type { ClientAuthStatus, HarnessAdapter, HarnessExecutionRequest } from '
 import { configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type GitControlState, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, redactSecrets, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type GitControlState, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -139,21 +139,32 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     try {
       const directory = resolve(cwd);
       const current = gitControlState(directory);
-      if (!current) return undefined;
-      const reader = firstReaders.get(current.commonDir) ?? directory;
-      firstReaders.set(current.commonDir, reader);
-      const readings: Array<[string, GitControlState]> = [[directory, current]];
-      if (reader !== directory) {
-        const again = gitControlState(reader);
-        if (!again) throw new Error(`${reader} is no longer a Git work tree`);
-        readings.push([reader, again]);
-      }
-      const found = readings.flatMap(([path, state]) => {
+      const first = baselines.get(directory);
+      // Outside Git from the start there is nothing to guard. A directory that stopped being a
+      // work tree after its first reading (a rewritten .git file or core.worktree) has changed.
+      if (!current && !first) return undefined;
+      const commonDir = (current ?? first!).commonDir;
+      const reader = firstReaders.get(commonDir) ?? directory;
+      firstReaders.set(commonDir, reader);
+      const found = new Set<string>();
+      const compare = (path: string, state: GitControlState | undefined): void => {
         const baseline = baselines.get(path);
-        if (!baseline) baselines.set(path, state);
-        return baseline ? controlStateChanges(baseline, state).map((change) => (path === directory ? change : `${change} (read in ${path})`)) : [];
-      });
-      if (found.length) changed = `changed since Code Conductor first read them in this run (checked ${when}): ${found.slice(0, 5).join('; ')}${found.length > 5 ? `; and ${found.length - 5} more` : ''}`;
+        if (!state) found.add(`${path} is no longer a Git work tree`);
+        else if (!baseline) baselines.set(path, state);
+        else {
+          for (const change of controlStateChanges(baseline, state)) {
+            if (path === directory) found.add(change);
+            // A shared change is named once. Repositories nested in the reader matter only to
+            // Git run there, and a check of the reader itself compares them.
+            else if (!found.has(change) && !change.startsWith('nested repository ')) found.add(`${change} (read in ${path})`);
+          }
+        }
+      };
+      compare(directory, current);
+      if (reader !== directory) compare(reader, gitControlState(reader));
+      // Names are paths, some chosen by the agent; a credential-shaped one is not repeated.
+      const list = [...found];
+      if (list.length) changed = `changed since Code Conductor first read them in this run (checked ${when}): ${redactSecrets(list.slice(0, 5).join('; ')).text}${list.length > 5 ? `; and ${list.length - 5} more` : ''}`;
     } catch { changed = `could not be read (checked ${when})`; }
     return changed && `${GIT_CONTROL_CHANGED} (config of any scope, info/attributes, info/grafts, shallow, objects/info/alternates, repositories nested in the work tree) for ${cwd} ${changed}. Code Conductor ran no further Git operations under configuration it had not seen and stopped the run; check \`git -C ${cwd} config --list --show-origin\`, the repository's .git directory and any repository nested in the work tree before running again. Agent changes are preserved uncommitted.`;
   };

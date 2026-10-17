@@ -493,7 +493,7 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(existsSync(outcome.worktrees[0]!.path)).toBe(true);
     expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
     expect(builder?.blockers.join(' ')).toContain('repositories nested in the work tree');
-    expect(builder?.blockers.join(' ')).toMatch(/: nested repository vendor-lib appeared; .*; and \d+ more\./);
+    expect(builder?.blockers.join(' ')).toContain(': nested repository vendor-lib appeared. Code Conductor ran no further');
     expect(seen.some((request) => request.action === 'commit')).toBe(false);
   });
 
@@ -686,7 +686,7 @@ describe('Git control checks with agent worktrees of the repository under work (
   // As on a workstation: the run's root is the repository and agent worktrees are its own.
   // Its configuration includes a file only from the primary checkout (on its branch, at its
   // gitdir), so the agent worktree legitimately sees different configuration.
-  async function workstationRun(builderDoes?: (cwd: string, repository: string) => void) {
+  async function workstationRun(builderDoes?: (cwd: string, repository: string) => void, setup?: (repository: string) => void) {
     const temp = realpathSync(mkdtempSync(join(tmpdir(), 'cc-control-run-')));
     temps.push(temp);
     const repository = initRepository(join(temp, 'repo'));
@@ -694,6 +694,7 @@ describe('Git control checks with agent worktrees of the repository under work (
     writeFileSync(join(repository, '.git', 'branch.inc'), '[user]\n\temail = branch@example.invalid\n');
     git(repository, 'config', `includeIf.gitdir:${join(repository, '.git')}.path`, 'gitdir.inc');
     writeFileSync(join(repository, '.git', 'gitdir.inc'), '[user]\n\tname = primary\n');
+    setup?.(repository);
     const codex = new (class extends CountingAdapter {
       override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
         if (request.assignment.role === 'builder') builderDoes?.(request.cwd, repository);
@@ -724,12 +725,61 @@ describe('Git control checks with agent worktrees of the repository under work (
     expect(calls).toBe(1);
   });
 
-  it('names a shared change the agent worktree itself sees, without its value', async () => {
+  it('names a shared change the agent worktree itself sees once, without its key or value', async () => {
     const { outcome, repository } = await workstationRun((cwd) => git(cwd, 'config', 'filter.agent.clean', 'planted-clean-command'));
     const blockers = outcome.manifest.results[0]?.blockers.join(' ') ?? '';
-    expect(blockers).toContain(`local config file:${join(repository, '.git', 'config')} changed;`);
-    expect(blockers).toContain(`local config file:${join(repository, '.git', 'config')} changed (read in ${repository})`);
-    expect(blockers).not.toContain('planted-clean-command');
+    expect(blockers).toContain(`(checked after openai/codex@cli was started): local config file:${join(repository, '.git', 'config')} changed. Code Conductor ran no further`);
+    expect(blockers).not.toMatch(/planted-clean-command|filter\.agent/);
+  });
+
+  it('names a change only the agent worktree reads, made after its first reading', async () => {
+    const { outcome, repository } = await workstationRun((cwd) => git(cwd, 'config', '--worktree', 'core.sshCommand', 'planted'), (repository) => git(repository, 'config', 'extensions.worktreeConfig', 'true'));
+    expect(outcome.manifest.results[0]?.blockers.join(' ')).toContain(`: worktree config file:${join(repository, '.git', 'worktrees', 'builder-codex', 'config.worktree')} appeared. Code Conductor ran no further`);
+  });
+
+  it.each([
+    ['its .git file is removed', (cwd: string) => rmSync(join(cwd, '.git'))],
+    ['its work tree is moved by core.worktree', (cwd: string) => {
+      git(cwd, 'config', 'extensions.worktreeConfig', 'true');
+      mkdirSync(join(cwd, '..', 'elsewhere'), { recursive: true });
+      git(cwd, 'config', '--worktree', 'core.worktree', join(cwd, '..', 'elsewhere'));
+    }],
+  ])('stops, naming what it can, when the agent worktree stops being a Git work tree: %s', async (_label, hide) => {
+    const { outcome, repository, calls } = await workstationRun((cwd) => { git(cwd, 'config', 'filter.agent.clean', 'planted'); hide(cwd); });
+    const blockers = outcome.manifest.results[0]?.blockers.join(' ') ?? '';
+    expect(blockers).toContain(`(checked after openai/codex@cli was started): ${outcome.worktrees[0]!.path} is no longer a Git work tree; local config file:${join(repository, '.git', 'config')} changed (read in ${repository})`);
+    expect(calls).toBe(1);
+  });
+
+  it('redacts a credential-shaped name the agent chose', async () => {
+    // Assembled at run time, so this file holds no literal credential.
+    const token = `gh${'p_'}${'A1b2C3d4E5'.repeat(4)}`;
+    const { outcome } = await workstationRun((cwd) => { git(cwd, 'init', '-q', token); });
+    const blockers = outcome.manifest.results[0]?.blockers.join(' ') ?? '';
+    expect(blockers).toContain(': nested repository [redacted GitHub token] appeared.');
+    expect(blockers).not.toContain(token);
+  });
+
+  it('lists at most five changes, then how many more', async () => {
+    const { outcome } = await workstationRun((cwd, repository) => {
+      for (const n of [1, 2, 3, 4, 5, 6]) {
+        writeFileSync(join(repository, '..', `extra-${n}.inc`), '[core]\n\tabbrev = 12\n');
+        git(cwd, 'config', '--add', 'include.path', join(repository, '..', `extra-${n}.inc`));
+      }
+    });
+    expect(outcome.manifest.results[0]?.blockers.join(' ')).toMatch(/: (local config [^;]+ (appeared|changed); ){4}local config [^;]+ (appeared|changed); and 2 more\. Code Conductor ran no further/);
+  });
+
+  it('is not stopped by the person creating a repository in the primary checkout meanwhile', async () => {
+    const { outcome, calls } = await workstationRun((_cwd, repository) => { git(repository, 'init', '-q', 'scratch'); });
+    expect(outcome.manifest.results.flatMap((result) => result.blockers).join(' ')).not.toContain(GIT_CONTROL_CHANGED);
+    expect(calls).toBe(2);
+  });
+
+  it('links agent worktrees by absolute path, so Git never enables relativeWorktrees in the repository', async () => {
+    const { outcome, repository } = await workstationRun(undefined, (repository) => git(repository, 'config', 'worktree.useRelativePaths', 'true'));
+    expect(outcome.manifest.results.flatMap((result) => result.blockers).join(' ')).not.toContain(GIT_CONTROL_CHANGED);
+    expect(git(repository, 'config', '--list', '--local')).not.toContain('relativeworktrees');
   });
 
   it('stops when the state cannot be read, for example repositories nested deeper than it reads', async () => {

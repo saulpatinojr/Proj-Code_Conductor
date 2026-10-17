@@ -239,9 +239,8 @@ describe('repositories nested in an agent worktree (#35 review)', () => {
     const before = gitControlState(handle.path)!;
     nest(handle.path, true, join(base, 'unused'));
     const nested = gitControlState(handle.path)!;
-    const added = controlStateChanges(before, nested);
-    expect(added).toContain('nested repository vendor-lib appeared');
-    expect(added.every((change) => change.startsWith('nested repository vendor-lib') && change.endsWith(' appeared'))).toBe(true);
+    // The repository stands for its own sources.
+    expect(controlStateChanges(before, nested)).toEqual(['nested repository vendor-lib appeared']);
     git(join(handle.path, 'vendor-lib'), 'config', 'core.sshCommand', 'planted');
     expect(controlStateChanges(nested, gitControlState(handle.path)!)).toEqual([`nested repository vendor-lib: local config file:${join(realpathSync(handle.path), 'vendor-lib', '.git', 'config')} changed`]);
   });

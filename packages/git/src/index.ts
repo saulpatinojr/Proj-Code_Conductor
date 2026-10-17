@@ -239,7 +239,10 @@ function digestControl(top: string, prefix: string, sources: Map<string, Hash>):
     const absolute = file !== undefined && !isAbsolute(file) ? `file:${resolve(top, file)}` : origin;
     source(`${fields[index]} config ${absolute}`).update(`${fields[index + 2]}\0`);
   }
-  const [commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
+  const [gitDir = '', commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
+  // Named, so a .git file rewritten to another worktree's Git directory, whose HEAD and
+  // history the checks would then read, is a change too.
+  source(`git directory ${gitDir}`);
   for (const file of files) {
     const hash = source(`file ${file}`);
     try {
@@ -286,11 +289,14 @@ export function gitControlState(path: string): GitControlState | undefined {
 
 /**
  * What differs between two readings of the same path, by source name and never by content,
- * sorted. Names hold the paths Git read, so a path that now reads another repository (a
- * rewritten `.git` file) differs by name too.
+ * sorted. Names hold the paths Git read, so a path that now reads another repository or
+ * another worktree's Git directory (a rewritten `.git` file) differs by name too. A nested
+ * repository that appeared or disappeared stands for its own sources.
  */
 export function controlStateChanges(before: GitControlState, after: GitControlState): string[] {
-  return [...new Set([...before.sources.keys(), ...after.sources.keys()])].sort().flatMap((name) => {
+  const names = [...new Set([...before.sources.keys(), ...after.sources.keys()])].sort();
+  const whole = names.filter((name) => name.startsWith('nested repository ') && before.sources.has(name) !== after.sources.has(name));
+  return names.filter((name) => !whole.some((repository) => name.startsWith(`${repository}: `))).flatMap((name) => {
     const was = before.sources.get(name);
     const now = after.sources.get(name);
     return was === now ? [] : [`${name} ${was === undefined ? 'appeared' : now === undefined ? 'disappeared' : 'changed'}`];
@@ -774,7 +780,9 @@ export class WorktreeManager {
     const path = join(taskDirectory, agent);
     ensurePrivateDirectory(repoDirectory);
     ensurePrivateDirectory(taskDirectory);
-    git(repo, ['worktree', 'add', '-b', branch, path, baseSha]);
+    // Absolute links: worktree.useRelativePaths=true would make Git enable
+    // extensions.relativeWorktrees in the repository's own configuration. Older Git ignores it.
+    git(repo, ['-c', 'worktree.useRelativePaths=false', 'worktree', 'add', '-b', branch, path, baseSha]);
     chmodSync(path, 0o700);
     return { repositoryRoot: repo, path, branch, baseRef, baseSha, taskId, agentId };
   }
