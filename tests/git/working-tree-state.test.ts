@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { rewriteKeepingTimes } from '../runtime/fixtures.js';
-import { commitAgentChanges, commitsSince, DISABLED_HOOKS_PATH, gitControlState, treeChangedFiles, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
+import { commitAgentChanges, commitsSince, controlStateChanges, DISABLED_HOOKS_PATH, gitControlState, treeChangedFiles, workingTreeState, WorktreeManager, type GitControlState } from '../../packages/git/src/index.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 const temps: string[] = [];
@@ -198,34 +198,60 @@ describe('agent history and Git control state', () => {
     expect(commitsSince(repo, git(repo, 'rev-parse', 'HEAD'))).toEqual({ commits: [], files: [] });
   });
 
-  it('changes when configuration or history files change, not when a value is rewritten unchanged', () => {
-    const repo = repository();
+  it('names each configuration or history file that changed, not one whose value is rewritten unchanged', () => {
+    const repo = realpathSync(repository());
     const initial = gitControlState(repo)!;
     git(repo, 'config', 'core.checkStat', 'minimal');
-    expect(gitControlState(repo)).toEqual(initial);
+    expect(controlStateChanges(initial, gitControlState(repo)!)).toEqual([]);
     git(repo, 'config', 'filter.agent.clean', 'cat');
     const filtered = gitControlState(repo)!;
-    expect(filtered.shared).not.toBe(initial.shared);
+    expect(controlStateChanges(initial, filtered)).toEqual([`local config file:${join(repo, '.git', 'config')} changed`]);
     writeFileSync(join(repo, '.git', 'info', 'grafts'), `${git(repo, 'rev-parse', 'HEAD')}\n`);
-    expect(gitControlState(repo)!.shared).not.toBe(filtered.shared);
+    const grafted = gitControlState(repo)!;
+    expect(controlStateChanges(filtered, grafted)).toEqual([`file ${join(repo, '.git', 'info', 'grafts')} changed`]);
+    writeFileSync(join(repo, '.git', 'info', 'grafts'), `${git(repo, 'rev-parse', 'HEAD')} ${git(repo, 'rev-parse', 'HEAD')}\n`);
+    expect(controlStateChanges(grafted, gitControlState(repo)!)).toEqual([`file ${join(repo, '.git', 'info', 'grafts')} changed`]);
+    git(repo, 'config', 'include.path', 'planted.inc');
+    writeFileSync(join(repo, '.git', 'planted.inc'), '[core]\n\tsshCommand = planted\n');
+    expect(controlStateChanges(filtered, gitControlState(repo)!)).toEqual([
+      `file ${join(repo, '.git', 'info', 'grafts')} changed`,
+      `local config file:${join(repo, '.git', 'config')} changed`,
+      `local config file:${join(repo, '.git', 'planted.inc')} appeared`,
+    ]);
     const plain = mkdtempSync(join(tmpdir(), 'cc-control-plain-'));
     temps.push(plain);
     expect(gitControlState(plain)).toBeUndefined();
   });
 
-  it('keys shared state by repository and keeps worktree-scope configuration apart', () => {
-    const repo = repository();
+  it('reads each worktree as Git sees it from there, and sees shared changes from every worktree', () => {
+    const repo = realpathSync(repository());
     const manager = new WorktreeManager(join(repo, '..', `${repo.split('/').at(-1)}-control-worktrees`));
     temps.push(manager.root);
-    const handle = manager.create(repo, 'T-1', 'builder-control');
+    // Conditional includes legitimately differ by worktree: the primary checkout is on its
+    // own branch and gitdir, the agent worktree on neither.
+    git(repo, 'config', `includeIf.onbranch:${git(repo, 'branch', '--show-current')}.path`, 'branch.inc');
+    writeFileSync(join(repo, '.git', 'branch.inc'), '[user]\n\temail = branch@example.invalid\n');
+    git(repo, 'config', `includeIf.gitdir:${join(repo, '.git')}.path`, 'gitdir.inc');
+    writeFileSync(join(repo, '.git', 'gitdir.inc'), '[user]\n\tname = primary\n');
     git(repo, 'config', 'extensions.worktreeConfig', 'true');
     git(repo, 'config', '--worktree', 'core.sparseCheckout', 'true');
+    const handle = manager.create(repo, 'T-1', 'builder-control');
     const primary = gitControlState(repo)!;
     const agent = gitControlState(handle.path)!;
     expect(agent.commonDir).toBe(primary.commonDir);
-    expect(agent.shared).toBe(primary.shared);
-    expect(agent.worktree).not.toBe(primary.worktree);
+    const only = (state: GitControlState, other: GitControlState): string[] => [...state.sources.keys()].filter((name) => !other.sources.has(name) && !name.startsWith('local config '));
+    expect(only(primary, agent)).toEqual([`worktree config file:${join(repo, '.git', 'config.worktree')}`, `git directory ${join(repo, '.git')}`]);
+    expect([...primary.sources.keys()]).toEqual(expect.arrayContaining([`local config file:${join(repo, '.git', 'branch.inc')}`, `local config file:${join(repo, '.git', 'gitdir.inc')}`]));
+    expect([...agent.sources.keys()].filter((name) => name.endsWith('.inc'))).toEqual([]);
     git(handle.path, 'config', 'filter.agent.clean', 'cat');
-    expect(gitControlState(repo)!.shared).not.toBe(primary.shared);
+    expect(controlStateChanges(primary, gitControlState(repo)!)).toEqual([`local config file:${join(repo, '.git', 'config')} changed`]);
+    expect(controlStateChanges(agent, gitControlState(handle.path)!)).toEqual([`local config file:${join(repo, '.git', 'config')} changed`]);
+    // A .git file pointed at the primary checkout's Git directory reads its HEAD and history.
+    const before = gitControlState(handle.path)!;
+    writeFileSync(join(handle.path, '.git'), `gitdir: ${join(repo, '.git')}\n`);
+    expect(controlStateChanges(before, gitControlState(handle.path)!).filter((change) => change.startsWith('git directory '))).toEqual([
+      `git directory ${join(repo, '.git')} appeared`,
+      `git directory ${join(repo, '.git', 'worktrees', 'builder-control')} disappeared`,
+    ]);
   });
 });
