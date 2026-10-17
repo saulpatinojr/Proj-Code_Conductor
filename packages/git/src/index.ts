@@ -1,5 +1,5 @@
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, type Hash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -193,10 +193,12 @@ function presentOnDisk(path: string): boolean {
 export interface GitControlState {
   /** The repository's common Git directory, shared by all of its worktrees. */
   commonDir: string;
-  /** Digest of everything shared by all worktrees of the repository. */
-  shared: string;
-  /** Digest of this worktree's own configuration (`extensions.worktreeConfig`) and of the repositories nested in it. */
-  worktree: string;
+  /**
+   * A digest per source, named by what and where it is and never by its content: each
+   * configuration file Git read, by scope and origin as `git config --show-origin` prints
+   * them; each control file; and each nested repository with its own sources.
+   */
+  sources: ReadonlyMap<string, string>;
 }
 
 /** Nesting deeper than this is not read, and is reported as unreadable control state. */
@@ -221,22 +223,34 @@ export function nestedRepositories(top: string): string[] {
 }
 
 // Configuration of every scope with includes followed, and the grafts, shallow,
-// alternates and info/attributes files, of the repository whose work tree is `top`.
-function digestControl(top: string, shared: ReturnType<typeof createHash>, worktree: ReturnType<typeof createHash>): string {
+// alternates and info/attributes files, of the repository whose work tree is `top`, each
+// digested in `sources` under its own name, after `prefix`.
+function digestControl(top: string, prefix: string, sources: Map<string, Hash>): string {
+  const source = (name: string): Hash => {
+    let hash = sources.get(`${prefix}${name}`);
+    if (!hash) sources.set(`${prefix}${name}`, hash = createHash('sha256'));
+    return hash;
+  };
   // -z prints scope, origin and "key\nvalue" as three NUL-terminated fields per entry.
-  // Origins of the main worktree's own files are relative (file:.git/config); make them
-  // absolute so every worktree of the repository reports the same shared state.
+  // Origins of a main worktree's own files are relative (file:.git/config). Every path is
+  // resolved, so a change names a file the person can open, spelt as the platform spells
+  // it (Git writes C:/... on Windows).
   const fields = git(top, ['config', '--list', '--show-scope', '--show-origin', '-z']).split('\0');
   for (let index = 0; index + 2 < fields.length; index += 3) {
     const origin = fields[index + 1] ?? '';
-    const file = origin.startsWith('file:') ? origin.slice(5) : undefined;
-    const absolute = file !== undefined && !isAbsolute(file) ? `file:${resolve(top, file)}` : origin;
-    (fields[index] === 'worktree' ? worktree : shared).update(`${fields[index]}\0${absolute}\0${fields[index + 2]}\0`);
+    const named = origin.startsWith('file:') ? `file:${resolve(top, origin.slice(5))}` : origin;
+    source(`${fields[index]} config ${named}`).update(`${fields[index + 2]}\0`);
   }
-  const [commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
+  const [gitDir = '', commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/).map((path) => resolve(path));
+  // Named, so a .git file rewritten to another worktree's Git directory, whose HEAD and
+  // history the checks would then read, is a change too.
+  source(`git directory ${gitDir}`);
   for (const file of files) {
-    shared.update(`\0${file}\0`);
-    try { shared.update(readFileSync(file)); } catch (error) { shared.update(`unreadable:${(error as NodeJS.ErrnoException).code ?? 'unknown'}`); }
+    const hash = source(`file ${file}`);
+    try {
+      const content = readFileSync(file);
+      hash.update('read\0').update(content);
+    } catch (error) { hash.update(`unreadable\0${(error as NodeJS.ErrnoException).code ?? 'unknown'}`); }
   }
   return commonDir;
 }
@@ -250,27 +264,45 @@ function digestControl(top: string, shared: ReturnType<typeof createHash>, workt
  * provider's own sandbox, or hide commits from the history check. Repositories nested
  * in the work tree (see `nestedRepositories`) count too, with their own configuration:
  * Git runs inside them, so one that appears or changes is a change like any other.
- * Worktree-scope configuration is digested separately because it legitimately differs
- * between worktrees (for example a sparse checkout). Only digests are kept, never the
+ * A reading is the repository as Git sees it from `path`. Origin paths and conditional
+ * includes (`includeIf "gitdir:..."`, `"onbranch:..."`) depend on where Git runs, so the
+ * worktrees of one repository legitimately differ: compare a reading only with an earlier
+ * reading of the same path (see `controlStateChanges`). Only digests are kept, never the
  * configuration, which can hold credentials. Undefined outside Git.
  */
 export function gitControlState(path: string): GitControlState | undefined {
   if (git(path, ['rev-parse', '--is-inside-work-tree'], true).trim() !== 'true') return undefined;
-  const shared = createHash('sha256');
-  const worktree = createHash('sha256');
+  const sources = new Map<string, Hash>();
   const top = git(path, ['rev-parse', '--show-toplevel']).trim();
-  const commonDir = digestControl(top, shared, worktree);
+  const commonDir = digestControl(top, '', sources);
   const nested = (directory: string, depth: number): void => {
     for (const file of nestedRepositories(directory)) {
       const inner = join(directory, file);
       if (depth >= MAX_NESTED_REPOSITORY_DEPTH) throw new Error(`repositories are nested more than ${MAX_NESTED_REPOSITORY_DEPTH} levels deep at ${inner}`);
-      worktree.update(`\0nested\0${relative(top, inner)}\0`);
-      digestControl(inner, worktree, worktree);
+      const name = `nested repository ${relative(top, inner)}`;
+      sources.set(name, createHash('sha256'));
+      digestControl(inner, `${name}: `, sources);
       nested(inner, depth + 1);
     }
   };
   nested(top, 0);
-  return { commonDir: resolve(commonDir), shared: shared.digest('hex'), worktree: worktree.digest('hex') };
+  return { commonDir, sources: new Map([...sources].map(([name, hash]) => [name, hash.digest('hex')])) };
+}
+
+/**
+ * What differs between two readings of the same path, by source name and never by content,
+ * sorted. Names hold the paths Git read, so a path that now reads another repository or
+ * another worktree's Git directory (a rewritten `.git` file) differs by name too. A nested
+ * repository that appeared or disappeared stands for its own sources.
+ */
+export function controlStateChanges(before: GitControlState, after: GitControlState): string[] {
+  const names = [...new Set([...before.sources.keys(), ...after.sources.keys()])].sort();
+  const whole = names.filter((name) => name.startsWith('nested repository ') && before.sources.has(name) !== after.sources.has(name));
+  return names.filter((name) => !whole.some((repository) => name.startsWith(`${repository}: `))).flatMap((name) => {
+    const was = before.sources.get(name);
+    const now = after.sources.get(name);
+    return was === now ? [] : [`${name} ${was === undefined ? 'appeared' : now === undefined ? 'disappeared' : 'changed'}`];
+  });
 }
 
 export function isSensitiveRepositoryPath(path: string): boolean {
@@ -773,7 +805,9 @@ export class WorktreeManager {
     const path = join(taskDirectory, agent);
     ensurePrivateDirectory(repoDirectory);
     ensurePrivateDirectory(taskDirectory);
-    git(repo, ['worktree', 'add', '-b', branch, path, baseSha]);
+    // Absolute links: worktree.useRelativePaths=true would make Git enable
+    // extensions.relativeWorktrees in the repository's own configuration. Older Git ignores it.
+    git(repo, ['-c', 'worktree.useRelativePaths=false', 'worktree', 'add', '-b', branch, path, baseSha]);
     chmodSync(path, 0o700);
     return { repositoryRoot: repo, path, branch, baseRef, baseSha, taskId, agentId };
   }
