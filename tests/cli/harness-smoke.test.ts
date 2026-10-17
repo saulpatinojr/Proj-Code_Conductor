@@ -52,10 +52,11 @@ function writingClaude(write: string, reply = 'Done.\nCC_RESULT_JSON:{"status":"
   return { home, env: { ...process.env, PATH: `${root}${delimiter}${process.env.PATH ?? ''}`, CODE_CONDUCTOR_HOME: home } };
 }
 
-// Each test starts the CLI, bounded by spawnSync's own 60 s; creating 10,001 files alone
-// can take seconds on a slow file system.
-describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify', { timeout: 60_000 }, () => {
-  const smoke = (env: NodeJS.ProcessEnv, mode = 'modify') => spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', mode], { encoding: 'utf8', env, timeout: 60_000 });
+// Each test starts the CLI and gives it 60 s; creating 10,001 files alone can take seconds
+// on a slow file system. SIGKILL, because a CLI blocked in a system call (opening a FIFO,
+// say) never runs its own SIGTERM handler, and spawnSync would wait for it forever.
+describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify', { timeout: 90_000 }, () => {
+  const smoke = (env: NodeJS.ProcessEnv, mode = 'modify') => spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', mode], { encoding: 'utf8', env, timeout: 60_000, killSignal: 'SIGKILL' });
   const trusted = (home: string) => (existsSync(join(home, 'workstation.json')) ? readFileSync(join(home, 'workstation.json'), 'utf8') : '').includes('ValidatedAt');
 
   it.each([
@@ -134,6 +135,7 @@ describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify'
   it.each([
     ['a tracked file was made executable', 'chmod +x INPUT.txt', 'changed=~INPUT.txt'],
     ['a tracked file was deleted', 'rm INPUT.txt', 'changed=-INPUT.txt'],
+    ['a file over 1 MiB was created, which is recorded without being read', 'head -c 2097152 /dev/zero > big.bin', 'changed=+big.bin'],
   ])('fails read mode when %s', (_, write, detail) => {
     const client = writingClaude(write);
     const run = smoke(client.env, 'read');
