@@ -230,7 +230,7 @@ describe('bounded gate execution', () => {
   it.skipIf(process.platform === 'win32')('finishes promptly when a descendant keeps the output pipes open after the gate exits', async () => {
     for (const detached of [true, false]) {
       const root = workspace();
-      const script = `const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: ${detached}, stdio: ['ignore', 'inherit', 'inherit'] }); g.unref(); require('node:fs').writeFileSync('descendant.pid', String(g.pid));`;
+      const script = `const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: ${detached}, stdio: ['ignore', 'inherit', 'inherit'] }); g.unref(); const fs = require('node:fs'); fs.writeFileSync('descendant.pid.tmp', String(g.pid)); fs.renameSync('descendant.pid.tmp', 'descendant.pid');`;
       const started = Date.now();
       const [result] = await executeGatePlan(root, [{ ...planned({ id: 'holder', command: process.execPath, args: ['-e', script] }), timeoutMs: 60_000 }]);
       const descendant = Number(readFileSync(join(root, 'descendant.pid'), 'utf8'));
@@ -242,8 +242,10 @@ describe('bounded gate execution', () => {
 
   it.skipIf(process.platform === 'win32')('times out and terminates everything the gate started', async () => {
     const root = workspace();
-    const script = "const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); require('node:fs').writeFileSync('grandchild.pid', String(g.pid)); setInterval(() => {}, 1000);";
+    const script = "const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); const fs = require('node:fs'); fs.writeFileSync('grandchild.pid.tmp', String(g.pid)); fs.renameSync('grandchild.pid.tmp', 'grandchild.pid'); setInterval(() => {}, 1000);";
     const pending = executeGatePlan(root, [{ ...planned({ id: 'hang', command: process.execPath, args: ['-e', script] }), timeoutMs: 1500 }]);
+    // The script renames the pid file into place, so once it exists it is complete: a file
+    // being written can exist while still empty.
     const pidFile = join(root, 'grandchild.pid');
     for (let attempt = 0; attempt < 100 && !existsSync(pidFile); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
     const grandchild = Number(readFileSync(pidFile, 'utf8'));

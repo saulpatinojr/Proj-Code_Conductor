@@ -38,8 +38,9 @@ describe('bounded isolated runs', () => {
     const root = scratch();
     const processes = pathToFileURL(resolve('packages/core/dist/processes.js')).href;
     // The "parent" starts a long gate, then is interrupted; nothing else handles SIGTERM.
+    // The gate renames its pid file into place, so once it exists it is complete.
     const parentScript = `import { runIsolated } from ${JSON.stringify(processes)};
-void runIsolated(process.execPath, ['-e', "require('node:fs').writeFileSync('gate.pid', String(process.pid)); setInterval(() => {}, 1000)"], { cwd: ${JSON.stringify(root)}, timeoutMs: 60000, maxBytes: 1024 });
+void runIsolated(process.execPath, ['-e', "const fs = require('node:fs'); fs.writeFileSync('gate.pid.tmp', String(process.pid)); fs.renameSync('gate.pid.tmp', 'gate.pid'); setInterval(() => {}, 1000)"], { cwd: ${JSON.stringify(root)}, timeoutMs: 60000, maxBytes: 1024 });
 setInterval(() => {}, 1000);`;
     const parent = spawn(process.execPath, ['--input-type=module', '-e', parentScript], { stdio: 'ignore' });
     const pidFile = join(root, 'gate.pid');
