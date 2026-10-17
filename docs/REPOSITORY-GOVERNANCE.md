@@ -69,6 +69,11 @@ up to date usually forces that push anyway.
 Code Conductor cannot apply these settings itself. The owner applies them, then reads them
 back so this document can be checked against the live state (#3).
 
+[`scripts/owner/Set-RepositoryGovernance.ps1`](../scripts/owner/README.md) applies steps 1 to 5
+with your own `gh` sign-in, then does step 6: it reads the settings back, checks them, and
+can post the read-back to #3. Copilot review is added only with `-CopilotReview`, and the
+merge methods change only with `-MergeMethods`.
+
 1. **Settings → Rules → New branch ruleset** for the default branch, set to *Active*:
    - restrict deletions and block force pushes;
    - require a pull request before merging. With a single maintainer, require **0**
@@ -106,3 +111,5 @@ back so this document can be checked against the live state (#3).
 ## Branch cleanup
 
 After every merged PR, verify that only `main` and intentionally active branches remain. Closed-unmerged branches should be deleted once their work is either superseded or intentionally abandoned.
+
+`scripts/owner/Remove-StaleBranches.ps1` shows each remaining branch with the reason it may be stale, deletes the ones you confirm, and prints the command that restores each.

@@ -161,7 +161,9 @@ needs GitHub Enterprise Cloud.
 
 ## Publishing to the Marketplace (owner setup, not automated yet)
 
-Publication needs decisions only the repository owner can make. They are tracked in #14:
+Publication needs decisions only the repository owner can make. They are tracked in #14.
+Once you have the publisher ID, `scripts/owner/Set-MarketplaceEnvironment.ps1 -Publisher <id>`
+does the GitHub side of steps 1 and 3 ([`scripts/owner`](../scripts/owner/README.md)).
 
 1. **Create or choose the Marketplace publisher.** Confirm that the display name is
    available, then set it as the `VSCE_PUBLISHER` repository variable.
