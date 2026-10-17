@@ -3,7 +3,7 @@ import ajvModule from 'ajv/dist/2020.js';
 import formatsModule from 'ajv-formats';
 import type { ErrorObject, ValidateFunction } from 'ajv';
 
-export type ContractName = 'TaskEnvelope' | 'AgentAssignment' | 'AgentResult' | 'Evidence' | 'Finding' | 'GateResult' | 'ReviewResult' | 'MergeDecision' | 'ApprovalRecord' | 'WorktreeRecord' | 'HandoffPacket' | 'RunManifest';
+export type ContractName = 'TaskEnvelope' | 'AgentAssignment' | 'AgentResult' | 'Evidence' | 'Finding' | 'GateResult' | 'ReviewResult' | 'MergeDecision' | 'ApprovalRecord' | 'WorktreeRecord' | 'HandoffPacket' | 'RunManifest' | 'GateCatalog';
 export interface ContractValidationResult { ok: boolean; errors: ErrorObject[] }
 
 type AjvInstance = {
@@ -20,17 +20,26 @@ const Ajv2020 = ((loadedAjv as { default?: AjvConstructor }).default ?? loadedAj
 const loadedFormats: unknown = formatsModule;
 const addFormats = ((loadedFormats as { default?: AddFormats }).default ?? loadedFormats) as AddFormats;
 
-const schemaPath = new URL('../schema/contracts.schema.json', import.meta.url);
-const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as { $id: string };
-const ajv = new Ajv2020({ allErrors: true, strict: false });
-addFormats(ajv);
-ajv.addSchema(schema);
+// The schema is read and compiled on first use, not on import: a bundle that only reaches
+// this package's types (the VS Code extension) then leaves Ajv and the schema out entirely
+// (the package declares "sideEffects": false).
+let compiled: { ajv: AjvInstance; id: string } | undefined;
+function contracts(): { ajv: AjvInstance; id: string } {
+  if (compiled) return compiled;
+  const schema = JSON.parse(readFileSync(new URL('../schema/contracts.schema.json', import.meta.url), 'utf8')) as { $id: string };
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addFormats(ajv);
+  ajv.addSchema(schema);
+  compiled = { ajv, id: schema.$id };
+  return compiled;
+}
 const validators = new Map<ContractName, ValidateFunction>();
 
 function validatorFor(name: ContractName): ValidateFunction {
   const cached = validators.get(name);
   if (cached) return cached;
-  const validate = ajv.getSchema(`${schema.$id}#/$defs/${name}`);
+  const { ajv, id } = contracts();
+  const validate = ajv.getSchema(`${id}#/$defs/${name}`);
   if (!validate) throw new Error(`JSON Schema definition not found: ${name}`);
   validators.set(name, validate);
   return validate;

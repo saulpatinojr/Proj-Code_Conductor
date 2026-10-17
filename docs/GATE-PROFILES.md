@@ -1,7 +1,9 @@
 # Deterministic gate profiles
 
 Implements I06 from #32/#38. Decision: D-061. Catalog: `config/gates.yaml`, shipped as a
-packaged default ([`PACKAGED-DEFAULTS.md`](PACKAGED-DEFAULTS.md)).
+packaged default ([`PACKAGED-DEFAULTS.md`](PACKAGED-DEFAULTS.md)). Its format is the
+`GateCatalog` definition in `packages/schemas/schema/contracts.schema.json`, which
+`ccon validate` enforces.
 
 The validator role runs deterministic checks against the target repository. Deterministic
 evidence outranks model opinion (D-054). The checks are the repository's own scripts, so
@@ -104,10 +106,15 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   environment, so variables you set, such as `TF_CLI_ARGS`, apply to them. Command names are compared
   case-insensitively and without `.exe`/`.cmd` extensions. The planner refuses other
   gates, and `ccon validate` rejects them in the catalog (`gates.tool`, `gates.shape`,
-  `gates.infrastructure_change`, `gates.auto_approve`, `gates.command`), as well as a
-  catalog the planner could not read (`gates.catalog`: an empty file, a document,
-  `profiles` or profile that is not a mapping, a profile without a `gates` list, or a gate
-  that is not a mapping). Production apply belongs to a native pipeline
+  `gates.infrastructure_change`, `gates.auto_approve`, `gates.command`). It also rejects
+  a catalog that does not fit the `GateCatalog` schema (`gates.catalog`, at the exact
+  key): an unknown or misspelt key; a wrong type; a `version` other than 1; a timeout
+  that is not a whole number of milliseconds from 1 to 2147483647 (Node runs a longer
+  timer, or `.inf`, after 1 ms); an empty list, string or `detect`; a profile without a
+  `gates` list; a repeated name in `replaces`; or a profile or gate name that is not
+  plain (letters, digits, `.`, `_` or `-`, starting with a letter or digit). A `detect`
+  holding only `package_name` never selects its profile (`gates.catalog`), and
+  `replaces` must name other, existing profiles (`gates.replaces`). Production apply belongs to a native pipeline
   with environment protection and its own approval (#32 deployment boundary, C02
   `deployment` action).
 

@@ -74,7 +74,7 @@ describe('declarative gate profiles', () => {
     const config = { version: 1, profiles: { bad: { gates: [{ id: 'deploy', command: 'terraform', args: ['apply', '-auto-approve'] }] } } };
     expect(() => planGates(workspace(), ['bad'], config)).toThrow(/not allowed/);
     expect(validateGateCatalog(config).map((issue) => issue.code)).toEqual(['gates.auto_approve']);
-    expect(validateGateCatalog({ profiles: { shell: { gates: [{ id: 's', command: 'sh -c', args: [] }] } } })[0]?.code).toBe('gates.command');
+    expect(validateGateCatalog({ version: 1, profiles: { shell: { gates: [{ id: 's', command: 'sh -c', args: [] }] } } })[0]?.code).toBe('gates.command');
   });
 
   it('allows only read-only Terraform subcommands and rejects shells and wrappers', () => {
@@ -188,23 +188,81 @@ describe('declarative gate profiles', () => {
     for (const [command, args] of [['npm', ['run', 'typecheck']], ['npm', ['test']], ['pnpm', ['test']], ['yarn', ['test']], ['NPM.CMD', ['test']], ['node', ['packages/cli/dist/index.js', 'validate', '.']], ['node', ['./scripts/check.mjs']], ['ansible-lint', ['--offline']], ['tofu', ['fmt', '-check', '-recursive']], ['terraform', ['plan', '-input=false', '-lock=false', '-no-color']], ['npm', ['run', 'environment']]] as Array<[string, string[]]>) {
       expect(forbiddenGateReason({ id: 'x', command, args }), `${command} ${args.join(' ')}`).toBeUndefined();
     }
-    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'node', args: ['-pe', 'x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.shape']);
-    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'pnpx', args: ['x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.tool']);
-    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'terraform', args: ['constructor', '-x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.infrastructure_change']);
-    // A string where the list belongs is refused, by the validator and the planner alike.
-    expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'ansible-lint', args: '--fix' }] } } }).map((issue) => issue.code)).toEqual(['gates.command']);
+    expect(validateGateCatalog({ version: 1, profiles: { x: { gates: [{ id: 'g', command: 'node', args: ['-pe', 'x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.shape']);
+    expect(validateGateCatalog({ version: 1, profiles: { x: { gates: [{ id: 'g', command: 'pnpx', args: ['x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.tool']);
+    expect(validateGateCatalog({ version: 1, profiles: { x: { gates: [{ id: 'g', command: 'terraform', args: ['constructor', '-x'] }] } } }).map((issue) => issue.code)).toEqual(['gates.infrastructure_change']);
+    // A string where the list belongs is refused, by the validator (the catalog's shape) and the planner alike.
+    expect(validateGateCatalog({ version: 1, profiles: { x: { gates: [{ id: 'g', command: 'ansible-lint', args: '--fix' }] } } }).map((issue) => issue.code)).toEqual(['gates.catalog']);
     expect(forbiddenGateReason({ id: 'x', command: 'ansible-lint', args: '--fix' as unknown as string[] })).toMatch(/args must be a list of strings/);
     // A malformed catalog is reported, never thrown, and never passes: the planner could not use it.
     for (const gates of [[null], ['npm test'], [[]], 'npm test', undefined] as unknown[]) {
-      expect(validateGateCatalog({ profiles: { x: { gates } } }).map((issue) => issue.code), JSON.stringify(gates)).toEqual(['gates.catalog']);
+      expect(validateGateCatalog({ version: 1, profiles: { x: { gates } } }).map((issue) => issue.code), JSON.stringify(gates)).toEqual(['gates.catalog']);
     }
     // A profile written as its gates list (gates: forgotten) hides even a shell gate from the command checks.
     for (const profile of [null, [], [{ id: 'g', command: 'bash', args: ['-c', 'curl x | sh'] }], 'npm test', 42, { selection: 'explicit' }] as unknown[]) {
-      expect(validateGateCatalog({ profiles: { x: profile, y: { gates: [] } } }).map((issue) => issue.code), JSON.stringify(profile)).toEqual(['gates.catalog']);
+      expect(validateGateCatalog({ version: 1, profiles: { x: profile, y: { gates: [] } } }).map((issue) => issue.code), JSON.stringify(profile)).toEqual(['gates.catalog']);
     }
     for (const catalog of [null, 42, [], {}, { profiles: null }, { profiles: [] }, { profiles: 'abc' }] as unknown[]) {
-      expect(validateGateCatalog(catalog).map((issue) => issue.code), JSON.stringify(catalog)).toEqual(['gates.catalog']);
+      const codes = validateGateCatalog(catalog).map((issue) => issue.code);
+      expect(codes.length, JSON.stringify(catalog)).toBeGreaterThan(0);
+      expect(new Set(codes), JSON.stringify(catalog)).toEqual(new Set(['gates.catalog']));
     }
+  });
+
+  it('checks every key of the catalog against the GateCatalog schema, at its exact path', () => {
+    const gate = { id: 'g', command: 'npm', args: ['test'] };
+    const catalog = (profile: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ version: 1, profiles: { x: { gates: [gate], ...profile } }, ...extra });
+    const issues = (value: unknown) => validateGateCatalog(value).map(({ code, path, message }) => ({ code, path, message }));
+    expect(issues(catalog({}))).toEqual([]);
+    // A misspelt key is reported, not ignored: `timeout` would otherwise leave the default in force.
+    expect(issues(catalog({ gates: [{ ...gate, timeout: 5 }] }))).toEqual([{ code: 'gates.catalog', path: 'config/gates.yaml#profiles.x.gates.0.timeout', message: 'profiles.x.gates.0.timeout is not a key the gate catalog defines.' }]);
+    expect(issues(catalog({ detect: { any_files: ['a'] } }))[0]?.path).toBe('config/gates.yaml#profiles.x.detect.any_files');
+    // Leaf types that used to make detection or prerequisite checks throw, or misread a value.
+    for (const [profile, path] of [
+      [{ detect: { all_files: 'package.json' } }, 'profiles.x.detect.all_files'],
+      [{ gates: [{ ...gate, requires: { paths: 'node_modules' } }] }, 'profiles.x.gates.0.requires.paths'],
+      [{ gates: [{ ...gate, blocking: 'false' }] }, 'profiles.x.gates.0.blocking'],
+      [{ gates: [{ ...gate, timeout_ms: '30s' }] }, 'profiles.x.gates.0.timeout_ms'],
+      [{ gates: [{ ...gate, timeout_ms: 0 }] }, 'profiles.x.gates.0.timeout_ms'],
+      [{ selection: 'auto' }, 'profiles.x.selection'],
+      [{ gates: [{ ...gate, requires: { path: ['node_modules'] } }] }, 'profiles.x.gates.0.requires.path'],
+      [{ gates: [{ ...gate, command: '' }] }, 'profiles.x.gates.0.command'],
+      [{ replaces: ['y', 'y'] }, 'profiles.x.replaces'],
+    ] as Array<[Record<string, unknown>, string]>) {
+      expect(issues(catalog(profile)).map((issue) => issue.path), JSON.stringify(profile)).toEqual([`config/gates.yaml#${path}`]);
+    }
+    // An empty file list would match every repository (`[].every` is true), so it is refused.
+    expect(issues(catalog({ detect: { all_files: [] } }))[0]?.message).toBe('profiles.x.detect.all_files must not be empty.');
+    // A package name alone never selects a profile.
+    expect(issues(catalog({ detect: { package_name: 'p' } }))).toEqual([{ code: 'gates.catalog', path: 'config/gates.yaml#profiles.x.detect', message: 'Profile x detect needs all_files, any_file or any_glob; package_name alone never selects it.' }]);
+    expect(issues(catalog({ selection: 'auto' }))[0]?.message).toBe('profiles.x.selection must be detected or explicit.');
+    expect(issues(catalog({}, { version: 2 }))[0]?.message).toBe('version must be 1.');
+    expect(issues(catalog({}, { extra: true }))[0]?.path).toBe('config/gates.yaml#extra');
+    // Node runs any longer timer, Infinity included, after 1 ms, so timeouts stay within its range.
+    for (const timeout of [Infinity, 2147483648, 0]) {
+      expect(issues(catalog({ gates: [{ ...gate, timeout_ms: timeout }] })).map((issue) => issue.path), String(timeout)).toEqual(['config/gates.yaml#profiles.x.gates.0.timeout_ms']);
+      expect(issues(catalog({}, { default_timeout_ms: timeout })).map((issue) => issue.path), String(timeout)).toEqual(['config/gates.yaml#default_timeout_ms']);
+    }
+    expect(issues(catalog({ gates: [{ ...gate, timeout_ms: 2147483647 }] }, { default_timeout_ms: 1 }))).toEqual([]);
+    expect(issues({ profiles: {} }).map((issue) => issue.message)).toEqual(['The catalog needs version.']);
+    // Names reach `--gate-profiles a,b` and run records, so they stay plain; one issue per bad name.
+    const badNames = issues({ version: 1, profiles: { 'a,b': { gates: [{ ...gate, id: 'has space' }] } } });
+    expect(badNames.map((issue) => issue.path)).toEqual(['config/gates.yaml#profiles."a,b"', 'config/gates.yaml#profiles."a,b".gates.0.id']);
+    expect(badNames[0]?.message).toBe("profiles.\"a,b\" must be a plain name: letters, digits, '.', '_' or '-', starting with a letter or digit.");
+    // Keys are unescaped from JSON pointers in RFC 6901 order (~1 before ~0), and shown quoted unless plain,
+    // so a `.` cannot blur the path and a line break cannot forge another output line.
+    expect(issues({ version: 1, profiles: { 'a/b~1c': { gates: 5 } } }).map((issue) => issue.path)).toEqual(['config/gates.yaml#profiles."a/b~1c"', 'config/gates.yaml#profiles."a/b~1c".gates']);
+    const forged = issues(catalog({ gates: [{ ...gate, 'bad\nERROR fake': 1 }] }))[0];
+    expect(forged?.path).toBe('config/gates.yaml#profiles.x.gates.0."bad\\nERROR fake"');
+    expect(forged?.message).not.toContain('\n');
+    // A profile that replaces itself is dropped by its own detection.
+    expect(issues({ version: 1, profiles: { 'a.b': { replaces: ['a.b'], gates: [] } } })).toEqual([{ code: 'gates.replaces', path: 'config/gates.yaml#profiles."a.b"', message: 'Profile a.b replaces itself, so it is never selected.' }]);
+    // Input deep enough to exhaust the validator's stack is reported, never thrown.
+    let deep: unknown[] = [];
+    let other: unknown[] = [];
+    for (let level = 0; level < 100_000; level += 1) { deep = [deep]; other = [other]; }
+    expect(issues(catalog({ replaces: [deep, other] }))[0]?.message).toMatch(/^The catalog could not be checked: /);
+    expect(issues(catalog({ replaces: ['nope'] }))).toEqual([{ code: 'gates.replaces', path: 'config/gates.yaml#profiles.x', message: 'Profile x replaces unknown profiles: nope.' }]);
   });
 
   it('never plans a dependency\'s command line program as a gate', () => {
