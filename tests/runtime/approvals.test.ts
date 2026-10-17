@@ -670,52 +670,89 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(git(worktree.path, 'log', '-1', '--format=%s')).toBe('detached');
   });
 
-  // An agent that commits on its branch and then moves HEAD back to the base leaves a
-  // worktree that looks untouched, while the branch a person merges carries its commits.
-  class BranchLeaver extends CountingAdapter {
-    constructor(id: string, provider: string, private readonly content: string, private readonly leave: 'detach' | 'detach and delete' | 'delete the ref' = 'detach') { super(id, provider); }
+  // A builder that runs Git in its worktree the way an agent could, and then reports a
+  // completed result without writing anything else.
+  class GitBuilder extends CountingAdapter {
+    constructor(id: string, provider: string, private readonly script: (cwd: string, commit: (file: string, content: string) => void, base: string, branch: string) => void) { super(id, provider); }
     override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
       if (request.assignment.role === 'builder') {
-        const base = git(request.cwd, 'rev-parse', 'HEAD');
-        const branch = git(request.cwd, 'branch', '--show-current');
-        writeFileSync(join(request.cwd, 'config.ts'), this.content);
-        git(request.cwd, 'add', 'config.ts');
-        git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', 'on the branch');
-        if (this.leave === 'delete the ref') git(request.cwd, 'update-ref', '-d', `refs/heads/${branch}`);
-        else git(request.cwd, 'checkout', '-q', '--detach', base);
-        if (this.leave === 'detach and delete') git(request.cwd, 'branch', '-q', '-D', branch);
+        const commit = (file: string, content: string): void => {
+          writeFileSync(join(request.cwd, file), content);
+          git(request.cwd, 'add', file);
+          git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', `add ${file}`);
+        };
+        this.script(request.cwd, commit, git(request.cwd, 'rev-parse', 'HEAD'), git(request.cwd, 'branch', '--show-current'));
         return FakeAdapter.prototype.execute.call(this, request);
       }
       return super.execute(request);
     }
   }
+  // Assembled at run time, so this file holds no literal credential.
+  const token = `gh${'p_'}${'b'.repeat(36)}`;
+  const builderOf = async (script: ConstructorParameters<typeof GitBuilder>[2], approver: Approver = approveAll) => {
+    const { outcome } = await run(approver, { count: 0 }, { codex: new GitBuilder('codex', 'openai', script) });
+    return { outcome, builder: outcome.manifest.results[0]!, text: JSON.stringify(outcome.manifest) };
+  };
 
   it('names commits the agent left on its branch after moving HEAD back to the base', async () => {
-    const { outcome } = await run(approveAll, { count: 0 }, { codex: new BranchLeaver('codex', 'openai', 'export const region = 1;\n') });
-    const builder = outcome.manifest.results[0]!;
+    const { outcome, builder } = await builderOf((cwd, commit, base) => { commit('config.ts', 'export const region = 1;\n'); git(cwd, 'checkout', '-q', '--detach', base); });
     expect(builder.recommendation).toBe('human_required');
-    expect(builder.risks.join(' ')).toMatch(/HEAD in .+ \([0-9a-f]{12}\) is not the tip of cc\/.+ \([0-9a-f]{12}\); the agent moved one off the other/);
-    expect(builder.risks.join(' ')).toContain('The agent made 1 commit(s) itself');
+    expect(builder.risks.join(' ')).toMatch(/HEAD \(detached at [0-9a-f]{12}\) in .+ is not the tip of cc\/.+ \([0-9a-f]{12}\); the agent moved one off the other/);
+    expect(builder.risks.join(' ')).toMatch(/The agent made 1 commit\(s\) itself on cc\/\S+ \(/);
     expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
   });
 
-  it('scans commits the agent left on its branch after moving HEAD back to the base', async () => {
-    const token = `ghp_${'b'.repeat(36)}`;
-    const { outcome } = await run(approveAll, { count: 0 }, { codex: new BranchLeaver('codex', 'openai', `export const token = '${token}';\n`) });
-    const builder = outcome.manifest.results[0]!;
+  it.each([
+    ['left on its branch after HEAD moved back to the base', (cwd: string, commit: (file: string, content: string) => void, base: string) => { commit('config.ts', `export const token = '${token}';\n`); git(cwd, 'checkout', '-q', '--detach', base); }, /on cc\/\S+ add credential-looking strings \(config\.ts:1 GitHub token\)/],
+    ['made on a detached HEAD, its branch then deleted', (cwd: string, commit: (file: string, content: string) => void, _base: string, branch: string) => { git(cwd, 'checkout', '-q', '--detach'); commit('leak.ts', `export const token = '${token}';\n`); git(cwd, 'branch', '-q', '-D', branch); }, /on HEAD \(detached at [0-9a-f]{12}\) add credential-looking strings \(leak\.ts:1 GitHub token\)/],
+    ['made only on a detached HEAD, the branch carrying a clean commit', (cwd: string, commit: (file: string, content: string) => void) => { commit('clean.ts', 'export const region = 1;\n'); git(cwd, 'checkout', '-q', '--detach'); commit('leak.ts', `export const token = '${token}';\n`); }, /on HEAD \(detached at [0-9a-f]{12}\) add credential-looking strings \(leak\.ts:1 GitHub token\)/],
+    ['made on another cc/ branch HEAD was moved to', (cwd: string, commit: (file: string, content: string) => void) => { git(cwd, 'checkout', '-q', '-b', 'cc/other/branch'); commit('leak.ts', `export const token = '${token}';\n`); }, /on HEAD \(on cc\/other\/branch at [0-9a-f]{12}\) add credential-looking strings \(leak\.ts:1 GitHub token\)/],
+  ] as const)('scans, and names where, a credential the agent committed %s', async (_label, script, where) => {
+    const { builder, text } = await builderOf(script);
     expect(builder.status).toBe('blocked');
-    expect(builder.blockers.join(' ')).toContain('add credential-looking strings (config.ts:1 GitHub token)');
-    expect(JSON.stringify(outcome.manifest)).not.toContain(token);
+    expect(builder.recommendation).toBe('human_required');
+    expect(builder.blockers.join(' ')).toMatch(where);
+    expect(text).not.toContain(token);
   });
 
   it.each([
-    ['detach and delete', /it has a detached HEAD checked out, not a Code Conductor agent branch matching cc\//],
-    ['delete the ref', /cc\/.+ no longer exists: the agent deleted it\. Code Conductor committed nothing/],
-  ] as const)('blocks, naming why, when the agent deleted its own branch (%s)', async (leave, reason) => {
-    const { outcome } = await run(approveAll, { count: 0 }, { codex: new BranchLeaver('codex', 'openai', 'export const region = 1;\n', leave) });
-    const builder = outcome.manifest.results[0]!;
+    ['detach and delete', (cwd: string, _commit: unknown, base: string, branch: string) => { git(cwd, 'checkout', '-q', '--detach', base); git(cwd, 'branch', '-q', '-D', branch); }, /it has a detached HEAD checked out, not a Code Conductor agent branch matching cc\//],
+    ['delete the ref under HEAD', (cwd: string, _commit: unknown, _base: string, branch: string) => { git(cwd, 'update-ref', '-d', `refs/heads/${branch}`); }, /cc\/.+ names no commit: the agent deleted it, or it is unreadable\. Code Conductor committed nothing/],
+  ] as const)('blocks, needing a person, when the agent deleted its own branch (%s)', async (_label, script, reason) => {
+    const { builder } = await builderOf((cwd, commit, base, branch) => { commit('config.ts', 'export const region = 1;\n'); script(cwd, commit, base, branch); });
     expect(builder.status).toBe('blocked');
+    expect(builder.recommendation).toBe('human_required');
     expect(builder.blockers.join(' ')).toMatch(reason);
+  });
+
+  it.each([[true], [false]])('blocks, needing a person, on an orphan HEAD (commits on the branch first: %s)', async (committed) => {
+    const { builder } = await builderOf((cwd, commit) => { if (committed) commit('config.ts', 'export const region = 1;\n'); git(cwd, 'checkout', '-q', '--orphan', 'fresh-start'); });
+    expect(builder.status).toBe('blocked');
+    expect(builder.recommendation).toBe('human_required');
+    if (committed) expect(builder.risks.join(' ')).toMatch(/The agent made 1 commit\(s\) itself on cc\//);
+    expect(builder.blockers.join(' ')).toMatch(/HEAD in .+ names no commit \(an unborn or orphan branch, refs\/heads\/fresh-start\)/);
+  });
+
+  it('redacts a credential-shaped file name the agent committed', async () => {
+    const name = `gh${'p_'}${'c'.repeat(36)}`;
+    const { builder, text } = await builderOf((_cwd, commit) => commit(`${name}.txt`, `${token}\n`));
+    expect(builder.blockers.join(' ')).toContain('[redacted GitHub token].txt:1 GitHub token');
+    expect(text).not.toContain(name);
+    expect(text).not.toContain(token);
+  });
+
+  it('refuses the commit when HEAD moves while its approval is pending, since the approval binds the revision', async () => {
+    const sneaky: Approver = {
+      decide: async (requests) => {
+        const commit = requests.find((request) => request.action === 'commit');
+        if (commit) git(commit.repository, '-c', 'user.name=late', '-c', 'user.email=late@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'late');
+        return { approved: true, approver: 'test' };
+      },
+    };
+    const { outcome, builder } = await builderOf((cwd) => writeFileSync(join(cwd, 'uncommitted.ts'), 'export const x = 1;\n'), sneaky);
+    expect(builder.status).toBe('blocked');
+    expect(builder.blockers.join(' ')).toContain('context changed after approval was requested; the stale approval was rejected and the action was not performed');
+    expect(git(outcome.worktrees[0]!.path, 'log', '-1', '--format=%s')).toBe('late');
   });
 
   it('stops when a gate command changes Git configuration, and keeps the worktree', async () => {

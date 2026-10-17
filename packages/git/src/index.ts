@@ -73,7 +73,9 @@ export const DISABLED_HOOKS_PATH = NO_HOOKS;
 // objects only.
 // submodule.recurse=false keeps checkouts (worktree add) from populating submodules,
 // whose repositories would then sit inside an agent worktree (see nestedRepositories).
-const SAFE_GIT = ['--no-replace-objects', '-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false'] as const;
+// core.commitGraph=false: Git trusts the parents a commit-graph file records, so an agent
+// that rewrote it could hide commits from the history it is checked by.
+const SAFE_GIT = ['--no-replace-objects', '-c', `core.hooksPath=${NO_HOOKS}`, '-c', 'core.fsmonitor=false', '-c', 'submodule.recurse=false', '-c', 'core.commitGraph=false'] as const;
 // Large repositories list more than spawnSync's 1 MiB default; output past this fails closed.
 const MAX_GIT_OUTPUT = 256 * 1024 * 1024;
 
@@ -607,9 +609,31 @@ export function commitsSince(path: string, base: string, head = 'HEAD'): CommitH
   return { commits, files: [...new Set(files)].sort() };
 }
 
-/** The full commit SHA a ref names; throws when it does not name a commit. */
-export function resolveCommit(path: string, ref: string): string {
-  return git(path, ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).trim();
+/**
+ * The commit a branch names, looked up by its exact ref: `rev-parse refs/heads/<branch>`
+ * alone also accepts near matches such as `refs/tags/refs/heads/<branch>`. Undefined when
+ * the branch does not exist or names no commit.
+ */
+export function branchCommit(path: string, branch: string): string | undefined {
+  const ref = git(path, ['show-ref', '--verify', '--hash', `refs/heads/${branch}`], true).trim();
+  return (ref && git(path, ['rev-parse', '--verify', '-q', `${ref}^{commit}`], true).trim()) || undefined;
+}
+
+export interface WorktreeTips {
+  /** The commit HEAD names; undefined for an unborn or orphan HEAD. */
+  head?: string;
+  /** The ref HEAD is on; undefined when HEAD is detached. */
+  headRef?: string;
+  /** The commit the agent branch names (see `branchCommit`). */
+  branch?: string;
+}
+
+/** Where an agent worktree's history ends: HEAD, and the agent's own branch. */
+export function worktreeTips(path: string, branch: string): WorktreeTips {
+  const head = git(path, ['rev-parse', '--verify', '-q', 'HEAD^{commit}'], true).trim();
+  const headRef = git(path, ['symbolic-ref', '-q', 'HEAD'], true).trim();
+  const tip = branchCommit(path, branch);
+  return { ...(head ? { head } : {}), ...(headRef ? { headRef } : {}), ...(tip ? { branch: tip } : {}) };
 }
 
 /**
