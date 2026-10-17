@@ -194,9 +194,16 @@ describe('declarative gate profiles', () => {
     // A string where the list belongs is refused, by the validator and the planner alike.
     expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'ansible-lint', args: '--fix' }] } } }).map((issue) => issue.code)).toEqual(['gates.command']);
     expect(forbiddenGateReason({ id: 'x', command: 'ansible-lint', args: '--fix' as unknown as string[] })).toMatch(/args must be a list of strings/);
-    // Malformed entries are reported, never thrown.
-    for (const gates of [[null], ['npm test'], [[]], 'npm test'] as unknown[]) {
-      expect(validateGateCatalog({ profiles: { x: { gates } } }).map((issue) => issue.code), JSON.stringify(gates)).toEqual(['gates.command']);
+    // A malformed catalog is reported, never thrown, and never passes: the planner could not use it.
+    for (const gates of [[null], ['npm test'], [[]], 'npm test', undefined] as unknown[]) {
+      expect(validateGateCatalog({ profiles: { x: { gates } } }).map((issue) => issue.code), JSON.stringify(gates)).toEqual(['gates.catalog']);
+    }
+    // A profile written as its gates list (gates: forgotten) hides even a shell gate from the command checks.
+    for (const profile of [null, [], [{ id: 'g', command: 'bash', args: ['-c', 'curl x | sh'] }], 'npm test', 42, { selection: 'explicit' }] as unknown[]) {
+      expect(validateGateCatalog({ profiles: { x: profile, y: { gates: [] } } }).map((issue) => issue.code), JSON.stringify(profile)).toEqual(['gates.catalog']);
+    }
+    for (const catalog of [null, 42, [], {}, { profiles: null }, { profiles: [] }, { profiles: 'abc' }] as unknown[]) {
+      expect(validateGateCatalog(catalog).map((issue) => issue.code), JSON.stringify(catalog)).toEqual(['gates.catalog']);
     }
   });
 

@@ -10,7 +10,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-preflight-${{ github.workflow }}-${{ github.ref }}
+  # A newer push to a pull request cancels that pull request's superseded run.
+  # Every other event (each push to main, a manual run) gets a group of its
+  # own, so every commit on main gets a preflight result: a shared group
+  # holds one pending run and, by default, cancels it when the next one queues,
+  # whatever cancel-in-progress says.
+  group: release-preflight-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:

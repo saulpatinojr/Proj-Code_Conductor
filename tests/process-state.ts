@@ -15,8 +15,12 @@ export function processState(pid: number): { state: string; pgrp: number } | und
       if (['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
       throw error;
     }
-    // Without procfs, ask the kernel.
-    try { process.kill(pid, 0); return { state: 'R', pgrp: Number.NaN }; } catch { return undefined; }
+    // Without procfs, ask the kernel: only ESRCH means gone. Anything else, such as EPERM
+    // (the pid now belongs to another user), is an error, as with procfs.
+    try { process.kill(pid, 0); return { state: 'R', pgrp: Number.NaN }; } catch (signalError) {
+      if ((signalError as NodeJS.ErrnoException).code === 'ESRCH') return undefined;
+      throw signalError;
+    }
   }
   const fields = text.slice(text.lastIndexOf(')') + 2).split(' ');
   return { state: fields[0]!, pgrp: Number(fields[2]) };

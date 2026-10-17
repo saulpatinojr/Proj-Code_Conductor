@@ -56,8 +56,11 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Refreshed `fast-uri` (3.1.8) and `source-map-js` (1.2.2) in the npm lockfile to clear new moderate/high advisories reported by `npm audit --audit-level=high`.
 - `code-conductor-protocol` skill now asks agents to list unverified checks in `notVerified`; projections and `apm.lock.yaml` were re-materialized with APM 0.30.0.
 - Upgraded Vitest to 5.0.0 and refreshed the committed npm lockfile.
+- CodeQL analyzes JavaScript/TypeScript and GitHub Actions on every pull request. Skipping a language the pull request did not change left code scanning without that comparison, and its `CodeQL` check neutral ("configuration not found").
 - Standardized ongoing workflow names and removed temporary/bootstrap write-back workflows after their one-time use.
 - Pinned maintained GitHub Actions to reviewed immutable commit SHAs.
+- CodeQL and Release preflight now finish on every push to `main`; only a pull request's superseded run is cancelled. Both used one concurrency group per branch, so merges in quick succession cancelled the earlier commits' runs.
+- The npm lockfile records the exact `zod` 4.6.7 pin that `packages/adapters` declares, so the npm lockfile check passes again.
 - Pinned executable Ansible and Azure MCP npm package references instead of resolving floating versions at runtime.
 - Reworked deterministic gate glob matching and expanded recursive-pattern regression coverage.
 - Removed the former gate-profile directory-depth cutoff so recursive technology detection cannot silently skip deeply nested files.
@@ -79,7 +82,7 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Security
 
-- Handoff disclosure summaries count redaction markers in linear time. A packet built from what earlier agents wrote can no longer stall a run with quadratic regular-expression matching (CodeQL `js/polynomial-redos`).
+- Handoff disclosure summaries count redaction markers with an exact string search instead of a regular expression whose worst case is quadratic (CodeQL `js/polynomial-redos`). The serialized packet always puts a closing bracket after agent-written text, so the old count was already linear in practice; the count no longer depends on that layout.
 - Subscription-first billing policy and detection of API-key environment variables that could bypass intended billing paths.
 - Fail-closed structured agent-result parsing and explicit workstation trust before unattended CLI execution.
 - Structured `AgentResult` payloads are validated against the canonical JSON Schema before runtime acceptance.
@@ -96,4 +99,4 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
   - Git can report the worktree layout. The check fails closed when it cannot, as with Git older than 2.31.
 
   Git subprocesses, and the test suite, also drop Git's repository-local environment variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the rest of `git rev-parse --local-env-vars`). Otherwise, a run launched from a git hook or a dotfiles shell could be redirected onto a person's own checkout or index. Fixes #48.
-- Gate shapes: a `node` gate script under a folder whose name ends in a dot is refused, because Windows drops the dot and `node_modules.` can name `node_modules` there. A malformed gate catalog entry (not a mapping, or `gates` not a list) is reported by `ccon validate` instead of crashing it.
+- Gate shapes: a `node` gate script under a folder whose name ends in a dot is refused, because Windows drops the dot and `node_modules.` can name `node_modules` there. A malformed gate catalog is reported by `ccon validate` as `gates.catalog` instead of crashing it or passing. That covers an empty file, `profiles` or a profile that is not a mapping, a profile without a `gates` list (such as one written as its gates list, which also hid its commands from the gate checks), and a gate that is not a mapping.
