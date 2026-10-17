@@ -230,16 +230,16 @@ function digestControl(top: string, prefix: string, sources: Map<string, Hash>):
     return hash;
   };
   // -z prints scope, origin and "key\nvalue" as three NUL-terminated fields per entry.
-  // Origins of a main worktree's own files are relative (file:.git/config); make them
-  // absolute so a change names a file the person can open.
+  // Origins of a main worktree's own files are relative (file:.git/config). Every path is
+  // resolved, so a change names a file the person can open, spelt as the platform spells
+  // it (Git writes C:/... on Windows).
   const fields = git(top, ['config', '--list', '--show-scope', '--show-origin', '-z']).split('\0');
   for (let index = 0; index + 2 < fields.length; index += 3) {
     const origin = fields[index + 1] ?? '';
-    const file = origin.startsWith('file:') ? origin.slice(5) : undefined;
-    const absolute = file !== undefined && !isAbsolute(file) ? `file:${resolve(top, file)}` : origin;
-    source(`${fields[index]} config ${absolute}`).update(`${fields[index + 2]}\0`);
+    const named = origin.startsWith('file:') ? `file:${resolve(top, origin.slice(5))}` : origin;
+    source(`${fields[index]} config ${named}`).update(`${fields[index + 2]}\0`);
   }
-  const [gitDir = '', commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/);
+  const [gitDir = '', commonDir = '', ...files] = git(top, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', '--git-path', 'info/grafts', '--git-path', 'shallow', '--git-path', 'objects/info/alternates', '--git-path', 'info/attributes']).trim().split(/\r?\n/).map((path) => resolve(path));
   // Named, so a .git file rewritten to another worktree's Git directory, whose HEAD and
   // history the checks would then read, is a change too.
   source(`git directory ${gitDir}`);
@@ -284,7 +284,7 @@ export function gitControlState(path: string): GitControlState | undefined {
     }
   };
   nested(top, 0);
-  return { commonDir: resolve(commonDir), sources: new Map([...sources].map(([name, hash]) => [name, hash.digest('hex')])) };
+  return { commonDir, sources: new Map([...sources].map(([name, hash]) => [name, hash.digest('hex')])) };
 }
 
 /**
