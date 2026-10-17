@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,22 +41,35 @@ function harness(initial: Record<string, unknown>) {
 }
 
 describe('scripts/owner, statically', () => {
-  it('requires exactly the checks the governance document lists, and each is a job a workflow runs', () => {
+  it.runIf(Boolean(process.env.CI))('has PowerShell in CI, so the PowerShell tests run there', () => {
+    expect(hasPwsh).toBe(true);
+  });
+
+  it('requires exactly the checks the governance document lists, each a job that reports on every pull request', () => {
     const script = readFileSync(join(OWNER, 'Set-RepositoryGovernance.ps1'), 'utf8');
     const listed = [...(/\$RequiredChecks = @\(([^)]*)\)/.exec(script)?.[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1]);
     const doc = readFileSync('docs/REPOSITORY-GOVERNANCE.md', 'utf8');
     const table = doc.slice(doc.indexOf('## Required checks'), doc.indexOf('\n## ', doc.indexOf('## Required checks') + 1));
     const documented = table.split('\n').filter((line) => line.startsWith('| `')).flatMap((line) => [...line.split('|')[1]!.matchAll(/`([^`]+)`/g)].map((match) => match[1]));
     expect(listed).toEqual(documented);
-    const jobs = readdirSync('.github/workflows').flatMap((file) => {
-      const workflow = parse(readFileSync(join('.github/workflows', file), 'utf8')) as { jobs: Record<string, { name?: string; strategy?: { matrix?: { language?: string[] } } }> };
+    type Trigger = { branches?: string[]; paths?: string[]; 'paths-ignore'?: string[] } | null;
+    const jobs = new Map(readdirSync('.github/workflows').flatMap((file) => {
+      const workflow = parse(readFileSync(join('.github/workflows', file), 'utf8')) as { on: Record<string, Trigger>; jobs: Record<string, { name?: string; strategy?: { matrix?: { language?: string[] } } }> };
       return Object.entries(workflow.jobs).flatMap(([key, job]) => {
         const name = job.name ?? key;
-        return name.includes('${{ matrix.language }}') ? (job.strategy?.matrix?.language ?? []).map((language) => name.replace('${{ matrix.language }}', language)) : [name];
+        const names = name.includes('${{ matrix.language }}') ? (job.strategy?.matrix?.language ?? []).map((language) => name.replace('${{ matrix.language }}', language)) : [name];
+        return names.map((each) => [each, workflow.on] as const);
       });
-    });
+    }));
     expect(listed.length).toBeGreaterThan(0);
-    for (const check of listed) expect(jobs).toContain(check);
+    for (const check of listed) {
+      const on = jobs.get(check!);
+      // A required check that does not report leaves pull requests pending (REPOSITORY-GOVERNANCE.md).
+      expect(on && 'pull_request' in on, check).toBe(true);
+      const trigger = on!.pull_request;
+      expect(trigger?.paths ?? trigger?.['paths-ignore'], check).toBeUndefined();
+      if (trigger?.branches) expect(trigger.branches, check).toContain('main');
+    }
   });
 
   it('are ASCII only, which Windows PowerShell 5.1 reads the same without a byte-order mark', () => {
@@ -120,7 +133,7 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
           id: 2, name: 'Protect tags', target: 'tag', enforcement: 'active',
           bypass_actors: [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }],
           conditions: { ref_name: { include: ['~ALL'], exclude: [] } },
-          rules: [{ type: 'creation' }, { type: 'update', parameters: { update_allows_fetch_and_merge: false } }, { type: 'deletion' }],
+          rules: [{ type: 'creation' }, { type: 'update' }, { type: 'deletion' }],
         },
       ]);
       expect(state.repo).toMatchObject({
@@ -129,7 +142,7 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
       });
       expect(state.workflow).toEqual({ default_workflow_permissions: 'read', can_approve_pull_request_reviews: false });
       const report = readFileSync(evidence, 'utf8');
-      expect(report.match(/\| pass \|/g)).toHaveLength(8);
+      expect(report.match(/\| pass \|/g)).toHaveLength(9);
       expect(report).not.toContain('FAIL');
       expect(report).toContain('"context": "Analyze actions"');
 
@@ -150,10 +163,23 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
       expect(readdirSync(base)).not.toContain('evidence.md');
     });
 
-    it('adds the Copilot review rule and sets only the merge methods it is given', () => {
-      const { run, read } = harness(fresh());
-      const result = run('Set-RepositoryGovernance.ps1', `-Repository ${REPOSITORY} -CopilotReview -MergeMethods squash`);
+    it('updates a ruleset made another way for the same refs in place, keeping its name', () => {
+      const existing = { id: 9, name: 'Protect main branch', target: 'branch', enforcement: 'active', bypass_actors: [], conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } }, rules: [{ type: 'deletion' }] };
+      const { run, read, writes } = harness({ ...fresh(), rulesets: [existing], nextId: 10 });
+      const result = run('Set-RepositoryGovernance.ps1', `-Repository ${REPOSITORY}`);
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      expect(writes().slice(0, 2)).toEqual(['PUT repos/octo/repo/rulesets/9', 'POST repos/octo/repo/rulesets']);
+      const state = read() as State & { rulesets: Array<{ id: number; name: string; target: string; rules: unknown[] }> };
+      expect(state.rulesets.map((ruleset) => [ruleset.id, ruleset.name, ruleset.target])).toEqual([[9, 'Protect main branch', 'branch'], [10, 'Protect tags', 'tag']]);
+      expect(state.rulesets[0]!.rules).toHaveLength(4);
+    });
+
+    it('adds the Copilot review rule, checks it in the read-back, and sets only the merge methods it is given', () => {
+      const { base, run, read } = harness(fresh());
+      const evidence = join(base, 'evidence.md');
+      const result = run('Set-RepositoryGovernance.ps1', `-Repository ${REPOSITORY} -CopilotReview -MergeMethods squash -EvidencePath ${quote(evidence)}`);
       expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(evidence, 'utf8')).toContain('| main: Copilot reviews each pull request | pass |');
       const state = read() as State & { rulesets: Array<{ rules: unknown[] }>; repo: Record<string, unknown> };
       expect(state.rulesets[0]!.rules).toContainEqual({ type: 'copilot_code_review', parameters: { review_on_push: false, review_draft_pull_requests: false } });
       expect(state.repo).toMatchObject({ allow_merge_commit: false, allow_squash_merge: true, allow_rebase_merge: false });
@@ -161,7 +187,9 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
 
     it.each([
       ['private vulnerability reporting stays off', { stuckReporting: true }, '| Private vulnerability reporting | FAIL |'],
-      ['a required check is not enforced', { dropCheck: 'Analyze actions' }, '| main: every required check | FAIL |'],
+      ['a required check is not enforced', { dropCheck: 'Analyze actions' }, '| main: every required check, from GitHub Actions, on an up-to-date branch | FAIL |'],
+      ['a required check is accepted from any app', { unpinCheck: 'quality' }, '| main: every required check, from GitHub Actions, on an up-to-date branch | FAIL |'],
+      ['someone may bypass the main ruleset', { forceMainBypass: true }, '| main: nobody may bypass | FAIL |'],
     ])('fails, after posting the read-back to #3, when %s', (_, fault, row) => {
       const { run, read } = harness({ ...fresh(), ...fault });
       const result = run('Set-RepositoryGovernance.ps1', `-Repository ${REPOSITORY} -PostEvidence`);
@@ -192,21 +220,29 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
         { name: 'feat/contained', protected: false, commit: { sha: SHA('e') }, ahead: 0 },
         { name: 'release/keep', protected: false, commit: { sha: SHA('f') }, ahead: 3 },
         { name: 'locked', protected: true, commit: { sha: SHA('1') }, ahead: 1 },
+        { name: 'feat/base', protected: false, commit: { sha: SHA('2') }, ahead: 3 },
+        { name: 'feat/child', protected: false, commit: { sha: SHA('3') }, ahead: 4 },
+        { name: 'feat/remerged', protected: false, commit: { sha: SHA('4') }, ahead: 2 },
       ],
       pulls: [
         { number: 1, state: 'open', merged_at: null, head: { ref: 'feat/open', sha: SHA('b') } },
         { number: 2, state: 'closed', merged_at: '2026-10-01T00:00:00Z', head: { ref: 'feat/merged', sha: SHA('c') } },
         { number: 3, state: 'closed', merged_at: null, head: { ref: 'feat/stale', sha: SHA('9') } },
+        // A stacked pull request: deleting its base branch would close it.
+        { number: 5, state: 'open', merged_at: null, head: { ref: 'feat/child', sha: SHA('3') }, base: { ref: 'feat/base' } },
+        { number: 6, state: 'closed', merged_at: '2026-10-02T00:00:00Z', head: { ref: 'feat/remerged', sha: SHA('8') } },
       ],
     });
 
-    it('keeps the default, protected, -Keep and open-PR branches, and deletes the rest with a reason and a restore command', () => {
+    it('keeps the default, protected and -Keep branches and the head or base of an open PR, and deletes the rest with a reason and a restore command', () => {
       const { run, read, writes } = harness(branches());
       const result = run('Remove-StaleBranches.ps1', `-Repository ${REPOSITORY} -Keep release/keep -Confirm:$false`);
       expect(result.status, result.stderr).toBe(0);
-      expect(writes()).toEqual(['DELETE repos/octo/repo/git/refs/heads/feat/merged', 'DELETE repos/octo/repo/git/refs/heads/feat/stale', 'DELETE repos/octo/repo/git/refs/heads/feat/contained']);
-      expect((read() as State & { branches: Array<{ name: string }> }).branches.map((branch) => branch.name)).toEqual(['main', 'feat/open', 'release/keep', 'locked']);
+      expect(writes()).toEqual(['feat/merged', 'feat/stale', 'feat/contained', 'feat/remerged'].map((name) => `DELETE repos/octo/repo/git/refs/heads/${name}`));
+      expect((read() as State & { branches: Array<{ name: string }> }).branches.map((branch) => branch.name)).toEqual(['main', 'feat/open', 'release/keep', 'locked', 'feat/base', 'feat/child']);
       expect(result.stdout).toContain('Keep feat/open (bbbbbbb): open pull request #1');
+      expect(result.stdout).toContain('Keep feat/base (2222222): base of open pull request #5');
+      expect(result.stdout).toContain('2 commit(s) not on main; commits added after merging #6');
       expect(result.stdout).toContain('Keep locked (1111111): protected');
       expect(result.stdout).toContain('merged in #2');
       expect(result.stdout).toContain('46 commit(s) not on main; closed unmerged: #3');
@@ -222,20 +258,38 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
       expect(result.stdout).toContain('What if');
     });
 
-    it('with -IncludeLocal, also deletes the local branch and its remote-tracking ref, but not the checked-out one', () => {
-      const { base, run } = harness(branches());
-      const clone = join(base, 'clone');
+    it('with -IncludeLocal, deletes a local branch only when the commit deleted on GitHub contains it', () => {
+      const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'cc-owner-clone-')));
+      temps.push(scratch);
+      const clone = join(scratch, 'clone');
       const git = (...args: string[]) => spawnSync('git', ['-C', clone, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', ...args], { encoding: 'utf8' });
       mkdirSync(clone);
-      git('init', '-b', 'feat/contained');
+      git('init', '-b', 'feat/current');
       git('commit', '--allow-empty', '-m', 'base');
+      const first = git('rev-parse', 'HEAD').stdout.trim();
       git('remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`);
-      for (const name of ['feat/stale', 'feat/merged']) git('branch', name);
-      git('update-ref', 'refs/remotes/origin/feat/stale', 'HEAD');
-      const result = run('Remove-StaleBranches.ps1', `-Repository ${REPOSITORY} -Keep release/keep -IncludeLocal -Confirm:$false`, clone);
+      git('branch', 'feat/behind');
+      git('checkout', '-q', '-b', 'feat/unpushed');
+      git('commit', '--allow-empty', '-m', 'never pushed');
+      const second = git('rev-parse', 'HEAD').stdout.trim();
+      git('checkout', '-q', 'feat/current');
+      git('update-ref', 'refs/remotes/origin/feat/unpushed', first);
+      const { run } = harness({
+        repo: { default_branch: 'main', permissions: { admin: false, push: true } }, pulls: [],
+        branches: [
+          { name: 'main', protected: true, commit: { sha: SHA('a') } },
+          // GitHub's feat/behind is ahead of the local one; the local feat/unpushed is ahead of GitHub's.
+          { name: 'feat/behind', protected: false, commit: { sha: second }, ahead: 2 },
+          { name: 'feat/unpushed', protected: false, commit: { sha: first }, ahead: 1 },
+          { name: 'feat/current', protected: false, commit: { sha: first }, ahead: 1 },
+        ],
+      });
+      const result = run('Remove-StaleBranches.ps1', `-Repository ${REPOSITORY} -IncludeLocal -Confirm:$false`, clone);
       expect(result.status, result.stderr).toBe(0);
-      expect(git('for-each-ref', '--format=%(refname)').stdout.trim().split('\n')).toEqual(['refs/heads/feat/contained']);
-      expect(result.stdout).toContain('Kept the local feat/contained: it is checked out here.');
+      expect(git('for-each-ref', '--format=%(refname)').stdout.trim().split('\n')).toEqual(['refs/heads/feat/current', 'refs/heads/feat/unpushed']);
+      expect(result.stdout).toContain(`Deleted the local feat/behind. To restore it: git branch feat/behind ${first}`);
+      expect(result.stdout).toContain(`Kept the local feat/unpushed (${second.slice(0, 7)}): it may hold commits that were not on GitHub.`);
+      expect(result.stdout).toContain('Kept the local feat/current: it is checked out here.');
     });
 
     it('with -IncludeLocal, refuses a clone of another repository before deleting anything', () => {
@@ -277,15 +331,24 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
   });
 
   describe('Invoke-WorkstationValidation.ps1', () => {
-    function workstation(state: Record<string, unknown> = {}) {
+    // passing names a client (both modes) or client:mode.
+    function workstation(state: Record<string, unknown> = {}, { passing = ['codex'], doctorExit = 0, compressExit = 0 } = {}) {
       const context = harness(state);
       const runtime = join(context.base, 'ext', 'publisher.code-conductor-vscode-0.1.0', 'dist', 'ccon.js');
       mkdirSync(join(runtime, '..'), { recursive: true });
-      // A stand-in for the bundled runtime: Doctor leaks a home path and an address, claude's
-      // read smoke fails, codex passes, and compress returns content that must not be kept.
+      // A stand-in for the bundled runtime: Doctor leaks a home path, an address and secrets
+      // (built here, so no secret scanner mistakes this file for a leak); smoke passes only
+      // for the clients in passing; compress returns content that must not be kept.
       writeFileSync(runtime, `const [command, client, , mode] = process.argv.slice(2);
-if (command === 'doctor') { console.log('OK harness claude: version=1.0 config=' + process.env.HOME + '/.claude user=someone@example.com'); process.exit(0); }
-if (command === 'harness-smoke') { const ok = client === 'codex'; (ok ? console.log : console.error)('SMOKE ' + (ok ? 'PASS' : 'FAIL') + ' ' + client + ' cli ' + mode); process.exit(ok ? 0 : 1); }
+const passing = ${JSON.stringify(passing)};
+const jwt = ['{"alg":"none"}', '{"sub":"1234567890"}', 'signature-bytes'].map((part) => Buffer.from(part).toString('base64url')).join('.');
+if (command === 'doctor') {
+  console.log('OK harness claude: version=1.0 config=' + process.env.HOME + '/.claude user=someone@example.com');
+  console.log('INFO keys ' + 'AIza' + 'Q'.repeat(35) + ' AccountKey=' + 'k'.repeat(24) + ';EndpointSuffix=core.windows.net ' + jwt);
+  process.exit(${doctorExit});
+}
+if (command === 'harness-smoke') { const ok = passing.includes(client) || passing.includes(client + ':' + mode); (ok ? console.log : console.error)('SMOKE ' + (ok ? 'PASS' : 'FAIL') + ' ' + client + ' cli ' + mode); process.exit(ok ? 0 : 1); }
+if (command === 'compress' && ${compressExit}) { console.error('ERROR compress.read_failed: refused'); process.exit(${compressExit}); }
 if (command === 'compress') { console.log('Mode: lossless\\nEstimated tokens saved: 3 (5%)\\n\\n--- Prepared Content ---\\nREPOSITORY_CONTENT'); process.exit(0); }
 process.exit(2);
 `);
@@ -310,6 +373,7 @@ process.exit(2);
       expect(text).toContain('README.md exit 0, as documented for this OS: Estimated tokens saved: 3 (5%)');
       expect(text).not.toContain('REPOSITORY_CONTENT');
       expect(text).not.toContain('someone@example.com');
+      expect(text).toContain('INFO keys [redacted] AccountKey=[redacted];EndpointSuffix=core.windows.net [redacted]');
       expect(result.stdout).toContain(`gh issue comment 4 --repo saulpatinojr/Proj-Code_Conductor --body-file "${report}"`);
     });
 
@@ -333,6 +397,71 @@ process.exit(2);
       expect(verify?.argv).toEqual(['attestation', 'verify', join(files, 'code-conductor-0.2.0.vsix'), '--repo', REPOSITORY,
         '--cert-identity', `https://github.com/${REPOSITORY}/.github/workflows/release.yml@refs/tags/v0.2.0`,
         '--source-ref', 'refs/tags/v0.2.0', '--source-digest', commit, '--deny-self-hosted-runners']);
+    });
+
+    it.each([
+      [['claude', 'codex', 'kiro'], '[x]', 'kiro modify pass'],
+      [['claude', 'codex', 'kiro:read'], '[ ]', 'kiro modify FAIL'],
+    ])('ticks the smoke tests only when read and modify passed for all three clients (%j)', (passing, mark, last) => {
+      const { run, runtime, repository, report } = workstation({}, { passing });
+      const result = run('Invoke-WorkstationValidation.ps1', `-CconPath ${quote(runtime)} -Repository ${quote(repository)} -Smoke claude,codex,kiro -AckKiroPolicy -OutFile ${quote(report)}`);
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      expect(readFileSync(report, 'utf8')).toContain(`- ${mark} \`ccon harness-smoke\` read and modify: claude read pass; claude modify pass; codex read pass; codex modify pass; kiro read pass; ${last}`);
+    });
+
+    it('leaves Doctor and the compress boundary unticked when they did not pass', () => {
+      const { run, runtime, repository, report } = workstation({}, { doctorExit: 1, compressExit: 1 });
+      const result = run('Invoke-WorkstationValidation.ps1', `-CconPath ${quote(runtime)} -Repository ${quote(repository)} -OutFile ${quote(report)}`);
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      const text = readFileSync(report, 'utf8');
+      expect(text).toContain('- [ ] `ccon doctor`: exit 1');
+      // On Linux, compress reads the file; a refusal here is not what ADR 0007 documents.
+      expect(text).toContain('- [ ] Compress boundary: README.md exit 1, NOT as documented for this OS: ERROR compress.read_failed: refused');
+    });
+
+    it.each([
+      ['lists nothing', () => '', ['sha256 code-conductor-0.2.0.vsix : FAILED, not listed in SHA256SUMS', '*.vsix : FAILED, none verified', '*.cdx.json : FAILED, none verified']],
+      ['lists only the SBOM', (sum: (text: string) => string) => `${sum('{}')}  code-conductor-0.2.0.cdx.json\n`, ['sha256 code-conductor-0.2.0.vsix : FAILED, not listed in SHA256SUMS', '*.vsix : FAILED, none verified']],
+    ])('fails the package when SHA256SUMS %s', (_, sums, lines) => {
+      const { base, run, runtime, repository, report } = workstation({ attestationOk: true, commitOnMain: true });
+      const files = join(base, 'release');
+      mkdirSync(files);
+      writeFileSync(join(files, 'code-conductor-0.2.0.vsix'), 'package');
+      writeFileSync(join(files, 'code-conductor-0.2.0.cdx.json'), '{}');
+      writeFileSync(join(files, 'SHA256SUMS'), sums((text) => createHash('sha256').update(text).digest('hex')));
+      const result = run('Invoke-WorkstationValidation.ps1', `-CconPath ${quote(runtime)} -Repository ${quote(repository)} -PackageDirectory ${quote(files)} -SourceCommit ${SHA('7')} -GitHubRepository ${REPOSITORY} -OutFile ${quote(report)}`);
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      const text = readFileSync(report, 'utf8');
+      expect(text).toContain('- [ ] Package, checksums and attestation: FAILED, see below');
+      for (const line of lines) expect(text).toContain(line);
+    });
+
+    it('passes the package when both files are listed, match and are attested', () => {
+      const { base, run, runtime, repository, report } = workstation({ attestationOk: true, commitOnMain: true });
+      const files = join(base, 'release');
+      mkdirSync(files);
+      const sum = (text: string) => createHash('sha256').update(text).digest('hex');
+      writeFileSync(join(files, 'code-conductor-0.2.0.vsix'), 'package');
+      writeFileSync(join(files, 'code-conductor-0.2.0.cdx.json'), '{}');
+      writeFileSync(join(files, 'SHA256SUMS'), `${sum('package')}  code-conductor-0.2.0.vsix\n${sum('{}')}  code-conductor-0.2.0.cdx.json\n`);
+      const result = run('Invoke-WorkstationValidation.ps1', `-CconPath ${quote(runtime)} -Repository ${quote(repository)} -PackageDirectory ${quote(files)} -SourceCommit ${SHA('7')} -GitHubRepository ${REPOSITORY} -OutFile ${quote(report)}`);
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      expect(readFileSync(report, 'utf8')).toContain('- [x] Package, checksums and attestation: verified');
+    });
+
+    it('names a process running from the extension folder by its ID and name, never its arguments', () => {
+      const { run, runtime, repository, report } = workstation();
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', runtime, '--token=ARGUMENT_TO_KEEP_OUT'], { stdio: 'ignore' });
+      try {
+        const result = run('Invoke-WorkstationValidation.ps1', `-CconPath ${quote(runtime)} -Repository ${quote(repository)} -OutFile ${quote(report)}`);
+        expect(result.status, result.stderr + result.stdout).toBe(0);
+        const text = readFileSync(report, 'utf8');
+        expect(text).toContain('Process check: 1 process(es) named the extension folder, below');
+        expect(text).toMatch(new RegExp(`\\n${child.pid} \\S+, runs ccon\\.js\\n`));
+        expect(text).not.toContain('ARGUMENT_TO_KEEP_OUT');
+      } finally {
+        child.kill();
+      }
     });
 
     it('needs -SourceCommit with -PackageDirectory', () => {

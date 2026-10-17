@@ -281,7 +281,8 @@ Request a Copilot review on the draft, address it, and request a re-review. `git
 For the v0.1 release candidate, attach non-secret evidence to #4 as a checklist.
 [`scripts/owner/Invoke-WorkstationValidation.ps1`](../scripts/owner/README.md) collects the
 items that need no judgement into this checklist: the package, machine, versions, Doctor,
-smoke tests, process check and compress boundary. You complete the rest before posting it.
+smoke tests, compress boundary, and the part of the section 10 process check that looks
+for the extension's own runtime. You complete the rest before posting it.
 
 - [ ] the package: version, `sha256sum -c SHA256SUMS` and `gh attestation verify` output ([`RELEASE.md`](RELEASE.md#verify-a-package));
 - [ ] OS, VS Code version, and whether the workspace is local, WSL, SSH or a container;

@@ -74,6 +74,10 @@ with your own `gh` sign-in, then does step 6: it reads the settings back, checks
 can post the read-back to #3. Copilot review is added only with `-CopilotReview`, and the
 merge methods change only with `-MergeMethods`.
 
+Nobody can bypass the `main` ruleset, the owner included. In an emergency, the owner turns
+the ruleset off in **Settings → Rules**, makes the change, and turns it back on. Running the
+script again restores it. Then record what was done and why on #3, as required above.
+
 1. **Settings → Rules → New branch ruleset** for the default branch, set to *Active*:
    - restrict deletions and block force pushes;
    - require a pull request before merging. With a single maintainer, require **0**

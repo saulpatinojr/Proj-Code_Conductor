@@ -4,8 +4,13 @@
     back and checks them.
 
 .DESCRIPTION
-    Uses your own gh sign-in, which needs admin access to the repository. Running it again
-    changes nothing that is already in place. -WhatIf prints each request instead of sending it.
+    Uses your own gh sign-in, which needs admin access to the repository. -WhatIf prints
+    each request instead of sending it.
+
+    Running it again puts both rulesets back to this baseline: a change made to them in
+    Settings, such as an emergency bypass, is replaced, and the Copilot review rule stays
+    only with -CopilotReview. A ruleset made another way for the same refs (the default
+    branch, or all tags) is updated in place and keeps its name, rather than duplicated.
 
     1. Branch ruleset "Protect main" on the default branch:
        - no deletion and no force push;
@@ -19,7 +24,9 @@
     4. Secret scanning, push protection and private vulnerability reporting are on.
     5. Workflows get a read-only token by default and may not create or approve pull requests.
     Steps 3 to 5 send only the settings that differ from what is set now.
-    6. The settings are read back, checked, and written to a Markdown file for #3.
+    6. The settings are read back, checked, and written to a Markdown file for #3:
+       the rules in effect on the default branch, each ruleset's bypass list, and the
+       repository, security and Actions settings.
 
 .PARAMETER Repository
     The repository, as owner/name.
@@ -59,6 +66,7 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'OwnerTools.psm1') -Force
+$EvidencePath = Resolve-OwnerPath -Path $EvidencePath -SessionState $ExecutionContext.SessionState
 
 # The "Required checks" table of docs/REPOSITORY-GOVERNANCE.md; tests/scripts/owner-scripts.test.ts
 # keeps the two the same.
@@ -72,8 +80,16 @@ $RepositoryAdminRoleId = 5
 function Set-Ruleset {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([Parameter(Mandatory = $true)] $Body)
-    $matching = @(Get-GhList -Endpoint "repos/$Repository/rulesets?includes_parents=false" | Where-Object { $_.name -eq $Body.name -and $_.target -eq $Body.target })
-    if ($matching.Count -gt 1) { throw "$Repository has $($matching.Count) $($Body.target) rulesets named '$($Body.name)'. Delete the extra ones, then run this again." }
+    $all = @(Get-GhList -Endpoint "repos/$Repository/rulesets?includes_parents=false")
+    $matching = @($all | Where-Object { $_.name -eq $Body.name -and $_.target -eq $Body.target })
+    if (-not $matching.Count) {
+        # One made another way (for example in Settings) for the same refs is updated, not duplicated.
+        $refs = $Body.conditions.ref_name.include[0]
+        $matching = @($all | Where-Object { $_.target -eq $Body.target } | ForEach-Object { Invoke-GhApi -Endpoint "repos/$Repository/rulesets/$($_.id)" } |
+            Where-Object { @($_.conditions.ref_name.include) -contains $refs })
+        if ($matching.Count -eq 1) { $Body.name = $matching[0].name }
+    }
+    if ($matching.Count -gt 1) { throw "$Repository has $($matching.Count) $($Body.target) rulesets for the same refs ($(@($matching | ForEach-Object { "'$($_.name)'" }) -join ', ')). Merge them into one, then run this again." }
     $action = if ($matching.Count) { "Update $($Body.target) ruleset '$($Body.name)' (id $($matching[0].id))" } else { "Create $($Body.target) ruleset '$($Body.name)'" }
     if ($PSCmdlet.ShouldProcess($Repository, $action)) {
         if ($matching.Count) { $null = Invoke-GhApi -Method PUT -Endpoint "repos/$Repository/rulesets/$($matching[0].id)" -Body $Body }
@@ -138,7 +154,8 @@ Set-Ruleset -Body ([ordered]@{
         conditions    = @{ ref_name = [ordered]@{ include = @('~ALL'); exclude = @() } }
         rules         = @(
             @{ type = 'creation' },
-            @{ type = 'update'; parameters = @{ update_allows_fetch_and_merge = $false } },
+            # No parameters: update_allows_fetch_and_merge is for branches, and GitHub drops it here.
+            @{ type = 'update' },
             @{ type = 'deletion' }
         )
     })
@@ -181,21 +198,33 @@ $reporting = Invoke-GhApi -Endpoint "repos/$Repository/private-vulnerability-rep
 $workflow = Invoke-GhApi -Endpoint "repos/$Repository/actions/permissions/workflow"
 
 $ruleTypes = @($effective | ForEach-Object { $_.type })
-$contexts = @($effective | Where-Object { $_.type -eq 'required_status_checks' } | ForEach-Object { $_.parameters.required_status_checks } | ForEach-Object { $_.context })
-$pullRequest = @($effective | Where-Object { $_.type -eq 'pull_request' })
+$statusRules = @($effective | Where-Object { $_.type -eq 'required_status_checks' })
+$required = @($statusRules | ForEach-Object { $_.parameters.required_status_checks })
+$unpinned = @($RequiredChecks | Where-Object {
+        $context = $_
+        -not @($required | Where-Object { $_.context -eq $context -and $_.PSObject.Properties['integration_id'] -and $_.integration_id -eq $GitHubActionsAppId }).Count
+    })
+$upToDate = [bool]@($statusRules | Where-Object { $_.parameters.strict_required_status_checks_policy }).Count
+$pullRequest = @($effective | Where-Object { $_.type -eq 'pull_request' -and $_.parameters.required_review_thread_resolution -and $_.parameters.required_approving_review_count -eq 0 })
+$mainRuleset = @($details | Where-Object { $_.target -eq 'branch' -and $_.enforcement -eq 'active' -and @($_.conditions.ref_name.include) -contains '~DEFAULT_BRANCH' })
+$mainBypass = @($mainRuleset | ForEach-Object { @($_.bypass_actors) } | Where-Object { $_ })
 $tagRuleset = @($details | Where-Object { $_.target -eq 'tag' -and $_.enforcement -eq 'active' -and @($_.conditions.ref_name.include) -contains '~ALL' })
 $tagRules = @($tagRuleset | ForEach-Object { $_.rules } | ForEach-Object { $_.type })
+$tagBypass = @($tagRuleset | ForEach-Object { @($_.bypass_actors) } | Where-Object { $_ })
+$adminsOnly = $tagBypass.Count -gt 0 -and -not @($tagBypass | Where-Object { -not ($_.actor_type -eq 'RepositoryRole' -and $_.actor_id -eq $RepositoryAdminRoleId) }).Count
 $security = if ($settings.PSObject.Properties['security_and_analysis']) { $settings.security_and_analysis } else { $null }
 $checks = @(
     [pscustomobject]@{ Check = "$($repo.default_branch): no deletion or force push"; Passed = ($ruleTypes -contains 'deletion') -and ($ruleTypes -contains 'non_fast_forward') },
-    [pscustomobject]@{ Check = "$($repo.default_branch): pull request with resolved conversations"; Passed = [bool]($pullRequest | Where-Object { $_.parameters.required_review_thread_resolution }) },
-    [pscustomobject]@{ Check = "$($repo.default_branch): every required check"; Passed = -not ($RequiredChecks | Where-Object { $contexts -notcontains $_ }) },
-    [pscustomobject]@{ Check = 'All tags: create, move and delete restricted'; Passed = ($tagRules -contains 'creation') -and ($tagRules -contains 'update') -and ($tagRules -contains 'deletion') },
+    [pscustomobject]@{ Check = "$($repo.default_branch): pull request, 0 approvals, resolved conversations"; Passed = $pullRequest.Count -gt 0 },
+    [pscustomobject]@{ Check = "$($repo.default_branch): every required check, from GitHub Actions, on an up-to-date branch"; Passed = -not $unpinned.Count -and $upToDate },
+    [pscustomobject]@{ Check = "$($repo.default_branch): nobody may bypass"; Passed = $mainRuleset.Count -gt 0 -and -not $mainBypass.Count },
+    [pscustomobject]@{ Check = 'All tags: create, move and delete restricted to repository admins'; Passed = ($tagRules -contains 'creation') -and ($tagRules -contains 'update') -and ($tagRules -contains 'deletion') -and $adminsOnly },
     [pscustomobject]@{ Check = 'Head branches deleted after merge, branch updates offered'; Passed = $settings.delete_branch_on_merge -and $settings.allow_update_branch },
     [pscustomobject]@{ Check = 'Secret scanning and push protection'; Passed = ($null -ne $security) -and $security.secret_scanning.status -eq 'enabled' -and $security.secret_scanning_push_protection.status -eq 'enabled' },
     [pscustomobject]@{ Check = 'Private vulnerability reporting'; Passed = [bool]$reporting.enabled },
     [pscustomobject]@{ Check = 'Read-only workflow token, no pull request approval'; Passed = $workflow.default_workflow_permissions -eq 'read' -and -not $workflow.can_approve_pull_request_reviews }
 )
+if ($CopilotReview) { $checks += [pscustomobject]@{ Check = "$($repo.default_branch): Copilot reviews each pull request"; Passed = $ruleTypes -contains 'copilot_code_review' } }
 
 $report = New-Object System.Text.StringBuilder
 $null = $report.AppendLine("## Repository governance read-back ($Repository)").AppendLine()

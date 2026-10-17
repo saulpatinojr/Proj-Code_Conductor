@@ -6,13 +6,18 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Added
 
-- Owner scripts (`scripts/owner`, PowerShell 5.1 and 7) for the steps only the repository owner can take, with each one's own `gh` sign-in:
+- Owner scripts (`scripts/owner`, PowerShell 5.1 and 7) for the steps only the repository owner can take, with the owner's own `gh` sign-in:
   - `Set-RepositoryGovernance.ps1` (#3): the `main` and all-tags rulesets, plus the branch, security and Actions settings. Required checks are pinned to the GitHub Actions app. It reads everything back and checks it.
   - `Remove-StaleBranches.ps1`: deletes the branches you confirm, with a reason and a restore command for each.
   - `Set-MarketplaceEnvironment.ps1` (#14): `VSCE_PUBLISHER`, and a reviewed `marketplace` environment that only `v*` tags may deploy to.
   - `Invoke-WorkstationValidation.ps1` (#4): the section 13 evidence that needs no judgement, redacted, as a checklist. It covers package checksums and pinned attestations, versions, Doctor, smoke tests, the startup process check and the compress boundary.
 
   `tests/scripts/owner-scripts.test.ts` runs the scripts against a model of GitHub, and keeps the required checks equal to the governance document and the workflows' job names.
+
+  Corrections after independent review:
+  - `Remove-StaleBranches.ps1` keeps a branch that is the base of an open pull request (deleting it would close that pull request). With `-IncludeLocal`, it deletes a local branch only when the commit deleted on GitHub contains it.
+  - `Invoke-WorkstationValidation.ps1` passes the package only when a `.vsix` and its SBOM were both verified, ticks a checklist item only on a pass, and keeps only each matching process's ID and name.
+  - `Set-RepositoryGovernance.ps1` updates a ruleset made another way for the same refs instead of adding a second one. Its read-back also checks the GitHub Actions pinning, the up-to-date rule, 0 approvals and both bypass lists.
 - Repository governance (#3): APM audit and npm lockfile validation now report on every pull request, so they can be required checks; their checkouts no longer keep credentials. `docs/REPOSITORY-GOVERNANCE.md` lists the exact required check names and the owner's ruleset, tag-ruleset, security and Actions settings, with a read-back command.
 - Release engineering (#14; D-067): a Release workflow builds a draft GitHub release from a version tag on `main`. It uses three least-privilege jobs. The first tests and packages the `.vsix`, smoke-tests it installed, and writes a CycloneDX SBOM (checked against the bundled packages) and `SHA256SUMS`, without signing access. The second signs build provenance. The third verifies the attestation against the Release workflow, tag and commit (`gh attestation verify --cert-identity --source-ref --source-digest`), and confirms the tag has not moved before drafting the release. `docs/RELEASE.md` covers cutting, verifying, versioning, rollback, deprecation and the owner's Marketplace setup. `@types/vscode` now matches `engines.vscode` (1.105), and vsce's check for that runs again; workspace packages are private.
 - VS Code-centered Code Conductor architecture and repository constitution.

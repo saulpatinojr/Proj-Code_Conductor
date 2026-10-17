@@ -45,10 +45,12 @@ if (route === 'PATCH ') {
   reply(state.repo);
 }
 if (route === 'GET rulesets') list(state.rulesets.map(({ id, name, target, enforcement }) => ({ id, name, target, enforcement })));
-if (route === 'POST rulesets') { const created = { id: state.nextId++, ...body }; state.rulesets.push(created); reply(created); }
+// forceMainBypass: the default branch's ruleset keeps an admin bypass whatever is sent.
+const stored = (value) => (state.forceMainBypass && value.target === 'branch' ? { ...value, bypass_actors: [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }] } : value);
+if (route === 'POST rulesets') { const created = stored({ id: state.nextId++, ...body }); state.rulesets.push(created); reply(created); }
 if (method === 'PUT' && ruleset.test(sub)) {
   const id = Number(ruleset.exec(sub)[1]);
-  state.rulesets = state.rulesets.map((item) => (item.id === id ? { id, ...body } : item));
+  state.rulesets = state.rulesets.map((item) => (item.id === id ? stored({ id, ...body }) : item));
   reply({ id, ...body });
 }
 if (method === 'GET' && ruleset.test(sub)) {
@@ -60,8 +62,11 @@ if (route === `GET rules/branches/${state.repo?.default_branch}`) {
   list(state.rulesets.filter((item) => item.target === 'branch' && item.enforcement === 'active' && item.conditions.ref_name.include.includes('~DEFAULT_BRANCH'))
     .flatMap((item) => item.rules.map((rule) => ({ ...rule, ruleset_id: item.id })))
     // dropCheck: GitHub does not enforce that check (for example, it was renamed).
-    .map((rule) => (rule.type === 'required_status_checks' && state.dropCheck
-      ? { ...rule, parameters: { ...rule.parameters, required_status_checks: rule.parameters.required_status_checks.filter((check) => check.context !== state.dropCheck) } }
+    // unpinCheck: that check is accepted from any app.
+    .map((rule) => (rule.type === 'required_status_checks' && (state.dropCheck || state.unpinCheck)
+      ? { ...rule, parameters: { ...rule.parameters, required_status_checks: rule.parameters.required_status_checks
+        .filter((check) => check.context !== state.dropCheck)
+        .map((check) => (check.context === state.unpinCheck ? { context: check.context } : check)) } }
       : rule)));
 }
 if (route === 'PUT private-vulnerability-reporting') { if (!state.stuckReporting) state.reporting = true; reply(); }
@@ -72,7 +77,11 @@ if (route === 'PUT environments/marketplace') { state.environment = body; reply(
 if (route === 'GET environments/marketplace/deployment-branch-policies') reply({ total_count: state.policies.length, branch_policies: state.policies });
 if (route === 'POST environments/marketplace/deployment-branch-policies') { const created = { id: state.nextId++, ...body }; state.policies.push(created); reply(created); }
 if (route === 'GET branches') list(state.branches);
-if (route === 'GET pulls') list(state.pulls.filter((pull) => `${state.repository.split('/')[0]}:${pull.head.ref}` === url.searchParams.get('head')));
+if (route === 'GET pulls') {
+  const { head, base, state: wanted } = Object.fromEntries(url.searchParams);
+  list(state.pulls.filter((pull) => (!head || `${state.repository.split('/')[0]}:${pull.head.ref}` === head)
+    && (!base || (pull.base?.ref ?? 'main') === base) && (wanted === 'all' || pull.state === (wanted ?? 'open'))));
+}
 if (method === 'GET' && sub.startsWith('compare/')) {
   const head = sub.split('...')[1];
   const ahead = state.branches?.find((branch) => branch.commit.sha === head)?.ahead ?? 0;
