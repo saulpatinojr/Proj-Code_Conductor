@@ -45,11 +45,16 @@ setInterval(() => {}, 1000);`;
     const pidFile = join(root, 'gate.pid');
     for (let attempt = 0; attempt < 200 && !existsSync(pidFile); attempt += 1) await new Promise((done) => setTimeout(done, 25));
     const gate = Number(readFileSync(pidFile, 'utf8'));
-    expect(isRunning(gate)).toBe(true);
-    const exited = new Promise<NodeJS.Signals | null>((done) => parent.once('exit', (_code, signal) => done(signal)));
-    parent.kill('SIGTERM');
-    expect(await exited).toBe('SIGTERM');
-    for (let attempt = 0; attempt < 100 && isRunning(gate); attempt += 1) await new Promise((done) => setTimeout(done, 20));
-    expect(isRunning(gate)).toBe(false);
+    try {
+      expect(isRunning(gate)).toBe(true);
+      const exited = new Promise<NodeJS.Signals | null>((done) => parent.once('exit', (_code, signal) => done(signal)));
+      parent.kill('SIGTERM');
+      expect(await exited).toBe('SIGTERM');
+      for (let attempt = 0; attempt < 100 && isRunning(gate); attempt += 1) await new Promise((done) => setTimeout(done, 20));
+      expect(isRunning(gate)).toBe(false);
+    } finally {
+      // If an assertion failed, the gate's group may still run: never leave it behind.
+      for (const pid of [-gate, parent.pid ?? 0]) { try { if (pid) process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+    }
   }, 20_000);
 });

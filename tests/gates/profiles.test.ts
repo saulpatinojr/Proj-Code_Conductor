@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -162,6 +162,8 @@ describe('declarative gate profiles', () => {
       // Installed dependencies' command line programs, and scripts in hidden folders.
       ['node', ['node_modules/vite/bin/vite.js', 'build', '--config', '/tmp/outside.mjs']], ['node', ['node_modules/npm/bin/npx-cli.js', '--yes', 'x']],
       ['node', ['packages/app/Node_Modules/x/cli.js']], ['node', ['node_modules\\x\\cli.js']], ['node', ['.yarn/releases/yarn-4.0.0.cjs', 'dlx', 'x']], ['node', ['.git/hooks/x.js']], ['node', ['tools/.cache/x.mjs']],
+      // Windows drops a trailing dot, so these can name node_modules there.
+      ['node', ['node_modules./vite/bin/vite.js']], ['node', ['node_modules../x.js']], ['node', ['scripts./x.js']],
       ['python3', ['-cx']], ['python3', ['-Ic', 'x']], ['python3', ['-m', 'timeit', 'x']], ['python3.12', ['-c', 'x']], ['py', ['-c', 'x']],
       ['perl', ['-E', 'x']], ['perl', ['-le', 'x']], ['ruby', ['-le', 'x']], ['php', ['-B', 'x']], ['deno', ['eval', 'x']],
       // Package executors and other subcommands that run packages.
@@ -192,6 +194,10 @@ describe('declarative gate profiles', () => {
     // A string where the list belongs is refused, by the validator and the planner alike.
     expect(validateGateCatalog({ profiles: { x: { gates: [{ id: 'g', command: 'ansible-lint', args: '--fix' }] } } }).map((issue) => issue.code)).toEqual(['gates.command']);
     expect(forbiddenGateReason({ id: 'x', command: 'ansible-lint', args: '--fix' as unknown as string[] })).toMatch(/args must be a list of strings/);
+    // Malformed entries are reported, never thrown.
+    for (const gates of [[null], ['npm test'], [[]], 'npm test'] as unknown[]) {
+      expect(validateGateCatalog({ profiles: { x: { gates } } }).map((issue) => issue.code), JSON.stringify(gates)).toEqual(['gates.command']);
+    }
   });
 
   it('never plans a dependency\'s command line program as a gate', () => {
@@ -237,10 +243,15 @@ describe('bounded gate execution', () => {
   it.skipIf(process.platform === 'win32')('times out and terminates everything the gate started', async () => {
     const root = workspace();
     const script = "const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); require('node:fs').writeFileSync('grandchild.pid', String(g.pid)); setInterval(() => {}, 1000);";
-    const [result] = await executeGatePlan(root, [{ ...planned({ id: 'hang', command: process.execPath, args: ['-e', script] }), timeoutMs: 1500 }]);
+    const pending = executeGatePlan(root, [{ ...planned({ id: 'hang', command: process.execPath, args: ['-e', script] }), timeoutMs: 1500 }]);
+    const pidFile = join(root, 'grandchild.pid');
+    for (let attempt = 0; attempt < 100 && !existsSync(pidFile); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    const grandchild = Number(readFileSync(pidFile, 'utf8'));
+    // Running before the timeout, so the check after it is not vacuous.
+    expect(isRunning(grandchild)).toBe(true);
+    const [result] = await pending;
     expect(result?.result.status).toBe('failed');
     expect(result?.result.summary).toContain('(timeout)');
-    const grandchild = Number(readFileSync(join(root, 'grandchild.pid'), 'utf8'));
     for (let attempt = 0; attempt < 50 && isRunning(grandchild); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
     expect(isRunning(grandchild)).toBe(false);
   }, 15_000);
