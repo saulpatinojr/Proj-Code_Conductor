@@ -15,6 +15,8 @@ const temps: string[] = [];
 afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
 
 // GitHub's Ubuntu runners include PowerShell; without it, only the static checks run.
+// Each PowerShell start takes a second or two there, and a test may start several.
+const PWSH_TIMEOUT = 60_000;
 const hasPwsh = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', 'exit 0']).status === 0;
 const quote = (text: string): string => `'${text.replaceAll("'", "''")}'`;
 
@@ -64,7 +66,7 @@ describe('scripts/owner, statically', () => {
   });
 });
 
-describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', () => {
+describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIMEOUT }, () => {
   it('parse without errors', () => {
     const files = readdirSync(OWNER).filter((name) => /\.ps(m?1)$/.test(name)).map((name) => quote(join(OWNER, name))).join(',');
     const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command',

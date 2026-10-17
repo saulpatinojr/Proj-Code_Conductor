@@ -51,7 +51,11 @@ if (method === 'PUT' && ruleset.test(sub)) {
   state.rulesets = state.rulesets.map((item) => (item.id === id ? { id, ...body } : item));
   reply({ id, ...body });
 }
-if (method === 'GET' && ruleset.test(sub)) reply(state.rulesets.find((item) => item.id === Number(ruleset.exec(sub)[1])) ?? fail(sub));
+if (method === 'GET' && ruleset.test(sub)) {
+  const found = state.rulesets.find((item) => item.id === Number(ruleset.exec(sub)[1]));
+  if (!found) fail(sub);
+  reply(found);
+}
 if (route === `GET rules/branches/${state.repo?.default_branch}`) {
   list(state.rulesets.filter((item) => item.target === 'branch' && item.enforcement === 'active' && item.conditions.ref_name.include.includes('~DEFAULT_BRANCH'))
     .flatMap((item) => item.rules.map((rule) => ({ ...rule, ruleset_id: item.id })))
