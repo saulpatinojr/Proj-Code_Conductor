@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { redactSecrets } from '@code-conductor/git';
+import { countRedactions, redactSecrets } from '@code-conductor/git';
 import type { AgentAssignment, AgentResult, Disagreement, Finding, HandoffPacket, HandoffParty, RunManifest } from '@code-conductor/schemas';
 
 /** Packets expire so stale context is never handed to a later, unrelated run step. */
@@ -121,7 +121,7 @@ const MAX_RENDERED_EVIDENCE = 1000;
 
 /** Counts a person sees in the disclosure approval for a prompt that carries this packet. */
 export function describeHandoff(packet: HandoffPacket, sha256: string): string {
-  const redacted = (JSON.stringify(packet).match(/\[redacted [^\]]+\]/g) ?? []).length;
+  const redacted = countRedactions(JSON.stringify(packet));
   return `handoff packet ${packet.id} (sha256 ${sha256.slice(0, 16)}) from ${packet.from.map((item) => `${item.agentId} (${item.provider}/${item.harness})`).join(', ')}: ${packet.priorFindings.length} prior finding(s), ${packet.context.risks.length} risk(s), ${packet.context.notVerified.length} unverified check(s), ${packet.context.reportedChanges.length} committed file(s)${redacted ? `, ${redacted} credential-looking value(s) redacted` : ''}`;
 }
 

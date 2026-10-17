@@ -79,6 +79,7 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Security
 
+- Handoff disclosure summaries count redaction markers in linear time. A packet built from what earlier agents wrote can no longer stall a run with quadratic regular-expression matching (CodeQL `js/polynomial-redos`).
 - Subscription-first billing policy and detection of API-key environment variables that could bypass intended billing paths.
 - Fail-closed structured agent-result parsing and explicit workstation trust before unattended CLI execution.
 - Structured `AgentResult` payloads are validated against the canonical JSON Schema before runtime acceptance.
