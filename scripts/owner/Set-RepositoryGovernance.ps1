@@ -9,8 +9,8 @@
 
     Running it again puts both rulesets back to this baseline: a change made to them in
     Settings, such as an emergency bypass, is replaced, and the Copilot review rule stays
-    only with -CopilotReview. A ruleset made another way for the same refs (the default
-    branch, or all tags) is updated in place and keeps its name, rather than duplicated.
+    only with -CopilotReview. They are found by name. Any other ruleset is left as it is,
+    and both are found before either is written.
 
     1. Branch ruleset "Protect main" on the default branch:
        - no deletion and no force push;
@@ -76,23 +76,24 @@ $RequiredChecks = @('quality', 'audit', 'lockfile', 'VSIX packaging preflight', 
 $GitHubActionsAppId = 15368
 # The built-in Repository admin role in a ruleset's bypass list (maintain is 2, write is 4).
 $RepositoryAdminRoleId = 5
+$MainRulesetName = 'Protect main'
+$TagRulesetName = 'Protect tags'
+
+function Find-Ruleset {
+    # By name only. A ruleset made another way may cover more refs or rules than this
+    # baseline, and replacing it would silently drop them.
+    param([Parameter(Mandatory = $true)] $Body, [Parameter(Mandatory = $true)][AllowEmptyCollection()] $All)
+    $matching = @($All | Where-Object { $_.name -eq $Body.name -and $_.target -eq $Body.target })
+    if ($matching.Count -gt 1) { throw "$Repository has $($matching.Count) $($Body.target) rulesets named '$($Body.name)'. Delete the extra ones, then run this again; nothing was changed." }
+    if ($matching.Count) { $matching[0] }
+}
 
 function Set-Ruleset {
     [CmdletBinding(SupportsShouldProcess = $true)]
-    param([Parameter(Mandatory = $true)] $Body)
-    $all = @(Get-GhList -Endpoint "repos/$Repository/rulesets?includes_parents=false")
-    $matching = @($all | Where-Object { $_.name -eq $Body.name -and $_.target -eq $Body.target })
-    if (-not $matching.Count) {
-        # One made another way (for example in Settings) for the same refs is updated, not duplicated.
-        $refs = $Body.conditions.ref_name.include[0]
-        $matching = @($all | Where-Object { $_.target -eq $Body.target } | ForEach-Object { Invoke-GhApi -Endpoint "repos/$Repository/rulesets/$($_.id)" } |
-            Where-Object { @($_.conditions.ref_name.include) -contains $refs })
-        if ($matching.Count -eq 1) { $Body.name = $matching[0].name }
-    }
-    if ($matching.Count -gt 1) { throw "$Repository has $($matching.Count) $($Body.target) rulesets for the same refs ($(@($matching | ForEach-Object { "'$($_.name)'" }) -join ', ')). Merge them into one, then run this again." }
-    $action = if ($matching.Count) { "Update $($Body.target) ruleset '$($Body.name)' (id $($matching[0].id))" } else { "Create $($Body.target) ruleset '$($Body.name)'" }
+    param([Parameter(Mandatory = $true)] $Body, $Existing)
+    $action = if ($Existing) { "Update $($Body.target) ruleset '$($Body.name)' (id $($Existing.id))" } else { "Create $($Body.target) ruleset '$($Body.name)'" }
     if ($PSCmdlet.ShouldProcess($Repository, $action)) {
-        if ($matching.Count) { $null = Invoke-GhApi -Method PUT -Endpoint "repos/$Repository/rulesets/$($matching[0].id)" -Body $Body }
+        if ($Existing) { $null = Invoke-GhApi -Method PUT -Endpoint "repos/$Repository/rulesets/$($Existing.id)" -Body $Body }
         else { $null = Invoke-GhApi -Method POST -Endpoint "repos/$Repository/rulesets" -Body $Body }
         Write-Host "Done: $action"
     } elseif ($WhatIfPreference) {
@@ -136,29 +137,36 @@ $mainRules = @(
 if ($CopilotReview) {
     $mainRules += @{ type = 'copilot_code_review'; parameters = [ordered]@{ review_on_push = $false; review_draft_pull_requests = $false } }
 }
-Set-Ruleset -Body ([ordered]@{
-        name          = 'Protect main'
-        target        = 'branch'
-        enforcement   = 'active'
-        bypass_actors = @()
-        conditions    = @{ ref_name = [ordered]@{ include = @('~DEFAULT_BRANCH'); exclude = @() } }
-        rules         = $mainRules
-    })
+$mainRuleset = [ordered]@{
+    name          = $MainRulesetName
+    target        = 'branch'
+    enforcement   = 'active'
+    bypass_actors = @()
+    conditions    = @{ ref_name = [ordered]@{ include = @('~DEFAULT_BRANCH'); exclude = @() } }
+    rules         = $mainRules
+}
 
 # 2. Every tag, not only v*: a tag can carry another ref's name, such as origin/main (RELEASE.md).
-Set-Ruleset -Body ([ordered]@{
-        name          = 'Protect tags'
-        target        = 'tag'
-        enforcement   = 'active'
-        bypass_actors = @([ordered]@{ actor_id = $RepositoryAdminRoleId; actor_type = 'RepositoryRole'; bypass_mode = 'always' })
-        conditions    = @{ ref_name = [ordered]@{ include = @('~ALL'); exclude = @() } }
-        rules         = @(
-            @{ type = 'creation' },
-            # No parameters: update_allows_fetch_and_merge is for branches, and GitHub drops it here.
-            @{ type = 'update' },
-            @{ type = 'deletion' }
-        )
-    })
+$tagRuleset = [ordered]@{
+    name          = $TagRulesetName
+    target        = 'tag'
+    enforcement   = 'active'
+    bypass_actors = @([ordered]@{ actor_id = $RepositoryAdminRoleId; actor_type = 'RepositoryRole'; bypass_mode = 'always' })
+    conditions    = @{ ref_name = [ordered]@{ include = @('~ALL'); exclude = @() } }
+    rules         = @(
+        @{ type = 'creation' },
+        # No parameters: update_allows_fetch_and_merge is for branches, and GitHub drops it here.
+        @{ type = 'update' },
+        @{ type = 'deletion' }
+    )
+}
+
+# Both are found before either is written, so a problem with one changes nothing.
+$all = @(Get-GhList -Endpoint "repos/$Repository/rulesets?includes_parents=false")
+$mainExisting = Find-Ruleset -Body $mainRuleset -All $all
+$tagExisting = Find-Ruleset -Body $tagRuleset -All $all
+Set-Ruleset -Body $mainRuleset -Existing $mainExisting
+Set-Ruleset -Body $tagRuleset -Existing $tagExisting
 
 # 3-5. Repository settings, each sent only when it differs from what is set now.
 $wanted = [ordered]@{ delete_branch_on_merge = $true; allow_update_branch = $true }
@@ -206,19 +214,26 @@ $unpinned = @($RequiredChecks | Where-Object {
     })
 $upToDate = [bool]@($statusRules | Where-Object { $_.parameters.strict_required_status_checks_policy }).Count
 $pullRequest = @($effective | Where-Object { $_.type -eq 'pull_request' -and $_.parameters.required_review_thread_resolution -and $_.parameters.required_approving_review_count -eq 0 })
-$mainRuleset = @($details | Where-Object { $_.target -eq 'branch' -and $_.enforcement -eq 'active' -and @($_.conditions.ref_name.include) -contains '~DEFAULT_BRANCH' })
-$mainBypass = @($mainRuleset | ForEach-Object { @($_.bypass_actors) } | Where-Object { $_ })
-$tagRuleset = @($details | Where-Object { $_.target -eq 'tag' -and $_.enforcement -eq 'active' -and @($_.conditions.ref_name.include) -contains '~ALL' })
-$tagRules = @($tagRuleset | ForEach-Object { $_.rules } | ForEach-Object { $_.type })
-$tagBypass = @($tagRuleset | ForEach-Object { @($_.bypass_actors) } | Where-Object { $_ })
-$adminsOnly = $tagBypass.Count -gt 0 -and -not @($tagBypass | Where-Object { -not ($_.actor_type -eq 'RepositoryRole' -and $_.actor_id -eq $RepositoryAdminRoleId) }).Count
+$isAdmin = { param($Actor) $Actor.actor_type -eq 'RepositoryRole' -and $Actor.actor_id -eq $RepositoryAdminRoleId }
+$ownMain = @($details | Where-Object { $_.name -eq $MainRulesetName -and $_.target -eq 'branch' -and $_.enforcement -eq 'active' -and @($_.conditions.ref_name.include) -contains '~DEFAULT_BRANCH' })
+$mainBypass = @($ownMain | ForEach-Object { @($_.bypass_actors) } | Where-Object { $_ })
+$ownTags = @($details | Where-Object { $_.name -eq $TagRulesetName -and $_.target -eq 'tag' -and $_.enforcement -eq 'active' -and @($_.conditions.ref_name.include) -contains '~ALL' })
+$tagRules = @($ownTags | ForEach-Object { $_.rules } | ForEach-Object { $_.type })
+$tagBypass = @($ownTags | ForEach-Object { @($_.bypass_actors) } | Where-Object { $_ })
+$adminsOnly = $tagBypass.Count -gt 0 -and -not @($tagBypass | Where-Object { -not (& $isAdmin $_) }).Count
+# Each other active tag ruleset on its own: one that restricts tags with no admin bypass
+# would block the owner's release tags whatever this one allows.
+$blockingTags = @($details | Where-Object { $_.name -ne $TagRulesetName -and $_.target -eq 'tag' -and $_.enforcement -eq 'active' } | Where-Object {
+        $restricts = @($_.rules | Where-Object { @('creation', 'update', 'deletion') -contains $_.type }).Count
+        $restricts -and -not @(@($_.bypass_actors) | Where-Object { $_ -and (& $isAdmin $_) }).Count
+    })
 $security = if ($settings.PSObject.Properties['security_and_analysis']) { $settings.security_and_analysis } else { $null }
 $checks = @(
     [pscustomobject]@{ Check = "$($repo.default_branch): no deletion or force push"; Passed = ($ruleTypes -contains 'deletion') -and ($ruleTypes -contains 'non_fast_forward') },
     [pscustomobject]@{ Check = "$($repo.default_branch): pull request, 0 approvals, resolved conversations"; Passed = $pullRequest.Count -gt 0 },
     [pscustomobject]@{ Check = "$($repo.default_branch): every required check, from GitHub Actions, on an up-to-date branch"; Passed = -not $unpinned.Count -and $upToDate },
-    [pscustomobject]@{ Check = "$($repo.default_branch): nobody may bypass"; Passed = $mainRuleset.Count -gt 0 -and -not $mainBypass.Count },
-    [pscustomobject]@{ Check = 'All tags: create, move and delete restricted to repository admins'; Passed = ($tagRules -contains 'creation') -and ($tagRules -contains 'update') -and ($tagRules -contains 'deletion') -and $adminsOnly },
+    [pscustomobject]@{ Check = "$($repo.default_branch): nobody may bypass"; Passed = $ownMain.Count -gt 0 -and -not $mainBypass.Count },
+    [pscustomobject]@{ Check = 'All tags: create, move and delete restricted to repository admins'; Passed = ($tagRules -contains 'creation') -and ($tagRules -contains 'update') -and ($tagRules -contains 'deletion') -and $adminsOnly -and -not $blockingTags.Count },
     [pscustomobject]@{ Check = 'Head branches deleted after merge, branch updates offered'; Passed = $settings.delete_branch_on_merge -and $settings.allow_update_branch },
     [pscustomobject]@{ Check = 'Secret scanning and push protection'; Passed = ($null -ne $security) -and $security.secret_scanning.status -eq 'enabled' -and $security.secret_scanning_push_protection.status -eq 'enabled' },
     [pscustomobject]@{ Check = 'Private vulnerability reporting'; Passed = [bool]$reporting.enabled },

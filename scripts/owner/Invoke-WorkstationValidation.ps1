@@ -82,7 +82,7 @@ Import-Module (Join-Path $PSScriptRoot 'OwnerTools.psm1') -Force
 $onWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $onLinux = (-not $onWindows) -and [bool](Get-Variable -Name IsLinux -ValueOnly -ErrorAction SilentlyContinue)
 if ($PackageDirectory -and -not $SourceCommit) { throw '-PackageDirectory needs -SourceCommit: the full commit the release notes name.' }
-$Repository = (Resolve-Path -LiteralPath $Repository).ProviderPath
+$Repository = Resolve-OwnerPath -Path (Resolve-Path -LiteralPath $Repository).ProviderPath -SessionState $ExecutionContext.SessionState
 $OutFile = Resolve-OwnerPath -Path $OutFile -SessionState $ExecutionContext.SessionState
 if ($PackageDirectory) { $PackageDirectory = Resolve-OwnerPath -Path $PackageDirectory -SessionState $ExecutionContext.SessionState }
 

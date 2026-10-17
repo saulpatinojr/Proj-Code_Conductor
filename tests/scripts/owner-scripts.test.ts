@@ -32,7 +32,7 @@ function harness(initial: Record<string, unknown>) {
   chmodSync(join(bin, 'gh'), 0o755);
   const statePath = join(base, 'state.json');
   writeFileSync(statePath, JSON.stringify({ repository: REPOSITORY, calls: [], nextId: 1, variables: {}, policies: [], ...initial }));
-  const run = (script: string, args = '', cwd = base) => spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `& ${quote(join(OWNER, script))} ${args}`], {
+  const run = (script: string, args = '', cwd = base, prefix = '') => spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `${prefix}& ${quote(join(OWNER, script))} ${args}`], {
     encoding: 'utf8', cwd, env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, FAKE_GH_STATE: statePath, HOME: base, NO_COLOR: '1' },
   });
   const read = (): State => JSON.parse(readFileSync(statePath, 'utf8')) as State;
@@ -52,9 +52,13 @@ describe('scripts/owner, statically', () => {
     const table = doc.slice(doc.indexOf('## Required checks'), doc.indexOf('\n## ', doc.indexOf('## Required checks') + 1));
     const documented = table.split('\n').filter((line) => line.startsWith('| `')).flatMap((line) => [...line.split('|')[1]!.matchAll(/`([^`]+)`/g)].map((match) => match[1]));
     expect(listed).toEqual(documented);
-    type Trigger = { branches?: string[]; paths?: string[]; 'paths-ignore'?: string[] } | null;
+    type Trigger = { branches?: string[]; 'branches-ignore'?: string[]; paths?: string[]; 'paths-ignore'?: string[] } | null;
+    // `on:` can be one event, a list of events, or a map of events to their filters.
+    const triggers = (on: string | string[] | Record<string, Trigger>): Record<string, Trigger> =>
+      typeof on === 'string' ? { [on]: null } : Array.isArray(on) ? Object.fromEntries(on.map((event) => [event, null])) : on;
     const jobs = new Map(readdirSync('.github/workflows').flatMap((file) => {
-      const workflow = parse(readFileSync(join('.github/workflows', file), 'utf8')) as { on: Record<string, Trigger>; jobs: Record<string, { name?: string; strategy?: { matrix?: { language?: string[] } } }> };
+      const raw = parse(readFileSync(join('.github/workflows', file), 'utf8')) as { on: string | string[] | Record<string, Trigger>; jobs: Record<string, { name?: string; strategy?: { matrix?: { language?: string[] } } }> };
+      const workflow = { ...raw, on: triggers(raw.on) };
       return Object.entries(workflow.jobs).flatMap(([key, job]) => {
         const name = job.name ?? key;
         const names = name.includes('${{ matrix.language }}') ? (job.strategy?.matrix?.language ?? []).map((language) => name.replace('${{ matrix.language }}', language)) : [name];
@@ -69,6 +73,7 @@ describe('scripts/owner, statically', () => {
       const trigger = on!.pull_request;
       expect(trigger?.paths ?? trigger?.['paths-ignore'], check).toBeUndefined();
       if (trigger?.branches) expect(trigger.branches, check).toContain('main');
+      expect(trigger?.['branches-ignore'] ?? [], check).not.toContain('main');
     }
   });
 
@@ -163,15 +168,39 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
       expect(readdirSync(base)).not.toContain('evidence.md');
     });
 
-    it('updates a ruleset made another way for the same refs in place, keeping its name', () => {
-      const existing = { id: 9, name: 'Protect main branch', target: 'branch', enforcement: 'active', bypass_actors: [], conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } }, rules: [{ type: 'deletion' }] };
-      const { run, read, writes } = harness({ ...fresh(), rulesets: [existing], nextId: 10 });
+    it('leaves a ruleset made another way as it is, even one that covers the default branch', () => {
+      // Broader than the baseline: replacing it would drop release/* and its rules.
+      const other = {
+        id: 11, name: 'Branch rules', target: 'branch', enforcement: 'active',
+        bypass_actors: [{ actor_id: 99, actor_type: 'Integration', bypass_mode: 'always' }],
+        conditions: { ref_name: { include: ['~DEFAULT_BRANCH', 'refs/heads/release/*'], exclude: [] } },
+        rules: [{ type: 'required_linear_history' }, { type: 'required_signatures' }],
+      };
+      const { run, read, writes } = harness({ ...fresh(), rulesets: [other], nextId: 12 });
       const result = run('Set-RepositoryGovernance.ps1', `-Repository ${REPOSITORY}`);
       expect(result.status, result.stderr + result.stdout).toBe(0);
-      expect(writes().slice(0, 2)).toEqual(['PUT repos/octo/repo/rulesets/9', 'POST repos/octo/repo/rulesets']);
-      const state = read() as State & { rulesets: Array<{ id: number; name: string; target: string; rules: unknown[] }> };
-      expect(state.rulesets.map((ruleset) => [ruleset.id, ruleset.name, ruleset.target])).toEqual([[9, 'Protect main branch', 'branch'], [10, 'Protect tags', 'tag']]);
-      expect(state.rulesets[0]!.rules).toHaveLength(4);
+      expect(writes().slice(0, 2)).toEqual(['POST repos/octo/repo/rulesets', 'POST repos/octo/repo/rulesets']);
+      const state = read() as State & { rulesets: Array<{ id: number; name: string }> };
+      expect(state.rulesets[0]).toEqual(other);
+      expect(state.rulesets.map((ruleset) => ruleset.name)).toEqual(['Branch rules', 'Protect main', 'Protect tags']);
+    });
+
+    it('changes nothing when either ruleset name is taken twice', () => {
+      const tags = (id: number) => ({ id, name: 'Protect tags', target: 'tag', enforcement: 'active', bypass_actors: [], conditions: { ref_name: { include: ['~ALL'], exclude: [] } }, rules: [] });
+      const { run, writes } = harness({ ...fresh(), rulesets: [tags(1), tags(2)], nextId: 3 });
+      const result = run('Set-RepositoryGovernance.ps1', `-Repository ${REPOSITORY}`);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr + result.stdout).toContain("has 2 tag rulesets named 'Protect tags'");
+      expect(writes()).toEqual([]);
+    });
+
+    it('fails the tag check when another tag ruleset restricts tags with no admin bypass', () => {
+      const freeze = { id: 1, name: 'Freeze tags', target: 'tag', enforcement: 'active', bypass_actors: [], conditions: { ref_name: { include: ['~ALL'], exclude: [] } }, rules: [{ type: 'creation' }] };
+      const { base, run } = harness({ ...fresh(), rulesets: [freeze], nextId: 2 });
+      const evidence = join(base, 'evidence.md');
+      const result = run('Set-RepositoryGovernance.ps1', `-Repository ${REPOSITORY} -EvidencePath ${quote(evidence)}`);
+      expect(result.status).not.toBe(0);
+      expect(readFileSync(evidence, 'utf8')).toContain('| All tags: create, move and delete restricted to repository admins | FAIL |');
     });
 
     it('adds the Copilot review rule, checks it in the read-back, and sets only the merge methods it is given', () => {
@@ -284,11 +313,13 @@ describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIME
           { name: 'feat/current', protected: false, commit: { sha: first }, ahead: 1 },
         ],
       });
-      const result = run('Remove-StaleBranches.ps1', `-Repository ${REPOSITORY} -IncludeLocal -Confirm:$false`, clone);
+      // A profile can define functions named like the programs; the scripts must run the programs.
+      const shadow = "function git { throw 'the git function ran' }; function gh { throw 'the gh function ran' }; ";
+      const result = run('Remove-StaleBranches.ps1', `-Repository ${REPOSITORY} -IncludeLocal -Confirm:$false`, clone, shadow);
       expect(result.status, result.stderr).toBe(0);
       expect(git('for-each-ref', '--format=%(refname)').stdout.trim().split('\n')).toEqual(['refs/heads/feat/current', 'refs/heads/feat/unpushed']);
       expect(result.stdout).toContain(`Deleted the local feat/behind. To restore it: git branch feat/behind ${first}`);
-      expect(result.stdout).toContain(`Kept the local feat/unpushed (${second.slice(0, 7)}): it may hold commits that were not on GitHub.`);
+      expect(result.stdout).toContain(`Kept the local feat/unpushed (${second.slice(0, 7)}): it may hold commits that were not on GitHub. Check it, then delete it yourself: git branch -D -- feat/unpushed`);
       expect(result.stdout).toContain('Kept the local feat/current: it is checked out here.');
     });
 

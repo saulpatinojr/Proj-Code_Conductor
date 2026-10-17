@@ -104,7 +104,7 @@ foreach ($branch in @(Get-GhList -Endpoint "repos/$Repository/branches")) {
             if ($name -eq $current) { Write-Host "Kept the local ${name}: it is checked out here."; continue }
             # Only when the deleted commit contains the local one does the restore command bring back its work.
             $contained = $local -eq $sha -or (Invoke-Native -FilePath 'git' -ArgumentList @('merge-base', '--is-ancestor', $local, $sha)).ExitCode -eq 0
-            if (-not $contained) { Write-Host "Kept the local $name ($($local.Substring(0, 7))): it may hold commits that were not on GitHub."; continue }
+            if (-not $contained) { Write-Host "Kept the local $name ($($local.Substring(0, 7))): it may hold commits that were not on GitHub. Check it, then delete it yourself: git branch -D -- $name"; continue }
             if ($PSCmdlet.ShouldProcess("local branch $name at $($local.Substring(0, 7))", 'Delete')) {
                 $result = Invoke-Native -FilePath 'git' -ArgumentList @('branch', '-D', '--', $name)
                 if ($result.ExitCode -ne 0) { throw "git branch -D $name failed: $($result.Errors -join ' ')" }
