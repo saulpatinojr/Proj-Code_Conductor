@@ -53,11 +53,16 @@ function writingClaude(write: string, reply = 'Done.\nCC_RESULT_JSON:{"status":"
 }
 
 describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify', () => {
-  const smoke = (env: NodeJS.ProcessEnv) => spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', 'modify'], { encoding: 'utf8', env, timeout: 60_000 });
-  const trusted = (home: string) => (existsSync(join(home, 'workstation.json')) ? readFileSync(join(home, 'workstation.json'), 'utf8') : '').includes('modifyValidatedAt');
+  const smoke = (env: NodeJS.ProcessEnv, mode = 'modify') => spawnSync(process.execPath, [resolve('packages/cli/dist/index.js'), 'harness-smoke', 'claude', '--mode', mode], { encoding: 'utf8', env, timeout: 60_000 });
+  const trusted = (home: string) => (existsSync(join(home, 'workstation.json')) ? readFileSync(join(home, 'workstation.json'), 'utf8') : '').includes('ValidatedAt');
 
-  it.each([['LF', 'WRITE_OK\\n'], ['CRLF, as a client on Windows may write it', 'WRITE_OK\\r\\n']])('passes when OUTPUT.txt holds WRITE_OK and a line ending (%s)', (_, line) => {
-    const client = writingClaude(`printf '${line}' > OUTPUT.txt`);
+  it.each([
+    ['LF', `printf 'WRITE_OK\\n' > OUTPUT.txt`],
+    ['CRLF, as a client on Windows may write it', `printf 'WRITE_OK\\r\\n' > OUTPUT.txt`],
+    ['a UTF-8 byte-order mark and CRLF (PowerShell 5.1 Out-File -Encoding utf8)', `printf '\\357\\273\\277WRITE_OK\\r\\n' > OUTPUT.txt`],
+    ['UTF-16LE (PowerShell 5.1 redirection)', `printf '\\377\\376W\\000R\\000I\\000T\\000E\\000_\\000O\\000K\\000\\r\\000\\n\\000' > OUTPUT.txt`],
+  ])('passes when OUTPUT.txt holds WRITE_OK and a line ending: %s', (_, write) => {
+    const client = writingClaude(write);
     const run = smoke(client.env);
     expect(run.status, run.stderr).toBe(0);
     expect(run.stdout).toContain('SMOKE PASS claude cli modify');
@@ -65,10 +70,15 @@ describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify'
   });
 
   it.each([
-    ['the content differs', `printf 'WRITE_OK' > OUTPUT.txt`, undefined, 'result=completed changed=?? OUTPUT.txt output="WRITE_OK"'],
-    ['another file changed too', `printf 'WRITE_OK\\n' > OUTPUT.txt; printf x > EXTRA.txt`, undefined, 'changed=?? EXTRA.txt,?? OUTPUT.txt output="WRITE_OK\\n"'],
+    ['the content differs', `printf 'WRITE_OK' > OUTPUT.txt`, undefined, 'result=completed changed=+OUTPUT.txt output="WRITE_OK"'],
+    ['another file was created too', `printf 'WRITE_OK\\n' > OUTPUT.txt; printf x > EXTRA.txt`, undefined, 'changed=+EXTRA.txt,+OUTPUT.txt output="WRITE_OK\\n"'],
+    ['a tracked file was changed', `printf 'WRITE_OK\\n' > OUTPUT.txt; printf changed > INPUT.txt`, undefined, 'changed=~INPUT.txt,+OUTPUT.txt'],
     ['the file is missing', ':', undefined, 'changed=none output=missing'],
+    ['OUTPUT.txt is a symlink', `printf 'WRITE_OK\\n' > real.txt; ln -s real.txt OUTPUT.txt`, undefined, 'output=unreadable (over 1 KiB, or a symlink)'],
     ['there is no structured result', `printf 'WRITE_OK\\n' > OUTPUT.txt`, 'Done.', 'result=failed (Agent did not return a valid CC_RESULT_JSON structured result.)'],
+    ['the structured result breaks the contract', `printf 'WRITE_OK\\n' > OUTPUT.txt`,
+      'Done.\nCC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":["OUTPUT.txt now holds WRITE_OK"],"findings":[],"risks":[],"blockers":[],"recommendation":"ready"}',
+      'result=failed (Agent returned CC_RESULT_JSON that failed AgentResult contract validation: /evidence/0 must be object)'],
   ])('fails, naming the failed check, when %s', (_, write, reply, detail) => {
     const client = writingClaude(write, reply);
     const run = smoke(client.env);
@@ -76,6 +86,38 @@ describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify'
     expect(run.stderr).toContain('SMOKE FAIL claude cli modify: exit=0 signal=null timeout=false');
     expect(run.stderr).toContain(detail);
     expect(trusted(client.home)).toBe(false);
+  });
+
+  it('shows terminal control characters in OUTPUT.txt as escapes, never raw', () => {
+    const client = writingClaude(`printf '\\033]0;title\\007\\033[2JWRITE' > OUTPUT.txt`);
+    const run = smoke(client.env);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('output="\\u001b]0;title\\u0007\\u001b[2JWRITE"');
+    expect(run.stderr).not.toMatch(/[\u0007\u001b]/);
+  });
+
+  it('sees what the client wrote even when Git is set to hide it', () => {
+    // status.showUntrackedFiles=no and a global exclude make `git status` print nothing.
+    const client = writingClaude(`printf x > SNEAKY.txt; printf 'WRITE_OK\\n' > OUTPUT.txt`);
+    const config = join(client.home, '..', 'gitconfig');
+    writeFileSync(join(client.home, '..', 'excludes'), '*.txt\n');
+    writeFileSync(config, `[status]\n\tshowUntrackedFiles = no\n[core]\n\texcludesFile = ${join(client.home, '..', 'excludes')}\n`);
+    const env = { ...client.env, GIT_CONFIG_GLOBAL: config };
+    const read = smoke(env, 'read');
+    expect(read.status).toBe(1);
+    expect(read.stderr).toContain('changed=+OUTPUT.txt,+SNEAKY.txt');
+    const modify = smoke(env);
+    expect(modify.status).toBe(1);
+    expect(modify.stderr).toContain('changed=+OUTPUT.txt,+SNEAKY.txt');
+    expect(trusted(client.home)).toBe(false);
+  });
+
+  it('still passes under that Git configuration when only OUTPUT.txt was written', () => {
+    const client = writingClaude(`printf 'WRITE_OK\\n' > OUTPUT.txt`);
+    const config = join(client.home, '..', 'gitconfig');
+    writeFileSync(config, '[status]\n\tshowUntrackedFiles = no\n');
+    const run = smoke({ ...client.env, GIT_CONFIG_GLOBAL: config });
+    expect(run.status, run.stderr).toBe(0);
   });
 });
 

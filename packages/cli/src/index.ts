@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
@@ -48,21 +49,62 @@ function isCodeConductorSource(root: string): boolean {
   catch { return false; }
 }
 
-// VS Code records the extensions it installed in extensions.json, in its extensions folder
-// (.vscode-server on a remote host). Reading that starts no process: on Windows `code` is
-// a batch file, which needs cmd.exe and which Code Conductor does not run. Undefined when
-// no such file was found.
-function vscodeExtensions(home = homedir()): Set<string> | undefined {
-  let found = false;
+// VS Code records the extensions it installed in extensions.json, in its extensions
+// folder. Reading that starts no process: on Windows `code` is a batch file, which needs
+// cmd.exe and which Code Conductor does not run. The folders are VS Code's own choices
+// (VSCODE_EXTENSIONS, then VSCODE_PORTABLE, then the home folder), plus the remote hosts'.
+const VSCODE_EXTENSION_FOLDERS = ['.vscode', '.vscode-insiders', '.vscode-server', '.vscode-server-insiders', '.vscode-remote'];
+function vscodeExtensions(home = homedir(), env = process.env): { ids: Set<string>; read: number; unreadable: string[] } {
+  const folders = [
+    ...(env.VSCODE_EXTENSIONS && isAbsolute(env.VSCODE_EXTENSIONS) ? [env.VSCODE_EXTENSIONS] : []),
+    ...(env.VSCODE_PORTABLE && isAbsolute(env.VSCODE_PORTABLE) ? [join(env.VSCODE_PORTABLE, 'extensions')] : []),
+    ...VSCODE_EXTENSION_FOLDERS.map((folder) => join(home, folder, 'extensions')),
+  ];
   const ids = new Set<string>();
-  for (const folder of ['.vscode', '.vscode-insiders', '.vscode-server', '.vscode-server-insiders']) {
+  const unreadable: string[] = [];
+  let read = 0;
+  for (const file of [...new Set(folders)].map((folder) => join(folder, 'extensions.json'))) {
+    if (!existsSync(file)) continue;
     let entries: unknown;
-    try { entries = JSON.parse(readBoundedFile(join(home, folder, 'extensions', 'extensions.json'), 1048576).toString('utf8')); } catch { continue; }
-    if (!Array.isArray(entries)) continue;
-    found = true;
+    // VS Code reads an empty file as no extensions.
+    try { const text = readBoundedFile(file, 1048576).toString('utf8'); entries = text.trim() ? JSON.parse(text) : []; } catch { entries = undefined; }
+    if (!Array.isArray(entries)) { unreadable.push(file.startsWith(home) ? `~${file.slice(home.length)}` : file); continue; }
+    read += 1;
     for (const entry of entries as Array<{ identifier?: { id?: unknown } } | null>) if (typeof entry?.identifier?.id === 'string') ids.add(entry.identifier.id.toLowerCase());
   }
-  return found ? ids : undefined;
+  return { ids, read, unreadable };
+}
+
+// Every file under the smoke test's workspace except Git's own, with a hash of its content
+// (a symlink by its target). Comparing two of these shows what a client changed, which
+// `git status` can hide: status.showUntrackedFiles=no or a global exclude makes it silent.
+function workspaceFiles(root: string): Map<string, string> {
+  const files = new Map<string, string>();
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (dir === root && entry.name === '.git') continue;
+      const path = join(dir, entry.name);
+      if (files.size >= 10000) throw new Error('The smoke workspace holds more than 10,000 files.');
+      if (entry.isDirectory()) walk(path);
+      else files.set(relative(root, path).split(sep).join('/'), entry.isSymbolicLink() ? `link:${readlinkSync(path)}` : createHash('sha256').update(readFileSync(path)).digest('hex'));
+    }
+  };
+  walk(root);
+  return files;
+}
+
+function workspaceChanges(before: Map<string, string>, after: Map<string, string>): string[] {
+  const changes = [...after].filter(([path, hash]) => before.get(path) !== hash).map(([path]) => `${before.has(path) ? '~' : '+'}${path}`);
+  for (const path of before.keys()) if (!after.has(path)) changes.push(`-${path}`);
+  return changes.sort((a, b) => a.slice(1).localeCompare(b.slice(1)));
+}
+
+// The written file's text, whatever encoding a Windows tool gave it: PowerShell 5.1 writes
+// UTF-8 with a byte-order mark, or UTF-16LE.
+function writtenText(bytes: Buffer): { text: string; encoding: string } {
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return { text: bytes.subarray(3).toString('utf8'), encoding: 'utf-8 with BOM' };
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return { text: bytes.subarray(2).toString('utf16le'), encoding: 'utf-16le' };
+  return { text: bytes.toString('utf8'), encoding: 'utf-8' };
 }
 
 async function doctor(root: string): Promise<number> {
@@ -116,11 +158,12 @@ async function doctor(root: string): Promise<number> {
     ['github-copilot-chat', 'github.copilot-chat'],
     ['github-pr', 'github.vscode-pull-request-github'],
   ] as const;
-  if (extensions) {
-    for (const [name, id] of knownExtensions) console.log(`${extensions.has(id) ? 'OK' : 'INFO'} vscode-extension ${name}: ${id}`);
-  } else {
-    console.log('INFO vscode-extension inventory unavailable: no VS Code extensions.json in ~/.vscode/extensions or ~/.vscode-server/extensions.');
+  if (extensions.read) {
+    for (const [name, id] of knownExtensions) console.log(`${extensions.ids.has(id) ? 'OK' : 'INFO'} vscode-extension ${name}: ${id}`);
+  } else if (!extensions.unreadable.length) {
+    console.log(`INFO vscode-extension inventory unavailable: no extensions.json in ${VSCODE_EXTENSION_FOLDERS.map((folder) => `~/${folder}/extensions`).join(', ')}, VSCODE_EXTENSIONS or VSCODE_PORTABLE.`);
   }
+  if (extensions.unreadable.length) console.log(`WARN vscode-extension inventory: could not read ${printable(extensions.unreadable.join(', '), 600)} (over 1 MiB, a symlink, or not a JSON list).`);
 
   for (const [name, candidates] of optionalTools) {
     const found = candidates.some(hasCommand);
@@ -217,15 +260,20 @@ async function harnessSmoke(args: string[]): Promise<number> {
     writeFileSync(join(workspace, 'AGENTS.md'), '# Smoke test\nStay within this temporary workspace.\n');
     writeFileSync(join(workspace, 'INPUT.txt'), 'READ_OK\n');
     spawnSync('git', ['-C', workspace, 'add', '.'], { stdio: 'ignore' }); spawnSync('git', ['-C', workspace, '-c', 'user.name=Code Conductor', '-c', 'user.email=smoke@local', 'commit', '-m', 'baseline'], { stdio: 'ignore' });
+    const before = workspaceFiles(workspace);
     const assignment: AgentAssignment = { id: 'SMOKE-A', taskId: 'SMOKE-T', agentId: `smoke-${harness}`, role: mode === 'modify' ? 'builder' : 'reviewer', stance: 'neutral', provider: adapter.provider, harness, surface: adapter.executionSurface, billingChannel: 'subscription', authority: mode === 'modify' ? ['modify_worktree'] : ['review'], dependsOn: [] };
-    const task: TaskEnvelope = { id: 'SMOKE-T', objective: mode === 'modify' ? 'Read INPUT.txt, create OUTPUT.txt containing exactly WRITE_OK followed by one newline, and do not touch anything outside this workspace.' : 'Read INPUT.txt and report its exact content without changing any file.', repository: workspace, acceptanceCriteria: [], risk: 'R0', constraints: ['temporary isolated smoke test'], createdAt: new Date().toISOString() };
+    const task: TaskEnvelope = { id: 'SMOKE-T', objective: mode === 'modify' ? 'Read INPUT.txt, then create OUTPUT.txt containing exactly WRITE_OK followed by one newline. Create or change no other file.' : 'Read INPUT.txt and report its exact content without changing any file.', repository: workspace, acceptanceCriteria: [], risk: 'R0', constraints: ['temporary isolated smoke test'], createdAt: new Date().toISOString() };
     const outcome = await adapter.execute({ task, assignment, cwd: workspace, timeoutMs: 180000, prompt: `${task.objective}\nFinal line: CC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":[],"findings":[],"risks":[],"blockers":[],"recommendation":"ready"}` });
-    const parsed = parseAgentResult(assignment, outcome); const changed = spawnSync('git', ['-C', workspace, 'status', '--porcelain=v1'], { encoding: 'utf8' }).stdout.trim().split(/\r?\n/).filter(Boolean);
-    const output = mode === 'modify' ? (() => { try { return readFileSync(join(workspace, 'OUTPUT.txt'), 'utf8'); } catch { return undefined; } })() : undefined;
-    // Modify must create exactly OUTPUT.txt and nothing else. A client on Windows may end the
-    // line with CRLF, which is the same content.
+    const parsed = parseAgentResult(assignment, outcome);
+    let changed: string[];
+    try { changed = workspaceChanges(before, workspaceFiles(workspace)); } catch (error) { changed = [`(the workspace could not be listed: ${error instanceof Error ? error.message : String(error)})`]; }
+    const target = join(workspace, 'OUTPUT.txt');
+    const present = (() => { try { lstatSync(target); return true; } catch { return false; } })();
+    const output = mode === 'modify' && present ? (() => { try { return writtenText(readBoundedFile(target, 1024)); } catch { return undefined; } })() : undefined;
+    // Modify must create OUTPUT.txt and nothing else. A client on Windows may end the line
+    // with CRLF or write a byte-order mark, which is the same content.
     const writeOk = mode === 'modify'
-      ? (output === 'WRITE_OK\n' || output === 'WRITE_OK\r\n') && changed.length === 1 && changed[0] === '?? OUTPUT.txt'
+      ? (output?.text === 'WRITE_OK\n' || output?.text === 'WRITE_OK\r\n') && changed.length === 1 && changed[0] === '+OUTPUT.txt'
       : changed.length === 0;
     const processOk = adapter.executionSurface === 'acp'
       ? !outcome.timedOut && (outcome.exitCode === null || outcome.exitCode === 0)
@@ -234,7 +282,8 @@ async function harnessSmoke(args: string[]): Promise<number> {
     if (!ok) {
       // Each check's own value, so a failure on a real workstation says which one failed.
       const result = parsed.status === 'completed' ? 'completed' : `${parsed.status} (${printable(parsed.blockers[0] ?? 'no reason given', 200)})`;
-      const written = mode === 'modify' ? ` output=${output === undefined ? 'missing' : printable(JSON.stringify(output.slice(0, 40)), 80)}` : '';
+      const shown = output ? `${printable(JSON.stringify(output.text.slice(0, 40)), 80)}${output.encoding === 'utf-8' ? '' : ` (${output.encoding})`}` : present ? 'unreadable (over 1 KiB, or a symlink)' : 'missing';
+      const written = mode === 'modify' ? ` output=${shown}` : '';
       console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} result=${result} changed=${printable(changed.join(','), 200) || 'none'}${written}`);
       return 1;
     }
