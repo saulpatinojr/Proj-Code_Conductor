@@ -36,12 +36,13 @@ describe('packaged zero-scaffolding defaults', () => {
     }
     expect(loadMcpCatalog(root).servers).toBeTruthy();
   });
-  it('never selects source-repository commands for a generic Node project', () => {
+  it('never selects source-repository commands for a generic Node project', async () => {
     const root = fixture(); writeFileSync(join(root, 'package.json'), '{"scripts":{"test":"node --test"}}');
+    mkdirSync(join(root, 'node_modules'));
     writeFileSync(join(root, 'tsconfig.json'), '{}');
     expect(detectGateProfiles(root)).toEqual(['node']);
     const commands: string[][] = [];
-    runGates(root, undefined, (_cwd, command, args) => { commands.push([command, ...args]); return { status: 0, stdout: '', stderr: '' }; });
+    await runGates(root, undefined, (_cwd, command, args) => { commands.push([command, ...args]); return { status: 0, stdout: '', stderr: '' }; });
     expect(commands).toEqual([['npm', 'test']]);
   });
   it('prefers source-specific gates for this repository without duplicate npm tests', () => {

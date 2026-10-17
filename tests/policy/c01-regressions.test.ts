@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { runGates, blockingGateFailure } from '../../packages/gates/src/index.js';
 import { workspaceFingerprint, startupSnapshot } from '../../apps/vscode/src/startup.js';
 
-it('blocks readiness when no configured gate applies without executing anything', () => {
+it('blocks readiness when no configured gate applies without executing anything', async () => {
   const root = mkdtempSync(join(tmpdir(), 'cc-no-gates-'));
   try {
     let calls = 0;
-    const results = runGates(root, undefined, () => { calls += 1; return { status: 0, stdout: '', stderr: '' }; });
+    const results = await runGates(root, undefined, () => { calls += 1; return { status: 0, stdout: '', stderr: '' }; });
     expect(calls).toBe(0);
     expect(results).toHaveLength(1);
     expect(results[0]?.result.gate).toBe('no-applicable-gates');

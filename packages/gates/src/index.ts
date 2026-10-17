@@ -1,9 +1,9 @@
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { loadConfiguration } from '@code-conductor/policy';
+import { accessSync, constants, existsSync, readdirSync, statSync } from 'node:fs';
+import { delimiter, isAbsolute, join, relative } from 'node:path';
+import { runIsolated } from '@code-conductor/core/processes';
+import { gateCommandProblem, loadConfiguration } from '@code-conductor/policy';
 import type { Evidence, GateResult } from '@code-conductor/schemas';
 
 export interface GateDefinition {
@@ -12,9 +12,19 @@ export interface GateDefinition {
   args?: string[];
   blocking?: boolean;
   timeout_ms?: number;
+  /** Checked before anything runs. Code Conductor never installs a missing prerequisite. */
+  requires?: { commands?: string[]; paths?: string[]; any_paths?: string[] };
+  /** Remediation shown when a prerequisite is missing. */
+  remediation?: string;
+  /** What running this gate can do beyond reading the repository, shown in its approval. */
+  disclosure?: string;
 }
 
 interface GateProfile {
+  /** `explicit` profiles (for example Terraform plan review) are never auto-detected. */
+  selection?: 'detected' | 'explicit';
+  /** Generic profiles this more specific profile supersedes when both are detected. */
+  replaces?: string[];
   detect?: {
     package_name?: string;
     all_files?: string[];
@@ -35,9 +45,17 @@ export interface CommandOutcome {
   stdout: string;
   stderr: string;
   timedOut?: boolean;
+  /** Output beyond the capture limit was discarded. */
+  truncated?: boolean;
+  /** SHA-256 over the full, untruncated output; computed from the captured text when absent. */
+  sha256?: string;
 }
 
-export type CommandExecutor = (cwd: string, command: string, args: string[], timeoutMs: number) => CommandOutcome;
+/**
+ * Runs one gate. `command` is the catalog name (for display); `executable` is the
+ * absolute file it resolved to, which is what the default executor runs.
+ */
+export type CommandExecutor = (cwd: string, command: string, args: string[], timeoutMs: number, executable: string) => CommandOutcome | Promise<CommandOutcome>;
 
 export interface GateExecution {
   profile: string;
@@ -46,14 +64,65 @@ export interface GateExecution {
   blocking: boolean;
 }
 
-function defaultExecutor(cwd: string, command: string, args: string[], timeoutMs: number): CommandOutcome {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', shell: false, timeout: timeoutMs });
-  return {
-    status: result.status,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-    timedOut: result.error?.name === 'ETIMEDOUT',
-  };
+const MAX_CAPTURE = 4 * 1024 * 1024;
+
+/**
+ * Gate commands are the target repository's own scripts. They run without a shell, in
+ * their own isolated process group shared with provider clients' reaper (no controlling
+ * terminal; terminated on timeout, after exit, and when Code Conductor exits or is
+ * interrupted), with captured output bounded to 4 MiB per stream and the evidence digest
+ * covering all of it. A descendant that leaves the group can outlive the gate; see
+ * @code-conductor/core/processes.
+ */
+async function defaultExecutor(cwd: string, _command: string, args: string[], timeoutMs: number, executable: string): Promise<CommandOutcome> {
+  return runIsolated(executable, args, { cwd, env: absolutePathEnvironment(), timeoutMs, maxBytes: MAX_CAPTURE });
+}
+
+/**
+ * The environment gate processes see, with PATH reduced to its absolute entries: tools a
+ * gate starts itself (for example `#!/usr/bin/env node` in npm) follow the same rule as
+ * the gate command, so nothing is found through the current directory or a relative entry.
+ */
+export function absolutePathEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const result = { ...env };
+  for (const key of Object.keys(result).filter((name) => name.toUpperCase() === 'PATH')) {
+    result[key] = (result[key] ?? '').split(delimiter).filter((entry) => entry && isAbsolute(entry)).join(delimiter);
+  }
+  return result;
+}
+
+export interface ResolvedExecutable { path?: string; problem?: string }
+
+/**
+ * The absolute file a plain command name resolves to, searching absolute PATH entries
+ * only: never the current directory, an empty entry or a relative entry, which the
+ * repository under validation could control. On Windows only .exe and .com files run
+ * without a shell; a batch shim (.cmd/.bat, as npm, pnpm and yarn install) would need
+ * cmd.exe and is reported as unsupported instead of being run.
+ */
+export function resolveExecutable(command: string, env: NodeJS.ProcessEnv = process.env): ResolvedExecutable {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) return { problem: `\`${command}\` is not a plain command name` };
+  const windows = process.platform === 'win32';
+  const runnable = windows ? ['.exe', '.com'] : [''];
+  let batch: string | undefined;
+  for (const directory of (env.PATH ?? env.Path ?? '').split(delimiter)) {
+    if (!directory || !isAbsolute(directory)) continue;
+    for (const extension of runnable) {
+      const candidate = join(directory, `${command}${extension}`);
+      try {
+        if (!statSync(candidate).isFile()) continue;
+        if (!windows) accessSync(candidate, constants.X_OK);
+        return { path: candidate };
+      } catch { /* keep looking */ }
+    }
+    if (windows) for (const extension of ['.cmd', '.bat']) { try { if (statSync(join(directory, `${command}${extension}`)).isFile()) batch ??= `${command}${extension}`; } catch { /* keep looking */ } }
+  }
+  return { problem: batch ? `\`${command}\` is a batch script (${batch}), which cannot run without cmd.exe; it is not supported as a gate on Windows` : `command \`${command}\` not found on PATH` };
+}
+
+/** Whether a plain command resolves to an executable on an absolute PATH entry (no `which`, no shell). */
+export function commandOnPath(command: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(resolveExecutable(command, env).path);
 }
 
 function listFiles(root: string): string[] {
@@ -110,7 +179,7 @@ export function detectGateProfiles(root: string, config = loadGateConfig(root)):
   const selected: string[] = [];
   for (const [name, profile] of Object.entries(config.profiles)) {
     const detect = profile.detect;
-    if (!detect) continue;
+    if (!detect || profile.selection === 'explicit') continue;
     if (detect.package_name) {
       try {
         const path = join(root, 'package.json');
@@ -125,42 +194,92 @@ export function detectGateProfiles(root: string, config = loadGateConfig(root)):
       : false;
     if (allFiles || anyFile || anyGlob) selected.push(name);
   }
-  return selected.includes('code-conductor') ? selected.filter((name) => name !== 'node') : selected;
+  const replaced = new Set(selected.flatMap((name) => config.profiles[name]?.replaces ?? []));
+  return selected.filter((name) => !replaced.has(name));
 }
 
-export interface PlannedGate { profile: string; gate: GateDefinition; timeoutMs: number }
+/** Why a gate may never run (shared with `cc validate`), or undefined. */
+export function forbiddenGateReason(gate: GateDefinition): string | undefined {
+  return gateCommandProblem(gate.command, gate.args ?? [])?.message;
+}
 
-/** The exact commands runGates would execute, without executing them (used to bind pre-action approval). */
+export interface PlannedGate {
+  profile: string;
+  gate: GateDefinition;
+  timeoutMs: number;
+  /** Unmet prerequisites; a gate with any is reported as a blocking failure and never executed. */
+  missing: string[];
+  /** The profile was chosen explicitly rather than detected. */
+  explicit: boolean;
+  /** Absolute file the command resolved to; this exact file is what runs and what approval binds. */
+  executable?: string;
+}
+
+function missingPrerequisites(root: string, gate: GateDefinition): string[] {
+  const missing: string[] = [];
+  for (const command of new Set([gate.command, ...(gate.requires?.commands ?? [])])) {
+    const resolved = resolveExecutable(command);
+    if (!resolved.path) missing.push(resolved.problem ?? `command \`${command}\` not found on PATH`);
+  }
+  for (const path of gate.requires?.paths ?? []) if (!existsSync(join(root, path))) missing.push(`${path} not present`);
+  const any = gate.requires?.any_paths ?? [];
+  if (any.length && !any.some((path) => existsSync(join(root, path)))) missing.push(`none of ${any.join(', ')} present`);
+  return missing;
+}
+
+/**
+ * The exact commands executeGatePlan would execute, without executing anything (used
+ * to bind pre-action approval). Explicitly selected profiles are used as given;
+ * otherwise profiles are detected. Forbidden infrastructure-changing commands throw.
+ */
 export function planGates(root: string, profiles?: string[], config = loadGateConfig(root)): PlannedGate[] {
-  const selected = profiles?.length ? profiles : detectGateProfiles(root, config);
+  const explicit = Boolean(profiles?.length);
+  const selected = explicit ? [...new Set(profiles)] : detectGateProfiles(root, config);
   return selected.flatMap((profileName) => {
-    const profile = config.profiles[profileName];
-    if (!profile) throw new Error(`Unknown gate profile: ${profileName}`);
-    return profile.gates.map((gate) => ({ profile: profileName, gate, timeoutMs: gate.timeout_ms ?? config.default_timeout_ms ?? 600000 }));
+    const profile = Object.hasOwn(config.profiles, profileName) ? config.profiles[profileName] : undefined;
+    if (!profile) throw new Error(`Unknown gate profile: ${profileName}. Available: ${Object.keys(config.profiles).join(', ')}.`);
+    return profile.gates.map((gate) => {
+      const forbidden = forbiddenGateReason(gate);
+      if (forbidden) throw new Error(`Gate ${profileName}/${gate.id} is not allowed: ${forbidden}`);
+      const executable = resolveExecutable(gate.command).path;
+      return { profile: profileName, gate, timeoutMs: gate.timeout_ms ?? config.default_timeout_ms ?? 600000, missing: missingPrerequisites(root, gate), explicit, ...(executable ? { executable } : {}) };
+    });
   });
 }
 
-export function runGates(root: string, profiles?: string[], executor: CommandExecutor = defaultExecutor): GateExecution[] {
+export async function runGates(root: string, profiles?: string[], executor: CommandExecutor = defaultExecutor): Promise<GateExecution[]> {
   return executeGatePlan(root, planGates(root, profiles), executor);
 }
 
 /** Execute exactly the planned commands, so an approval bound to a plan covers what runs. */
-export function executeGatePlan(root: string, plan: readonly PlannedGate[], executor: CommandExecutor = defaultExecutor): GateExecution[] {
+export async function executeGatePlan(root: string, plan: readonly PlannedGate[], executor: CommandExecutor = defaultExecutor): Promise<GateExecution[]> {
   const executions: GateExecution[] = [];
-  for (const { profile, gate, timeoutMs } of plan) {
-    const outcome = executor(root, gate.command, gate.args ?? [], timeoutMs);
+  for (const item of plan) {
+    const { profile, gate, timeoutMs } = item;
+    const commandLine = `${gate.command} ${(gate.args ?? []).join(' ')}`.trim();
+    // A hand-built plan may carry an absolute command; anything else is resolved now.
+    const executable = item.executable ?? (isAbsolute(gate.command) ? gate.command : resolveExecutable(gate.command).path);
+    const missing = executable ? item.missing : [...new Set([...item.missing, `command \`${gate.command}\` not found on PATH`])];
+    if (missing.length) {
+      // Always blocking, advisory gates included: a gate that could not run validated nothing.
+      const evidenceId = `E-${randomUUID()}`;
+      const summary = `${commandLine} was not run: prerequisite missing (${missing.join('; ')}).${gate.remediation ? ` ${gate.remediation}` : ''} Code Conductor does not install prerequisites.`;
+      executions.push({ profile, blocking: true, result: { gate: gate.id, status: 'failed', evidenceIds: [evidenceId], summary }, evidence: { id: evidenceId, kind: 'test', source: commandLine, summary, sha256: createHash('sha256').update('').digest('hex') } });
+      continue;
+    }
+    const outcome = await executor(root, gate.command, gate.args ?? [], timeoutMs, executable!);
     const passed = outcome.status === 0 && !outcome.timedOut;
     const evidenceId = `E-${randomUUID()}`;
     const combined = [outcome.stdout.trim(), outcome.stderr.trim()].filter(Boolean).join('\n');
-    const summary = passed
-      ? `${gate.command} ${(gate.args ?? []).join(' ')} passed.`
-      : `${gate.command} ${(gate.args ?? []).join(' ')} failed${outcome.timedOut ? ' (timeout)' : ` (exit ${String(outcome.status)})`}.`;
+    const summary = `${passed
+      ? `${commandLine} passed.`
+      : `${commandLine} failed${outcome.timedOut ? ' (timeout)' : ` (exit ${String(outcome.status)})`}.`}${outcome.truncated ? ' Output exceeded the capture limit and was truncated.' : ''}`;
     const evidence: Evidence = {
       id: evidenceId,
       kind: 'test',
-      source: `${gate.command} ${(gate.args ?? []).join(' ')}`.trim(),
+      source: `${commandLine} (${executable})`,
       summary: combined ? `${summary}\n${combined.slice(0, 8000)}` : summary,
-      sha256: createHash('sha256').update(combined).digest('hex'),
+      sha256: outcome.sha256 ?? createHash('sha256').update(combined).digest('hex'),
     };
     executions.push({
       profile,
@@ -169,10 +288,15 @@ export function executeGatePlan(root: string, plan: readonly PlannedGate[], exec
       result: { gate: gate.id, status: passed ? 'passed' : 'failed', evidenceIds: [evidenceId], summary },
     });
   }
+  const id = `E-${randomUUID()}`;
+  const empty = createHash('sha256').update('').digest('hex');
   if (!executions.length) {
-    const id = `E-${randomUUID()}`;
     const summary = 'No applicable deterministic validation gates; readiness is blocked.';
-    executions.push({ profile: 'unmatched', blocking: true, result: { gate: 'no-applicable-gates', status: 'failed', evidenceIds: [id], summary }, evidence: { id, kind: 'test', source: 'gate-selection', summary, sha256: createHash('sha256').update('').digest('hex') } });
+    executions.push({ profile: 'unmatched', blocking: true, result: { gate: 'no-applicable-gates', status: 'failed', evidenceIds: [id], summary }, evidence: { id, kind: 'test', source: 'gate-selection', summary, sha256: empty } });
+  } else if (!executions.some((execution) => execution.blocking)) {
+    // Advisory gates alone (for example an explicitly chosen plan review) never establish readiness.
+    const summary = 'No blocking deterministic gate ran and passed; advisory gates alone never establish readiness. Choose a blocking profile too, for example `--gate-profiles terraform,terraform-plan`.';
+    executions.push({ profile: 'unmatched', blocking: true, result: { gate: 'no-blocking-gate-passed', status: 'failed', evidenceIds: [id], summary }, evidence: { id, kind: 'test', source: 'gate-selection', summary, sha256: empty } });
   }
   return executions;
 }

@@ -188,6 +188,100 @@ export function validateCapabilities(capabilities: CapabilityConfig): Validation
   return issues;
 }
 
+type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?: unknown; gates?: Array<{ id?: unknown; command?: unknown; args?: unknown; requires?: unknown }> }> };
+
+// Gates validate; they never change infrastructure, state or credentials. Every gate tool
+// has a fixed shape, checked positively: a command or argument this does not describe is
+// refused, so a new spelling cannot slip past (inline interpreter code, package executors,
+// wrappers, file-writing flags). Supporting another tool means describing its shape here.
+const SCRIPT_NAME = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
+/** A path inside the repository: relative (no root, drive or UNC prefix), no `..` segment, plain characters. */
+function repositoryRelative(path: string): boolean {
+  return /^[A-Za-z0-9._][A-Za-z0-9._/\\-]*$/.test(path) && !/^[A-Za-z]:/.test(path) && !path.split(/[\\/]/).includes('..');
+}
+/**
+ * A script the repository itself holds: no folder of installed dependencies (whose command
+ * line programs could load code from anywhere, or download and run packages) and no hidden
+ * folder (`.yarn/releases`, `.git`, tool caches).
+ */
+function repositoryScript(path: string): boolean {
+  return repositoryRelative(path) && /\.[cm]?js$/.test(path)
+    && !path.split(/[\\/]/).some((segment) => segment.toLowerCase() === 'node_modules' || (segment.startsWith('.') && segment !== '.'));
+}
+// Terraform and OpenTofu: one optional `-chdir=<repository subfolder>`, then a read-only
+// subcommand with only these flags (Go's flag parser stops at the first other argument,
+// so a path or `--` before `-check` would silently drop it). Plan still runs provider
+// plugins; see the terraform-plan disclosure in config/gates.yaml.
+const TERRAFORM_FLAGS: Record<string, ReadonlySet<string>> = {
+  fmt: new Set(['-check', '-recursive', '-diff', '-no-color']),
+  validate: new Set(['-no-color', '-json']),
+  plan: new Set(['-input=false', '-lock=false', '-no-color', '-refresh=false', '-detailed-exitcode', '-compact-warnings']),
+  version: new Set(['-json']),
+};
+// Flags a subcommand must carry: fmt only checks; plan neither prompts nor takes the
+// state lock (a plan stopped on timeout could leave it held).
+const TERRAFORM_REQUIRED: Record<string, readonly string[]> = { fmt: ['-check'], plan: ['-input=false', '-lock=false'] };
+const ANSIBLE_LINT_FLAGS: ReadonlySet<string> = new Set(['--offline', '--nocolor', '--parseable', '-p', '-q', '--strict']);
+
+type GateShape = (args: readonly string[]) => string | undefined;
+// `run env` is the package manager's own command (it prints the environment), not a script.
+const packageScript: GateShape = (args) => (args.length === 1 && args[0] === 'test') || (args.length === 2 && args[0] === 'run' && SCRIPT_NAME.test(args[1] ?? '') && args[1] !== 'env')
+  ? undefined : 'only `test` or `run <script>`, which run the repository\'s own scripts';
+const terraformShape: GateShape = (args) => {
+  const rest = args[0]?.startsWith('-chdir=') && repositoryRelative(args[0].slice('-chdir='.length)) ? args.slice(1) : args;
+  const [subcommand = '', ...flags] = rest;
+  const allowed = Object.hasOwn(TERRAFORM_FLAGS, subcommand) ? TERRAFORM_FLAGS[subcommand] : undefined;
+  if (!allowed) return `only ${Object.keys(TERRAFORM_FLAGS).join(', ')}, after at most one -chdir=<repository subfolder>: gates check formatting, validate or plan, never change infrastructure`;
+  const extra = flags.find((flag) => !allowed.has(flag));
+  if (extra !== undefined) return `${subcommand} takes only ${[...allowed].join(' ')} here (not ${extra}): no paths, no files written, no other options`;
+  const missing = (Object.hasOwn(TERRAFORM_REQUIRED, subcommand) ? TERRAFORM_REQUIRED[subcommand] ?? [] : []).filter((flag) => !flags.includes(flag));
+  if (missing.length) return subcommand === 'fmt' ? 'fmt rewrites files unless -check is given; gates only check' : `plan needs ${missing.join(' ')}: a gate never prompts or takes the state lock`;
+  return undefined;
+};
+const GATE_TOOLS: Record<string, GateShape> = {
+  npm: packageScript,
+  pnpm: packageScript,
+  yarn: packageScript,
+  node: (args) => (args[0] !== undefined && repositoryScript(args[0]) ? undefined : 'only a script file the repository holds as the first argument (no options, no inline code, nothing under node_modules or a hidden folder)'),
+  terraform: terraformShape,
+  tofu: terraformShape,
+  // --offline: without it, ansible-lint installs the collections and roles requirements.yml names.
+  'ansible-lint': (args) => {
+    const extra = args.find((arg) => !ANSIBLE_LINT_FLAGS.has(arg));
+    if (extra !== undefined) return `only ${[...ANSIBLE_LINT_FLAGS].join(' ')} (not ${extra}): never --fix, no other options`;
+    return args.includes('--offline') ? undefined : 'needs --offline: a gate never installs requirements';
+  },
+};
+
+/** Why a gate command may never run, or undefined. Shared by `cc validate` and the gate planner. */
+export function gateCommandProblem(command: unknown, args: unknown = []): { code: string; message: string } | undefined {
+  if (typeof command !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) return { code: 'gates.command', message: 'it must name a plain executable (no shell, no path)' };
+  if (!Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) return { code: 'gates.command', message: 'args must be a list of strings' };
+  const values = args as readonly string[];
+  if (values.some((arg) => /^-?-auto-approve(=|$)/i.test(arg))) return { code: 'gates.auto_approve', message: 'auto-approval flags can never be part of a gate' };
+  const name = command.toLowerCase().replace(/\.(exe|com|cmd|bat|ps1)$/, '');
+  const shape = Object.hasOwn(GATE_TOOLS, name) ? GATE_TOOLS[name] : undefined;
+  if (!shape) return { code: 'gates.tool', message: `${command} is not a gate tool (${Object.keys(GATE_TOOLS).join(', ')}); shells, wrappers and package executors never are, because they could run anything` };
+  const problem = shape(values);
+  if (problem) return { code: name === 'terraform' || name === 'tofu' ? 'gates.infrastructure_change' : 'gates.shape', message: `${command}: ${problem}` };
+  return undefined;
+}
+
+export function validateGateCatalog(catalog: GateCatalog): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const names = new Set(Object.keys(catalog.profiles ?? {}));
+  for (const [name, profile] of Object.entries(catalog.profiles ?? {})) {
+    const path = `config/gates.yaml#profiles.${name}`;
+    if (profile.selection !== undefined && profile.selection !== 'detected' && profile.selection !== 'explicit') issues.push({ level: 'error', code: 'gates.selection', path, message: `Profile ${name} selection must be detected or explicit.` });
+    if (profile.replaces !== undefined && (!Array.isArray(profile.replaces) || profile.replaces.some((item) => typeof item !== 'string' || !names.has(item)))) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles.` });
+    for (const gate of profile.gates ?? []) {
+      const problem = gateCommandProblem(gate.command, gate.args ?? []);
+      if (problem) issues.push({ level: 'error', code: problem.code, path, message: `Gate ${String(gate.id)} is not allowed: ${problem.message}.` });
+    }
+  }
+  return issues;
+}
+
 export function validateRepositoryConfig(root: string): ValidationReport {
   const issues: ValidationIssue[] = [];
 
@@ -217,6 +311,8 @@ export function validateRepositoryConfig(root: string): ValidationReport {
   }
 
   if (capabilities) issues.push(...validateCapabilities(capabilities));
+  const gates = readYaml<GateCatalog>(root, 'config/gates.yaml', issues);
+  if (gates) issues.push(...validateGateCatalog(gates));
 
   if (roles && risks) issues.push(...validatePolicyObjects(roles, risks));
 

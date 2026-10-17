@@ -1,22 +1,11 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { delimiter, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createBuiltinAdapters, spawnIsolated, terminateGroup, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
-
-// /proc/<pid>/stat: "pid (comm) state ppid pgrp ...". A killed process whose new parent
-// does not reap it (common for PID 1 in containers) stays a zombie ("Z"): it is not running.
-function stat(pid: number): { state: string; pgrp: number } | undefined {
-  const path = `/proc/${pid}/stat`;
-  if (existsSync(path)) {
-    const fields = readFileSync(path, 'utf8').slice(readFileSync(path, 'utf8').lastIndexOf(')') + 2).split(' ');
-    return { state: fields[0]!, pgrp: Number(fields[2]) };
-  }
-  try { process.kill(pid, 0); return { state: 'R', pgrp: Number.NaN }; } catch { return undefined; }
-}
-const alive = (pid: number): boolean => { const info = stat(pid); return Boolean(info && info.state !== 'Z' && info.state !== 'X'); };
+import { isRunning, processState } from '../process-state.js';
 
 describe.skipIf(process.platform === 'win32')('provider process isolation', () => {
   it('runs clients in their own process group and terminates what they leave behind', async () => {
@@ -28,11 +17,11 @@ describe.skipIf(process.platform === 'win32')('provider process isolation', () =
     await new Promise<void>((resolve) => child.once('close', () => resolve()));
     const grandchild = Number.parseInt(output.trim(), 10);
     expect(Number.isInteger(grandchild)).toBe(true);
-    expect(alive(grandchild)).toBe(true);
-    if (existsSync('/proc/self/stat')) expect(stat(grandchild)?.pgrp).toBe(child.pid);
+    expect(isRunning(grandchild)).toBe(true);
+    if (existsSync('/proc/self/stat')) expect(processState(grandchild)?.pgrp).toBe(child.pid);
     terminateGroup(child, 'SIGKILL');
-    for (let attempt = 0; attempt < 50 && alive(grandchild); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(alive(grandchild)).toBe(false);
+    for (let attempt = 0; attempt < 50 && isRunning(grandchild); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(isRunning(grandchild)).toBe(false);
   });
 
   it('reaps provider groups on a signal without overriding an embedding host\'s own handler', () => {

@@ -459,4 +459,41 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(start?.summary).toContain('--prompt=<prompt>');
     expect(start?.summary).not.toContain('approval-gated R1 run');
   });
+
+  it('never reaches ready from an advisory profile alone, and shows the resolved executable', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'cc-gate-advisory-test-'));
+    temps.push(temp);
+    const adapters = new Map<string, HarnessAdapter>([['codex', new CountingAdapter('codex', 'openai')], ['claude', new CountingAdapter('claude', 'anthropic')]]);
+    const seen: ApprovalRequest[] = [];
+    const advisory = await executeTask(resolve('.'), createTask('advisory-only gate run', 'R1', resolve('.')), {
+      execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp), isHarnessTrusted: () => true, approver: decideWith(() => true, seen),
+      gateProfiles: ['terraform-plan'], gateExecutor: () => ({ status: 0, stdout: '', stderr: '' }),
+    });
+    // Whether terraform is installed or not, the advisory profile alone must leave a blocking failure.
+    expect(advisory.manifest.gates.some((gate) => gate.status === 'failed')).toBe(true);
+    expect(advisory.manifest.mergeDecision?.decision).not.toBe('ready');
+    const detected = await executeTask(resolve('.'), createTask('detected gate run', 'R1', resolve('.')), {
+      execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(join(temp, 'second')), isHarnessTrusted: () => true, approver: decideWith(() => true, seen),
+      gateExecutor: () => ({ status: 0, stdout: '', stderr: '' }),
+    });
+    expect(detected.manifest.mergeDecision?.decision).toBe('ready');
+    const gateRequest = seen.find((request) => request.recipient === 'local:deterministic-gates');
+    expect(gateRequest?.summary).toMatch(/ \[[^\]]*[\\/][^\]]+\]/);
+    expect(gateRequest?.summary).toContain('not bound by this approval');
+  });
+
+  it('runs the gate profiles a person chose and fails closed on an unknown one', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'cc-gate-selection-test-'));
+    temps.push(temp);
+    const adapters = new Map<string, HarnessAdapter>([['codex', new CountingAdapter('codex', 'openai')], ['claude', new CountingAdapter('claude', 'anthropic')]]);
+    const gateCalls: string[] = [];
+    const outcome = await executeTask(resolve('.'), createTask('unknown gate profile run', 'R1', resolve('.')), {
+      execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp), isHarnessTrusted: () => true, approver: approveAll,
+      gateProfiles: ['no-such-profile'], gateExecutor: (_cwd, command) => { gateCalls.push(command); return { status: 0, stdout: '', stderr: '' }; },
+    });
+    expect(gateCalls).toEqual([]);
+    expect(outcome.manifest.results.at(-1)).toMatchObject({ role: 'validator', status: 'failed' });
+    expect(outcome.manifest.results.at(-1)?.blockers[0]).toContain('Unknown gate profile: no-such-profile');
+    expect(outcome.manifest.mergeDecision?.decision).toBe('changes_required');
+  });
 });
