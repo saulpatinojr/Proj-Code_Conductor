@@ -8,9 +8,14 @@ import { existsSync, readFileSync } from 'node:fs';
  */
 export function processState(pid: number): { state: string; pgrp: number } | undefined {
   let text: string;
-  try { text = readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch {
-    // With procfs, a missing entry means the process is gone; without it, ask the kernel.
-    if (existsSync('/proc/self/stat')) return undefined;
+  try { text = readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch (error) {
+    // With procfs, only a missing entry (ENOENT, or ESRCH mid-exit) means the process is
+    // gone; anything else, such as EACCES under hidepid, is an error, not "not running".
+    if (existsSync('/proc/self/stat')) {
+      if (['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) return undefined;
+      throw error;
+    }
+    // Without procfs, ask the kernel.
     try { process.kill(pid, 0); return { state: 'R', pgrp: Number.NaN }; } catch { return undefined; }
   }
   const fields = text.slice(text.lastIndexOf(')') + 2).split(' ');

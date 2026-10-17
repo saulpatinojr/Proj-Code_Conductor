@@ -38,18 +38,24 @@ describe('bounded isolated runs', () => {
     const root = scratch();
     const processes = pathToFileURL(resolve('packages/core/dist/processes.js')).href;
     // The "parent" starts a long gate, then is interrupted; nothing else handles SIGTERM.
+    // The gate renames its pid file into place, so once it exists it is complete.
     const parentScript = `import { runIsolated } from ${JSON.stringify(processes)};
-void runIsolated(process.execPath, ['-e', "require('node:fs').writeFileSync('gate.pid', String(process.pid)); setInterval(() => {}, 1000)"], { cwd: ${JSON.stringify(root)}, timeoutMs: 60000, maxBytes: 1024 });
+void runIsolated(process.execPath, ['-e', "const fs = require('node:fs'); fs.writeFileSync('gate.pid.tmp', String(process.pid)); fs.renameSync('gate.pid.tmp', 'gate.pid'); setInterval(() => {}, 1000)"], { cwd: ${JSON.stringify(root)}, timeoutMs: 60000, maxBytes: 1024 });
 setInterval(() => {}, 1000);`;
     const parent = spawn(process.execPath, ['--input-type=module', '-e', parentScript], { stdio: 'ignore' });
     const pidFile = join(root, 'gate.pid');
     for (let attempt = 0; attempt < 200 && !existsSync(pidFile); attempt += 1) await new Promise((done) => setTimeout(done, 25));
     const gate = Number(readFileSync(pidFile, 'utf8'));
-    expect(isRunning(gate)).toBe(true);
-    const exited = new Promise<NodeJS.Signals | null>((done) => parent.once('exit', (_code, signal) => done(signal)));
-    parent.kill('SIGTERM');
-    expect(await exited).toBe('SIGTERM');
-    for (let attempt = 0; attempt < 100 && isRunning(gate); attempt += 1) await new Promise((done) => setTimeout(done, 20));
-    expect(isRunning(gate)).toBe(false);
+    try {
+      expect(isRunning(gate)).toBe(true);
+      const exited = new Promise<NodeJS.Signals | null>((done) => parent.once('exit', (_code, signal) => done(signal)));
+      parent.kill('SIGTERM');
+      expect(await exited).toBe('SIGTERM');
+      for (let attempt = 0; attempt < 100 && isRunning(gate); attempt += 1) await new Promise((done) => setTimeout(done, 20));
+      expect(isRunning(gate)).toBe(false);
+    } finally {
+      // If an assertion failed, the gate's group may still run: never leave it behind.
+      for (const pid of [-gate, parent.pid ?? 0]) { try { if (pid) process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+    }
   }, 20_000);
 });

@@ -95,3 +95,4 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
   - Git can report the worktree layout. The check fails closed when it cannot, as with Git older than 2.31.
 
   Git subprocesses, and the test suite, also drop Git's repository-local environment variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the rest of `git rev-parse --local-env-vars`). Otherwise, a run launched from a git hook or a dotfiles shell could be redirected onto a person's own checkout or index. Fixes #48.
+- Gate shapes: a `node` gate script under a folder whose name ends in a dot is refused, because Windows drops the dot and `node_modules.` can name `node_modules` there. A malformed gate catalog entry (not a mapping, or `gates` not a list) is reported by `ccon validate` instead of crashing it.

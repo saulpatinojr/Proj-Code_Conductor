@@ -188,7 +188,8 @@ export function validateCapabilities(capabilities: CapabilityConfig): Validation
   return issues;
 }
 
-type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?: unknown; gates?: Array<{ id?: unknown; command?: unknown; args?: unknown; requires?: unknown }> }> };
+type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?: unknown; gates?: unknown }> };
+type GateEntry = { id?: unknown; command?: unknown; args?: unknown };
 
 // Gates validate; they never change infrastructure, state or credentials. Every gate tool
 // has a fixed shape, checked positively: a command or argument this does not describe is
@@ -202,11 +203,12 @@ function repositoryRelative(path: string): boolean {
 /**
  * A script the repository itself holds: no folder of installed dependencies (whose command
  * line programs could load code from anywhere, or download and run packages) and no hidden
- * folder (`.yarn/releases`, `.git`, tool caches).
+ * folder (`.yarn/releases`, `.git`, tool caches). A segment ending in a dot is refused too:
+ * Windows drops trailing dots, so `node_modules.` can name `node_modules` there.
  */
 function repositoryScript(path: string): boolean {
   return repositoryRelative(path) && /\.[cm]?js$/.test(path)
-    && !path.split(/[\\/]/).some((segment) => segment.toLowerCase() === 'node_modules' || (segment.startsWith('.') && segment !== '.'));
+    && !path.split(/[\\/]/).some((segment) => segment !== '.' && (segment.toLowerCase() === 'node_modules' || segment.startsWith('.') || segment.endsWith('.')));
 }
 // Terraform and OpenTofu: one optional `-chdir=<repository subfolder>`, then a read-only
 // subcommand with only these flags (Go's flag parser stops at the first other argument,
@@ -274,9 +276,13 @@ export function validateGateCatalog(catalog: GateCatalog): ValidationIssue[] {
     const path = `config/gates.yaml#profiles.${name}`;
     if (profile.selection !== undefined && profile.selection !== 'detected' && profile.selection !== 'explicit') issues.push({ level: 'error', code: 'gates.selection', path, message: `Profile ${name} selection must be detected or explicit.` });
     if (profile.replaces !== undefined && (!Array.isArray(profile.replaces) || profile.replaces.some((item) => typeof item !== 'string' || !names.has(item)))) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles.` });
-    for (const gate of profile.gates ?? []) {
-      const problem = gateCommandProblem(gate.command, gate.args ?? []);
-      if (problem) issues.push({ level: 'error', code: problem.code, path, message: `Gate ${String(gate.id)} is not allowed: ${problem.message}.` });
+    if (profile.gates !== undefined && !Array.isArray(profile.gates)) { issues.push({ level: 'error', code: 'gates.command', path, message: `Profile ${name} gates must be a list.` }); continue; }
+    for (const gate of (profile.gates ?? []) as unknown[]) {
+      // A malformed entry is reported like any other gate problem, never thrown.
+      if (typeof gate !== 'object' || gate === null || Array.isArray(gate)) { issues.push({ level: 'error', code: 'gates.command', path, message: `Profile ${name} has a gate that is not a mapping.` }); continue; }
+      const { id, command, args } = gate as GateEntry;
+      const problem = gateCommandProblem(command, args ?? []);
+      if (problem) issues.push({ level: 'error', code: problem.code, path, message: `Gate ${String(id)} is not allowed: ${problem.message}.` });
     }
   }
   return issues;

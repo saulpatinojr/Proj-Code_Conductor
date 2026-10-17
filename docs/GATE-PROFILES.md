@@ -89,7 +89,7 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   | Tool | Allowed |
   |---|---|
   | `npm`, `pnpm`, `yarn` | `test`, or `run <script>`, with nothing else (not `run env`, the package manager's own command) |
-  | `node` | a script file the repository holds as the first argument (relative, no `..`, nothing under `node_modules` or a hidden folder such as `.yarn`); no options or inline code |
+  | `node` | a script file the repository holds as the first argument (relative, no `..`, nothing under `node_modules`, a hidden folder such as `.yarn`, or a folder whose name ends in a dot, which Windows drops); no options or inline code |
   | `terraform`, `tofu` | at most one `-chdir=<repository subfolder>`, then `fmt` (only with `-check`; `-recursive`, `-diff`, `-no-color`), `validate` (`-no-color`, `-json`), `plan` (needs `-input=false` and `-lock=false`; may add `-no-color`, `-refresh=false`, `-detailed-exitcode`, `-compact-warnings`) or `version` (`-json`); no paths, no `-out` or `-generate-config-out`, no other flags |
   | `ansible-lint` | `--offline` (required: without it, ansible-lint installs what `requirements.yml` names), then `--nocolor`, `--parseable`, `-p`, `-q`, `--strict`; never `--fix` |
 
