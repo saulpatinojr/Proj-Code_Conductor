@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
-import type { RiskClass, Stance } from '@code-conductor/schemas';
+import { validateContract, type ContractValidationResult, type RiskClass, type Stance } from '@code-conductor/schemas';
 
 export interface ValidationIssue {
   level: 'error' | 'warning';
@@ -188,8 +188,8 @@ export function validateCapabilities(capabilities: CapabilityConfig): Validation
   return issues;
 }
 
-type GateEntry = { id?: unknown; command?: unknown; args?: unknown };
-const isMapping = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+/** The parts of a catalog that passed the GateCatalog schema that the semantic checks read. */
+type GateCatalog = { profiles: Record<string, { replaces?: string[]; detect?: { all_files?: string[]; any_file?: string[]; any_glob?: string[] }; gates: Array<{ id: string; command: string; args?: string[] }> }> };
 
 // Gates validate; they never change infrastructure, state or credentials. Every gate tool
 // has a fixed shape, checked positively: a command or argument this does not describe is
@@ -269,28 +269,48 @@ export function gateCommandProblem(command: unknown, args: unknown = []): { code
   return undefined;
 }
 
+type SchemaError = ContractValidationResult['errors'][number];
+
+/** A GateCatalog schema error as an issue at the exact key, for example `config/gates.yaml#profiles.node.gates.0.timeout`. */
+function catalogIssue(error: SchemaError): ValidationIssue {
+  const at = error.instancePath.split('/').slice(1).map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'));
+  const params = error.params as Record<string, unknown>;
+  const key = typeof params.additionalProperty === 'string' ? params.additionalProperty : error.propertyName;
+  const segments = key === undefined ? at : [...at, key];
+  const name = segments.join('.') || 'The catalog';
+  const allowed = Array.isArray(params.allowedValues) ? params.allowedValues : 'allowedValue' in params ? [params.allowedValue] : undefined;
+  const message = error.keyword === 'additionalProperties' ? `${name} is not a key the gate catalog defines`
+    : error.keyword === 'required' ? `${at.join('.') || 'The catalog'} needs ${String(params.missingProperty)}`
+    : error.schemaPath.endsWith('/PlainName/pattern') ? `${name} must be a plain name: letters, digits, '.', '_' or '-', starting with a letter or digit`
+    : allowed ? `${name} must be ${allowed.map(String).join(' or ')}`
+    : ['minItems', 'minProperties', 'minLength'].includes(error.keyword) ? `${name} must not be empty`
+    : `${name} ${error.message ?? 'is invalid'}`;
+  return { level: 'error', code: 'gates.catalog', path: `config/gates.yaml${segments.length ? `#${segments.join('.')}` : ''}`, message: `${message}.` };
+}
+
 /**
- * Problems in a parsed gate catalog. Its structure comes from YAML, so each level (the
- * document, `profiles`, each profile, its `gates` list, each gate) is checked before it is
- * read: a malformed one is reported, never thrown, and never passes. Leaf fields such as
- * `detect` and `requires` are not shape-checked here.
+ * Problems in a parsed gate catalog. Its shape is checked first, against the GateCatalog
+ * JSON Schema (packages/schemas): every key, type and name, so a misspelt key such as
+ * `timeout` is reported instead of ignored, and nothing the planner reads can make it
+ * throw. Then what a schema cannot say: replaced profiles must exist, detection must name
+ * files, and every gate command must fit its tool's shape.
  */
 export function validateGateCatalog(catalog: unknown): ValidationIssue[] {
-  const profiles = isMapping(catalog) ? catalog.profiles : undefined;
-  if (!isMapping(profiles)) return [{ level: 'error', code: 'gates.catalog', path: 'config/gates.yaml#profiles', message: 'profiles must map each profile name to a profile.' }];
-  const issues: ValidationIssue[] = [];
+  const shape = validateContract('GateCatalog', catalog);
+  // Ajv reports a bad property name twice: the name's own error, then a summary.
+  if (!shape.ok) return shape.errors.filter((error) => error.keyword !== 'propertyNames').map(catalogIssue);
+  const { profiles } = catalog as GateCatalog;
   const names = new Set(Object.keys(profiles));
+  const issues: ValidationIssue[] = [];
   for (const [name, profile] of Object.entries(profiles)) {
     const path = `config/gates.yaml#profiles.${name}`;
-    if (!isMapping(profile)) { issues.push({ level: 'error', code: 'gates.catalog', path, message: `Profile ${name} must be a mapping with a gates list.` }); continue; }
-    if (profile.selection !== undefined && profile.selection !== 'detected' && profile.selection !== 'explicit') issues.push({ level: 'error', code: 'gates.selection', path, message: `Profile ${name} selection must be detected or explicit.` });
-    if (profile.replaces !== undefined && (!Array.isArray(profile.replaces) || profile.replaces.some((item) => typeof item !== 'string' || !names.has(item)))) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles.` });
-    if (!Array.isArray(profile.gates)) { issues.push({ level: 'error', code: 'gates.catalog', path, message: `Profile ${name} gates must be a list.` }); continue; }
-    for (const gate of profile.gates as unknown[]) {
-      if (!isMapping(gate)) { issues.push({ level: 'error', code: 'gates.catalog', path, message: `Profile ${name} has a gate that is not a mapping.` }); continue; }
-      const { id, command, args } = gate as GateEntry;
-      const problem = gateCommandProblem(command, args ?? []);
-      if (problem) issues.push({ level: 'error', code: problem.code, path, message: `Gate ${String(id)} is not allowed: ${problem.message}.` });
+    const unknown = (profile.replaces ?? []).filter((item) => !names.has(item));
+    if (unknown.length) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles: ${unknown.join(', ')}.` });
+    // Detection selects a profile only when a file list matches; a package name alone never does.
+    if (profile.detect && !profile.detect.all_files && !profile.detect.any_file && !profile.detect.any_glob) issues.push({ level: 'error', code: 'gates.catalog', path: `${path}.detect`, message: `Profile ${name} detect needs all_files, any_file or any_glob; package_name alone never selects it.` });
+    for (const gate of profile.gates) {
+      const problem = gateCommandProblem(gate.command, gate.args ?? []);
+      if (problem) issues.push({ level: 'error', code: problem.code, path, message: `Gate ${gate.id} is not allowed: ${problem.message}.` });
     }
   }
   return issues;

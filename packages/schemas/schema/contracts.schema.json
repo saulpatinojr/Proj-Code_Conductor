@@ -93,6 +93,38 @@
     "RunManifest": {
       "type": "object", "additionalProperties": false, "required": ["runId", "task", "assignments", "results", "gates"],
       "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "worktrees": { "type": "array", "items": { "$ref": "#/$defs/WorktreeRecord" } }, "handoffs": { "type": "array", "items": { "$ref": "#/$defs/HandoffReference" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
+    },
+    "PlainName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "NonEmptyStrings": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "GateCatalog": {
+      "type": "object", "additionalProperties": false, "required": ["version", "profiles"],
+      "properties": {
+        "version": { "const": 1 }, "default_timeout_ms": { "type": "integer", "minimum": 1 },
+        "profiles": { "type": "object", "propertyNames": { "$ref": "#/$defs/PlainName" }, "additionalProperties": { "$ref": "#/$defs/GateProfile" } }
+      }
+    },
+    "GateProfile": {
+      "type": "object", "additionalProperties": false, "required": ["gates"],
+      "properties": {
+        "selection": { "enum": ["detected", "explicit"] }, "replaces": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/PlainName" } },
+        "detect": {
+          "type": "object", "additionalProperties": false, "minProperties": 1,
+          "properties": { "package_name": { "type": "string", "minLength": 1 }, "all_files": { "$ref": "#/$defs/NonEmptyStrings" }, "any_file": { "$ref": "#/$defs/NonEmptyStrings" }, "any_glob": { "$ref": "#/$defs/NonEmptyStrings" } }
+        },
+        "gates": { "type": "array", "items": { "$ref": "#/$defs/GateDefinition" } }
+      }
+    },
+    "GateDefinition": {
+      "type": "object", "additionalProperties": false, "required": ["id", "command"],
+      "properties": {
+        "id": { "$ref": "#/$defs/PlainName" }, "command": { "type": "string", "minLength": 1 }, "args": { "type": "array", "items": { "type": "string" } },
+        "blocking": { "type": "boolean" }, "timeout_ms": { "type": "integer", "minimum": 1 },
+        "requires": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "commands": { "$ref": "#/$defs/NonEmptyStrings" }, "paths": { "$ref": "#/$defs/NonEmptyStrings" }, "any_paths": { "$ref": "#/$defs/NonEmptyStrings" } }
+        },
+        "remediation": { "type": "string", "minLength": 1 }, "disclosure": { "type": "string", "minLength": 1 }
+      }
     }
   }
 }
