@@ -19,8 +19,8 @@ permissions:
 
 concurrency:
   # A newer push to a pull request cancels that pull request's superseded run.
-  # Every other event (each push to main, the schedule, a manual run) gets a
-  # group of its own, so no commit on main is left unanalyzed: a shared group
+  # Every other event (each push to main, the scheduled run) gets a group of
+  # its own, so no commit on main is left unanalyzed: by default a shared group
   # holds one pending run and cancels it when the next one queues, whatever
   # cancel-in-progress says.
   group: codeql-${{ github.event.pull_request.number || github.run_id }}
