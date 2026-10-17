@@ -304,10 +304,12 @@ describe('Git processes and pushes (#35 review)', () => {
     expect(redactUrl('git@github.com:octo/widgets.git')).toBe('[redacted]@github.com:octo/widgets.git');
     // Parses as an opaque URL with scheme `user:`, so it has no user fields to clear.
     expect(redactUrl('user:secret@github.com:octo/widgets.git')).toBe('[redacted]@github.com:octo/widgets.git');
-    // A line break hides neither a query nor what comes before the last `@`.
-    expect(redactUrl('user:secret@host:path?access_token=abc\nrest')).toBe('[redacted]@host:path');
-    expect(redactUrl('x\nuser:secret@host:path')).toBe('[redacted]@host:path');
-    // Quadratic for the `[?#].*$` replace this replaces (about 12 s at this size).
-    expect(redactUrl(`${'?'.repeat(100_000)}\n`)).toBe('');
+    // One that cannot be parsed and spans lines is not shown: a line break could hide a
+    // query, a credential before a later `@`, or text after an `@` inside a query.
+    for (const url of ['user:secret@host:path?access_token=abc\nrest', 'x\nuser:secret@host:path', 'git@github.com:octo/widgets.git\n?token=abc@SECRET', 'git@github.com:octo/widgets.git\r#frag@SECRET', 'git@github.com:octo/widgets.git\u2028?token=abc@SECRET']) {
+      expect(redactUrl(url), JSON.stringify(url)).toBe('[redacted]');
+    }
+    // Quadratic for the query replace without that rule (about 12 s at this size).
+    expect(redactUrl(`${'?'.repeat(100_000)}\n`)).toBe('[redacted]');
   });
 });

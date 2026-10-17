@@ -615,7 +615,8 @@ export function resolveCommit(path: string, ref: string): string {
 /**
  * A remote URL for display: no user name, password, token, query or fragment. A URL
  * that cannot be parsed keeps nothing before its last `@`, so nothing that might be a
- * credential is shown. Credential-looking strings anywhere else are redacted too.
+ * credential is shown, and one that also spans lines is not shown at all. Credential-
+ * looking strings anywhere else are redacted too.
  */
 export function redactUrl(url: string): string {
   let text: string;
@@ -630,11 +631,10 @@ export function redactUrl(url: string): string {
     parsed.hash = '';
     text = parsed.toString();
   } catch {
-    // Up to the last `@` on any line (dotAll), then nothing from the first `?` or `#`: a
-    // `[?#].*$` replace misses a query followed by a line break, and is quadratic.
-    text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/is, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`);
-    const query = text.search(/[?#]/);
-    if (query >= 0) text = text.slice(0, query);
+    // A line break would hide a query from the `$` below, or an earlier line's credential
+    // from the `@` strip, and makes that replace quadratic: show nothing.
+    if (/[\n\r\u2028\u2029]/.test(url)) return '[redacted]';
+    text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`).replace(/[?#].*$/, '');
   }
   return redactSecrets(text).text;
 }
