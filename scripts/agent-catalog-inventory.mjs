@@ -14,14 +14,16 @@ function normalizedText(text) {
   return text
     .replace(/\r\n?/g, '\n')
     .split('\n')
-    .map((line) => line.replace(/[ \t]+$/g, ''))
+    // The lookbehind starts a match only where trailing blanks begin (linear, not quadratic).
+    .map((line) => line.replace(/(?<![ \t])[ \t]+$/g, ''))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 function firstHeading(text) {
-  const match = text.match(/^#\s+(.+?)\s*$/m);
+  // The rest of the line, trimmed below: `(.+?)\s*$` scanned trailing blanks once per character.
+  const match = text.match(/^#\s+(.+)/m);
   return match?.[1]?.trim();
 }
 

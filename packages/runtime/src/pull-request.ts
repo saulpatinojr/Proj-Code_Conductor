@@ -65,7 +65,7 @@ export function githubRepository(url: string): string | undefined {
   try {
     const parsed = new URL(url);
     if (!['https:', 'ssh:'].includes(parsed.protocol)) return undefined;
-    const parts = parsed.pathname.replace(/^\/+|\/+$/g, '').replace(/\.git$/, '').split('/');
+    const parts = parsed.pathname.replace(/^\/+|(?<!\/)\/+$/g, '').replace(/\.git$/, '').split('/');
     return parts.length === 2 && parts.every((part) => /^[\w.-]+$/.test(part)) ? `${parsed.hostname}/${parts[0]}/${parts[1]}` : undefined;
   } catch { return undefined; }
 }

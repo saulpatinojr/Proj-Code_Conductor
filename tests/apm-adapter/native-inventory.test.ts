@@ -56,6 +56,19 @@ describe('provider-native inventory', () => {
     expect(inventory.unmanagedProjectPaths).toEqual(['.claude/agents/handmade.md']);
   });
 
+  it('reads front matter names line by line, in linear time', () => {
+    const repo = scratch();
+    write(join(repo, '.claude/agents/quoted.md'), '---\nname: "Quoted Agent"\ndescription: d\n---\n');
+    // An empty name falls back to the filename instead of taking the next line as the name.
+    write(join(repo, '.claude/agents/empty.md'), '---\nname:\ndescription: d\n---\n');
+    write(join(repo, '.claude/agents/comment.md'), '---\nname: guessed # note\ndescription: d\n---\n');
+    // Spaces then `#`: cubic for the regular expression this replaces (about 27 s at this
+    // size, against milliseconds), so a regression fails by the timeout.
+    write(join(repo, '.claude/agents/spaces.md'), `---\nname:${' '.repeat(3000)}#\ndescription: d\n---\n`);
+    const names = inventoryNativeCustomizations(repo, scratch()).entries.map((entry) => entry.name).sort();
+    expect(names).toEqual(['Quoted Agent', 'comment', 'empty', 'spaces']);
+  });
+
   it('never follows symlinks out of the scanned directories', () => {
     const repo = scratch();
     const outside = scratch();

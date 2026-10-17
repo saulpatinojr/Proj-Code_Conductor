@@ -26,11 +26,13 @@ export function safeGitRefSegment(value: string): string {
     .replace(/[^A-Za-z0-9._-]/g, '-')
     .replace(/\.\.+/g, '-')
     .replace(/-+/g, '-')
-    .replace(/^[.-]+|[.-]+$/g, '')
+    // A trailing match starts only where a run begins (the lookbehind), so a long run
+    // inside the value is scanned once, not once per character.
+    .replace(/^[.-]+|(?<![.-])[.-]+$/g, '')
     .slice(0, 80)
-    .replace(/[.-]+$/g, '');
+    .replace(/(?<![.-])[.-]+$/g, '');
   if (segment.toLowerCase().endsWith('.lock')) segment = `${segment.slice(0, -5)}-lock`;
-  segment = segment.replace(/\.\.+/g, '-').replace(/^[.-]+|[.-]+$/g, '');
+  segment = segment.replace(/\.\.+/g, '-').replace(/^[.-]+|(?<![.-])[.-]+$/g, '');
   return segment || 'agent';
 }
 
@@ -613,7 +615,8 @@ export function resolveCommit(path: string, ref: string): string {
 /**
  * A remote URL for display: no user name, password, token, query or fragment. A URL
  * that cannot be parsed keeps nothing before its last `@`, so nothing that might be a
- * credential is shown. Credential-looking strings anywhere else are redacted too.
+ * credential is shown, and one that also spans lines is not shown at all. Credential-
+ * looking strings anywhere else are redacted too.
  */
 export function redactUrl(url: string): string {
   let text: string;
@@ -628,6 +631,9 @@ export function redactUrl(url: string): string {
     parsed.hash = '';
     text = parsed.toString();
   } catch {
+    // A line break would hide a query from the `$` below, or an earlier line's credential
+    // from the `@` strip, and makes that replace quadratic: show nothing.
+    if (/[\n\r\u2028\u2029]/.test(url)) return '[redacted]';
     text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`).replace(/[?#].*$/, '');
   }
   return redactSecrets(text).text;

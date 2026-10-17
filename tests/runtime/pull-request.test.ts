@@ -68,6 +68,9 @@ describe('draft pull requests (#35)', () => {
     expect(githubRepository('ssh://git@ghe.example.com/octo/widgets')).toBe('ghe.example.com/octo/widgets');
     expect(githubRepository('/srv/git/widgets.git')).toBeUndefined();
     expect(githubRepository('https://github.com/octo/widgets/extra')).toBeUndefined();
+    expect(githubRepository('https://github.com//octo/widgets.git/')).toBe('github.com/octo/widgets');
+    // A long run of slashes inside the path: quadratic for the trim this replaces.
+    expect(githubRepository(`https://github.com/octo${'/'.repeat(100_000)}widgets`)).toBeUndefined();
   });
 
   it('previews the exact push and pull request without changing anything', () => {
