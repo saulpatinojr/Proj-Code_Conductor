@@ -34,45 +34,21 @@ jobs:
       security-events: write
       contents: read
       actions: read
+    # Every language is analyzed on every pull request. Code scanning compares each
+    # analysis category with the base branch's, so a category skipped on a pull request
+    # leaves its CodeQL check neutral ("configuration not found") and the pull request
+    # without a comparison for that language.
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - language: javascript-typescript
-            filter: '\.(js|jsx|ts|tsx|mjs|cjs)$'
-          - language: actions
-            filter: '^\.github/(workflows|actions)/'
+        language: [javascript-typescript, actions]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Detect language changes
-        id: changes
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "relevant=true" >> "$GITHUB_OUTPUT"
-            echo "non-pull_request event — analysing everything"
-            exit 0
-          fi
-          changed="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD)" || {
-            echo "relevant=true" >> "$GITHUB_OUTPUT"
-            echo "could not compute the diff — analysing rather than guessing"
-            exit 0
-          }
-          if grep -qE '${{ matrix.filter }}|^\.github/workflows/codeql\.yml$|^\.github/codeql/' <<<"$changed"; then
-            echo "relevant=true" >> "$GITHUB_OUTPUT"
-            echo "${{ matrix.language }} files changed — analysing"
-          else
-            echo "relevant=false" >> "$GITHUB_OUTPUT"
-            echo "no ${{ matrix.language }} change — skipping analysis, still reporting this context"
-          fi
-
       - name: Initialize CodeQL
-        if: steps.changes.outputs.relevant == 'true'
         uses: github/codeql-action/init@4c0873ef8656cb3c50b3f42fb63bc1ade0cfa827 # v4
         with:
           languages: ${{ matrix.language }}
@@ -80,7 +56,6 @@ jobs:
           queries: security-and-quality
 
       - name: Perform CodeQL analysis
-        if: steps.changes.outputs.relevant == 'true'
         uses: github/codeql-action/analyze@4c0873ef8656cb3c50b3f42fb63bc1ade0cfa827 # v4
         with:
           category: /language:${{ matrix.language }}
