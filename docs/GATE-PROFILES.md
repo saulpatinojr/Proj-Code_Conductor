@@ -108,11 +108,13 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   gates, and `ccon validate` rejects them in the catalog (`gates.tool`, `gates.shape`,
   `gates.infrastructure_change`, `gates.auto_approve`, `gates.command`). It also rejects
   a catalog that does not fit the `GateCatalog` schema (`gates.catalog`, at the exact
-  key): an unknown or misspelt key, a wrong type, a `version` other than 1, an empty file
-  list in `detect`, a profile without a `gates` list, or a profile or gate name that is
-  not plain (letters, digits, `.`, `_`, `-`). A `detect` holding only `package_name`
-  never selects its profile (`gates.catalog`), and `replaces` must name existing
-  profiles (`gates.replaces`). Production apply belongs to a native pipeline
+  key): an unknown or misspelt key; a wrong type; a `version` other than 1; a timeout
+  that is not a whole number of milliseconds from 1 to 2147483647 (Node runs a longer
+  timer, or `.inf`, after 1 ms); an empty list, string or `detect`; a profile without a
+  `gates` list; a repeated name in `replaces`; or a profile or gate name that is not
+  plain (letters, digits, `.`, `_` or `-`, starting with a letter or digit). A `detect`
+  holding only `package_name` never selects its profile (`gates.catalog`), and
+  `replaces` must name other, existing profiles (`gates.replaces`). Production apply belongs to a native pipeline
   with environment protection and its own approval (#32 deployment boundary, C02
   `deployment` action).
 

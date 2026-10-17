@@ -270,17 +270,19 @@ export function gateCommandProblem(command: unknown, args: unknown = []): { code
 }
 
 type SchemaError = ContractValidationResult['errors'][number];
+/** A key as shown in an issue path: quoted unless plain, so a `.` or a line break in a key cannot blur or forge the output. */
+const keyLabel = (key: string): string => (/^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key));
 
 /** A GateCatalog schema error as an issue at the exact key, for example `config/gates.yaml#profiles.node.gates.0.timeout`. */
 function catalogIssue(error: SchemaError): ValidationIssue {
   const at = error.instancePath.split('/').slice(1).map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'));
   const params = error.params as Record<string, unknown>;
   const key = typeof params.additionalProperty === 'string' ? params.additionalProperty : error.propertyName;
-  const segments = key === undefined ? at : [...at, key];
+  const segments = (key === undefined ? at : [...at, key]).map(keyLabel);
   const name = segments.join('.') || 'The catalog';
   const allowed = Array.isArray(params.allowedValues) ? params.allowedValues : 'allowedValue' in params ? [params.allowedValue] : undefined;
   const message = error.keyword === 'additionalProperties' ? `${name} is not a key the gate catalog defines`
-    : error.keyword === 'required' ? `${at.join('.') || 'The catalog'} needs ${String(params.missingProperty)}`
+    : error.keyword === 'required' ? `${at.map(keyLabel).join('.') || 'The catalog'} needs ${String(params.missingProperty)}`
     : error.schemaPath.endsWith('/PlainName/pattern') ? `${name} must be a plain name: letters, digits, '.', '_' or '-', starting with a letter or digit`
     : allowed ? `${name} must be ${allowed.map(String).join(' or ')}`
     : ['minItems', 'minProperties', 'minLength'].includes(error.keyword) ? `${name} must not be empty`
@@ -296,16 +298,22 @@ function catalogIssue(error: SchemaError): ValidationIssue {
  * files, and every gate command must fit its tool's shape.
  */
 export function validateGateCatalog(catalog: unknown): ValidationIssue[] {
-  const shape = validateContract('GateCatalog', catalog);
+  let shape: ContractValidationResult;
+  try { shape = validateContract('GateCatalog', catalog); } catch (error) {
+    // Ajv recurses (uniqueItems compares nested values); input deep enough to exhaust the stack is reported.
+    return [{ level: 'error', code: 'gates.catalog', path: 'config/gates.yaml', message: `The catalog could not be checked: ${error instanceof Error ? error.message : String(error)}.` }];
+  }
   // Ajv reports a bad property name twice: the name's own error, then a summary.
   if (!shape.ok) return shape.errors.filter((error) => error.keyword !== 'propertyNames').map(catalogIssue);
   const { profiles } = catalog as GateCatalog;
   const names = new Set(Object.keys(profiles));
   const issues: ValidationIssue[] = [];
   for (const [name, profile] of Object.entries(profiles)) {
-    const path = `config/gates.yaml#profiles.${name}`;
+    const path = `config/gates.yaml#profiles.${keyLabel(name)}`;
     const unknown = (profile.replaces ?? []).filter((item) => !names.has(item));
     if (unknown.length) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles: ${unknown.join(', ')}.` });
+    // Detection drops every profile something selected replaces, so replacing itself means never selected.
+    if (profile.replaces?.includes(name)) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces itself, so it is never selected.` });
     // Detection selects a profile only when a file list matches; a package name alone never does.
     if (profile.detect && !profile.detect.all_files && !profile.detect.any_file && !profile.detect.any_glob) issues.push({ level: 'error', code: 'gates.catalog', path: `${path}.detect`, message: `Profile ${name} detect needs all_files, any_file or any_glob; package_name alone never selects it.` });
     for (const gate of profile.gates) {

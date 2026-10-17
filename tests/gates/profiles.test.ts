@@ -225,6 +225,9 @@ describe('declarative gate profiles', () => {
       [{ gates: [{ ...gate, timeout_ms: '30s' }] }, 'profiles.x.gates.0.timeout_ms'],
       [{ gates: [{ ...gate, timeout_ms: 0 }] }, 'profiles.x.gates.0.timeout_ms'],
       [{ selection: 'auto' }, 'profiles.x.selection'],
+      [{ gates: [{ ...gate, requires: { path: ['node_modules'] } }] }, 'profiles.x.gates.0.requires.path'],
+      [{ gates: [{ ...gate, command: '' }] }, 'profiles.x.gates.0.command'],
+      [{ replaces: ['y', 'y'] }, 'profiles.x.replaces'],
     ] as Array<[Record<string, unknown>, string]>) {
       expect(issues(catalog(profile)).map((issue) => issue.path), JSON.stringify(profile)).toEqual([`config/gates.yaml#${path}`]);
     }
@@ -232,12 +235,33 @@ describe('declarative gate profiles', () => {
     expect(issues(catalog({ detect: { all_files: [] } }))[0]?.message).toBe('profiles.x.detect.all_files must not be empty.');
     // A package name alone never selects a profile.
     expect(issues(catalog({ detect: { package_name: 'p' } }))).toEqual([{ code: 'gates.catalog', path: 'config/gates.yaml#profiles.x.detect', message: 'Profile x detect needs all_files, any_file or any_glob; package_name alone never selects it.' }]);
+    expect(issues(catalog({ selection: 'auto' }))[0]?.message).toBe('profiles.x.selection must be detected or explicit.');
     expect(issues(catalog({}, { version: 2 }))[0]?.message).toBe('version must be 1.');
+    expect(issues(catalog({}, { extra: true }))[0]?.path).toBe('config/gates.yaml#extra');
+    // Node runs any longer timer, Infinity included, after 1 ms, so timeouts stay within its range.
+    for (const timeout of [Infinity, 2147483648, 0]) {
+      expect(issues(catalog({ gates: [{ ...gate, timeout_ms: timeout }] })).map((issue) => issue.path), String(timeout)).toEqual(['config/gates.yaml#profiles.x.gates.0.timeout_ms']);
+      expect(issues(catalog({}, { default_timeout_ms: timeout })).map((issue) => issue.path), String(timeout)).toEqual(['config/gates.yaml#default_timeout_ms']);
+    }
+    expect(issues(catalog({ gates: [{ ...gate, timeout_ms: 2147483647 }] }, { default_timeout_ms: 1 }))).toEqual([]);
     expect(issues({ profiles: {} }).map((issue) => issue.message)).toEqual(['The catalog needs version.']);
     // Names reach `--gate-profiles a,b` and run records, so they stay plain; one issue per bad name.
     const badNames = issues({ version: 1, profiles: { 'a,b': { gates: [{ ...gate, id: 'has space' }] } } });
-    expect(badNames.map((issue) => issue.path)).toEqual(['config/gates.yaml#profiles.a,b', 'config/gates.yaml#profiles.a,b.gates.0.id']);
-    expect(badNames[0]?.message).toBe("profiles.a,b must be a plain name: letters, digits, '.', '_' or '-', starting with a letter or digit.");
+    expect(badNames.map((issue) => issue.path)).toEqual(['config/gates.yaml#profiles."a,b"', 'config/gates.yaml#profiles."a,b".gates.0.id']);
+    expect(badNames[0]?.message).toBe("profiles.\"a,b\" must be a plain name: letters, digits, '.', '_' or '-', starting with a letter or digit.");
+    // Keys are unescaped from JSON pointers in RFC 6901 order (~1 before ~0), and shown quoted unless plain,
+    // so a `.` cannot blur the path and a line break cannot forge another output line.
+    expect(issues({ version: 1, profiles: { 'a/b~1c': { gates: 5 } } }).map((issue) => issue.path)).toEqual(['config/gates.yaml#profiles."a/b~1c"', 'config/gates.yaml#profiles."a/b~1c".gates']);
+    const forged = issues(catalog({ gates: [{ ...gate, 'bad\nERROR fake': 1 }] }))[0];
+    expect(forged?.path).toBe('config/gates.yaml#profiles.x.gates.0."bad\\nERROR fake"');
+    expect(forged?.message).not.toContain('\n');
+    // A profile that replaces itself is dropped by its own detection.
+    expect(issues({ version: 1, profiles: { 'a.b': { replaces: ['a.b'], gates: [] } } })).toEqual([{ code: 'gates.replaces', path: 'config/gates.yaml#profiles."a.b"', message: 'Profile a.b replaces itself, so it is never selected.' }]);
+    // Input deep enough to exhaust the validator's stack is reported, never thrown.
+    let deep: unknown[] = [];
+    let other: unknown[] = [];
+    for (let level = 0; level < 100_000; level += 1) { deep = [deep]; other = [other]; }
+    expect(issues(catalog({ replaces: [deep, other] }))[0]?.message).toMatch(/^The catalog could not be checked: /);
     expect(issues(catalog({ replaces: ['nope'] }))).toEqual([{ code: 'gates.replaces', path: 'config/gates.yaml#profiles.x', message: 'Profile x replaces unknown profiles: nope.' }]);
   });
 
