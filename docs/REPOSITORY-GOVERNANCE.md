@@ -46,8 +46,10 @@ Repository rulesets/branch protection and repository-level settings require GitH
 
 Every check below reports on every pull request into `main`, so each can be required
 without leaving pull requests pending. A path-filtered workflow never reports for other
-changes, so a required check must not use path filters. CodeQL keeps reporting and skips
-the analysis inside the job instead.
+changes, so a required check must not use path filters. CodeQL analyzes both languages
+on every pull request: code scanning compares each analysis category with the base
+branch's, and a category a pull request skips leaves its `CodeQL` check neutral
+("configuration not found").
 
 | Check name (as GitHub shows it) | Workflow |
 |---|---|

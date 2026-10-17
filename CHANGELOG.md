@@ -56,6 +56,7 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Refreshed `fast-uri` (3.1.8) and `source-map-js` (1.2.2) in the npm lockfile to clear new moderate/high advisories reported by `npm audit --audit-level=high`.
 - `code-conductor-protocol` skill now asks agents to list unverified checks in `notVerified`; projections and `apm.lock.yaml` were re-materialized with APM 0.30.0.
 - Upgraded Vitest to 5.0.0 and refreshed the committed npm lockfile.
+- CodeQL analyzes JavaScript/TypeScript and GitHub Actions on every pull request. Skipping a language the pull request did not change left code scanning without that comparison, and its `CodeQL` check neutral ("configuration not found").
 - Standardized ongoing workflow names and removed temporary/bootstrap write-back workflows after their one-time use.
 - Pinned maintained GitHub Actions to reviewed immutable commit SHAs.
 - Pinned executable Ansible and Azure MCP npm package references instead of resolving floating versions at runtime.
