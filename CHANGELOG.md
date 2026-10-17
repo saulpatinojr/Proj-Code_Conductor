@@ -58,6 +58,8 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Upgraded Vitest to 5.0.0 and refreshed the committed npm lockfile.
 - Standardized ongoing workflow names and removed temporary/bootstrap write-back workflows after their one-time use.
 - Pinned maintained GitHub Actions to reviewed immutable commit SHAs.
+- CodeQL and Release preflight now finish on every push to `main`; only a pull request's superseded run is cancelled. Both used one concurrency group per branch, so merges in quick succession cancelled the earlier commits' runs.
+- The npm lockfile records the exact `zod` 4.6.7 pin that `packages/adapters` declares, so the npm lockfile check passes again.
 - Pinned executable Ansible and Azure MCP npm package references instead of resolving floating versions at runtime.
 - Reworked deterministic gate glob matching and expanded recursive-pattern regression coverage.
 - Removed the former gate-profile directory-depth cutoff so recursive technology detection cannot silently skip deeply nested files.
@@ -79,7 +81,7 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Security
 
-- Handoff disclosure summaries count redaction markers in linear time. A packet built from what earlier agents wrote can no longer stall a run with quadratic regular-expression matching (CodeQL `js/polynomial-redos`).
+- Handoff disclosure summaries count redaction markers with an exact string search instead of a regular expression whose worst case is quadratic (CodeQL `js/polynomial-redos`). The serialized packet always puts a closing bracket after agent-written text, so the old count was already linear in practice; the count no longer depends on that layout.
 - Subscription-first billing policy and detection of API-key environment variables that could bypass intended billing paths.
 - Fail-closed structured agent-result parsing and explicit workstation trust before unattended CLI execution.
 - Structured `AgentResult` payloads are validated against the canonical JSON Schema before runtime acceptance.
