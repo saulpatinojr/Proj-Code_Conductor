@@ -318,6 +318,20 @@ export function redactSecrets(text: string): { text: string; redacted: number } 
   return { text: result, redacted };
 }
 
+const REDACTION_MARKERS = SECRET_PATTERNS.map(([kind]) => `[redacted ${kind}]`);
+/**
+ * How many of redactSecrets' markers `text` holds. Each marker is matched exactly with
+ * indexOf, not a regular expression, so the time stays linear whatever the text holds:
+ * it is often what agents wrote.
+ */
+export function countRedactions(text: string): number {
+  let count = 0;
+  for (const marker of REDACTION_MARKERS) {
+    for (let at = text.indexOf(marker); at !== -1; at = text.indexOf(marker, at + marker.length)) count += 1;
+  }
+  return count;
+}
+
 /** Content read by one scan, across all files and both sides of the comparison. */
 export const MAX_SCAN_BYTES = 64 * 1024 * 1024;
 const OBJECT_ID = /^[0-9a-f]{40,64}$/;

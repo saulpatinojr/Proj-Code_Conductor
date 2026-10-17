@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, utim
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { agentWorktreeRemovalProblem, gitControlState, gitHead, nestedRepositories, pushCommit, redactUrl, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
+import { agentWorktreeRemovalProblem, countRedactions, gitControlState, gitHead, nestedRepositories, pushCommit, redactSecrets, redactUrl, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
 import { rewriteKeepingTimes } from '../runtime/fixtures.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -89,6 +89,24 @@ describe('secret scan before commit approval', () => {
     writeFileSync(join(handle.path, 'small.txt'), 'fine\n');
     writeFileSync(join(handle.path, 'large.txt'), 'x'.repeat(4096));
     expect(treeScan(handle, 1024)).toEqual({ findings: [], unscanned: ['large.txt'] });
+  });
+});
+
+describe('redaction markers', () => {
+  it('counts exactly the markers redactSecrets writes', () => {
+    const token = ['ghp', '_', 'a'.repeat(36)].join('');
+    const { text, redacted } = redactSecrets(`one ${LEGACY}, two ${token}, again ${LEGACY}`);
+    expect(redacted).toBe(3);
+    expect(countRedactions(text)).toBe(3);
+    // Text that only looks like a marker is not one.
+    expect(countRedactions('[redacted something else] [redacted ] [redacted')).toBe(0);
+  });
+
+  it('counts in linear time, whatever an agent wrote', () => {
+    // An unclosed marker prefix repeated: quadratic for the regular expression this replaces
+    // (about 20 s at this size, against milliseconds), so a regression fails by the timeout.
+    expect(countRedactions('[redacted '.repeat(50_000))).toBe(0);
+    expect(countRedactions('[redacted AWS access key id]'.repeat(20_000))).toBe(20_000);
   });
 });
 
