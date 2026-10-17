@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
@@ -48,11 +48,21 @@ function isCodeConductorSource(root: string): boolean {
   catch { return false; }
 }
 
-function vscodeExtensions(): Set<string> {
-  if (!hasCommand('code')) return new Set();
-  const result = spawnSync('code', ['--list-extensions'], { encoding: 'utf8', shell: false, timeout: 15000 });
-  if (result.status !== 0) return new Set();
-  return new Set(result.stdout.split(/\r?\n/).map((value) => value.trim().toLowerCase()).filter(Boolean));
+// VS Code records the extensions it installed in extensions.json, in its extensions folder
+// (.vscode-server on a remote host). Reading that starts no process: on Windows `code` is
+// a batch file, which needs cmd.exe and which Code Conductor does not run. Undefined when
+// no such file was found.
+function vscodeExtensions(home = homedir()): Set<string> | undefined {
+  let found = false;
+  const ids = new Set<string>();
+  for (const folder of ['.vscode', '.vscode-insiders', '.vscode-server', '.vscode-server-insiders']) {
+    let entries: unknown;
+    try { entries = JSON.parse(readBoundedFile(join(home, folder, 'extensions', 'extensions.json'), 1048576).toString('utf8')); } catch { continue; }
+    if (!Array.isArray(entries)) continue;
+    found = true;
+    for (const entry of entries as Array<{ identifier?: { id?: unknown } } | null>) if (typeof entry?.identifier?.id === 'string') ids.add(entry.identifier.id.toLowerCase());
+  }
+  return found ? ids : undefined;
 }
 
 async function doctor(root: string): Promise<number> {
@@ -106,10 +116,10 @@ async function doctor(root: string): Promise<number> {
     ['github-copilot-chat', 'github.copilot-chat'],
     ['github-pr', 'github.vscode-pull-request-github'],
   ] as const;
-  if (hasCommand('code')) {
+  if (extensions) {
     for (const [name, id] of knownExtensions) console.log(`${extensions.has(id) ? 'OK' : 'INFO'} vscode-extension ${name}: ${id}`);
   } else {
-    console.log('INFO vscode-extension inventory unavailable: `code` CLI not found on PATH.');
+    console.log('INFO vscode-extension inventory unavailable: no VS Code extensions.json in ~/.vscode/extensions or ~/.vscode-server/extensions.');
   }
 
   for (const [name, candidates] of optionalTools) {
@@ -211,12 +221,23 @@ async function harnessSmoke(args: string[]): Promise<number> {
     const task: TaskEnvelope = { id: 'SMOKE-T', objective: mode === 'modify' ? 'Read INPUT.txt, create OUTPUT.txt containing exactly WRITE_OK followed by one newline, and do not touch anything outside this workspace.' : 'Read INPUT.txt and report its exact content without changing any file.', repository: workspace, acceptanceCriteria: [], risk: 'R0', constraints: ['temporary isolated smoke test'], createdAt: new Date().toISOString() };
     const outcome = await adapter.execute({ task, assignment, cwd: workspace, timeoutMs: 180000, prompt: `${task.objective}\nFinal line: CC_RESULT_JSON:{"status":"completed","changes":[],"tests":[],"evidence":[],"findings":[],"risks":[],"blockers":[],"recommendation":"ready"}` });
     const parsed = parseAgentResult(assignment, outcome); const changed = spawnSync('git', ['-C', workspace, 'status', '--porcelain=v1'], { encoding: 'utf8' }).stdout.trim().split(/\r?\n/).filter(Boolean);
-    const writeOk = mode === 'modify' ? (() => { try { return readFileSync(join(workspace, 'OUTPUT.txt'), 'utf8') === 'WRITE_OK\n'; } catch { return false; } })() : changed.length === 0;
+    const output = mode === 'modify' ? (() => { try { return readFileSync(join(workspace, 'OUTPUT.txt'), 'utf8'); } catch { return undefined; } })() : undefined;
+    // Modify must create exactly OUTPUT.txt and nothing else. A client on Windows may end the
+    // line with CRLF, which is the same content.
+    const writeOk = mode === 'modify'
+      ? (output === 'WRITE_OK\n' || output === 'WRITE_OK\r\n') && changed.length === 1 && changed[0] === '?? OUTPUT.txt'
+      : changed.length === 0;
     const processOk = adapter.executionSurface === 'acp'
       ? !outcome.timedOut && (outcome.exitCode === null || outcome.exitCode === 0)
       : outcome.exitCode === 0;
     const ok = processOk && parsed.status === 'completed' && writeOk;
-    if (!ok) { console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} changed=${changed.join(',') || 'none'}`); return 1; }
+    if (!ok) {
+      // Each check's own value, so a failure on a real workstation says which one failed.
+      const result = parsed.status === 'completed' ? 'completed' : `${parsed.status} (${printable(parsed.blockers[0] ?? 'no reason given', 200)})`;
+      const written = mode === 'modify' ? ` output=${output === undefined ? 'missing' : printable(JSON.stringify(output.slice(0, 40)), 80)}` : '';
+      console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} result=${result} changed=${printable(changed.join(','), 200) || 'none'}${written}`);
+      return 1;
+    }
     if (adapter.version() !== clientVersion) { console.error(`SMOKE FAIL ${harness}: the client changed during the smoke test (${printable(clientVersion ?? 'no version')} before, ${printable(adapter.version() ?? 'no version')} after); run it again.`); return 1; }
     workstation.record(harness, mode, clientVersion, `Temporary ${mode} smoke passed on ${adapter.executionSurface} without storing credentials.`, adapter.executionSurface);
     console.log(`SMOKE PASS ${harness} ${adapter.executionSurface} ${mode}`); return 0;
