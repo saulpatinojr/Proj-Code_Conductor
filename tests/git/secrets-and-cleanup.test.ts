@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { agentWorktreeRemovalProblem, countRedactions, gitControlState, gitHead, nestedRepositories, pushCommit, redactSecrets, redactUrl, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
+import { agentWorktreeRemovalProblem, controlStateChanges, countRedactions, gitControlState, gitHead, nestedRepositories, pushCommit, redactSecrets, redactUrl, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
 import { rewriteKeepingTimes } from '../runtime/fixtures.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -236,13 +236,13 @@ describe('repositories nested in an agent worktree (#35 review)', () => {
 
   it('counts a nested repository and its configuration as control state', () => {
     const { base, handle } = setup();
-    const before = gitControlState(handle.path);
+    const before = gitControlState(handle.path)!;
     nest(handle.path, true, join(base, 'unused'));
-    const nested = gitControlState(handle.path);
-    expect(nested?.worktree).not.toBe(before?.worktree);
-    expect(nested?.shared).toBe(before?.shared);
+    const nested = gitControlState(handle.path)!;
+    // The repository stands for its own sources.
+    expect(controlStateChanges(before, nested)).toEqual(['nested repository vendor-lib appeared']);
     git(join(handle.path, 'vendor-lib'), 'config', 'core.sshCommand', 'planted');
-    expect(gitControlState(handle.path)?.worktree).not.toBe(nested?.worktree);
+    expect(controlStateChanges(nested, gitControlState(handle.path)!)).toEqual([`nested repository vendor-lib: local config file:${join(realpathSync(handle.path), 'vendor-lib', '.git', 'config')} changed`]);
   });
 });
 
