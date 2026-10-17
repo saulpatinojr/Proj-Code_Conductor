@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { agentWorktreeRemovalProblem, controlStateChanges, countRedactions, gitControlState, gitHead, nestedRepositories, pushCommit, redactSecrets, redactUrl, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
+import { agentWorktreeRemovalProblem, branchCommit, commitsSince, controlStateChanges, countRedactions, gitControlState, gitHead, nestedRepositories, pushCommit, redactSecrets, redactUrl, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, workingTreeState, WorktreeManager } from '../../packages/git/src/index.js';
 import { rewriteKeepingTimes } from '../runtime/fixtures.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -311,5 +312,62 @@ describe('Git processes and pushes (#35 review)', () => {
     }
     // Quadratic for the query replace without that rule (about 12 s at this size).
     expect(redactUrl(`${'?'.repeat(100_000)}\n`)).toBe('[redacted]');
+  });
+});
+
+// Rewrites one commit's first parent in a commit-graph file (format 1, SHA-1) as an agent
+// could, and fixes the file's checksum so Git trusts it.
+function forgeCommitGraph(file: string, child: string, parent: string): void {
+  const data = readFileSync(file);
+  expect(data.subarray(0, 4).toString('latin1')).toBe('CGPH');
+  const offsets = new Map<string, number>();
+  for (let index = 0; index <= data[6]!; index += 1) offsets.set(data.subarray(8 + 12 * index, 12 + 12 * index).toString('latin1'), Number(data.readBigUInt64BE(12 + 12 * index)));
+  const lookup = offsets.get('OIDL')!;
+  const count = data.readUInt32BE(offsets.get('OIDF')! + 255 * 4);
+  const ids = Array.from({ length: count }, (_, index) => data.subarray(lookup + 20 * index, lookup + 20 * index + 20).toString('hex'));
+  data.writeUInt32BE(ids.indexOf(parent), offsets.get('CDAT')! + 36 * ids.indexOf(child) + 20);
+  createHash('sha1').update(data.subarray(0, -20)).digest().copy(data, data.length - 20);
+  // Git writes the file read-only; its owner, as an agent would be, can still replace it.
+  chmodSync(file, 0o644);
+  writeFileSync(file, data);
+}
+
+describe('agent history the person would merge (#104 review)', () => {
+  const repository = (): string => {
+    const repo = mkdtempSync(join(tmpdir(), 'cc-history-'));
+    temps.push(repo);
+    git(repo, 'init', '-q');
+    writeFileSync(join(repo, 'README.md'), 'base\n');
+    git(repo, 'add', '.'); commit(repo, 'base');
+    return repo;
+  };
+
+  it('sees the commits a forged commit-graph hides', () => {
+    const repo = repository();
+    const base = git(repo, 'rev-parse', 'HEAD');
+    writeFileSync(join(repo, 'secret.txt'), `${fake.github}\n`);
+    git(repo, 'add', '.'); commit(repo, 'hidden');
+    writeFileSync(join(repo, 'secret.txt'), 'gone\n');
+    git(repo, 'add', '.'); commit(repo, 'cover');
+    const cover = git(repo, 'rev-parse', 'HEAD');
+    writeFileSync(join(repo, 'more.txt'), 'more\n');
+    git(repo, 'add', '.'); commit(repo, 'tip');
+    git(repo, 'commit-graph', 'write', '--reachable');
+    forgeCommitGraph(join(repo, '.git', 'objects', 'info', 'commit-graph'), cover, base);
+    // Git itself now skips the commit that added the credential...
+    expect(git(repo, 'rev-list', `${base}..HEAD`).split('\n')).toHaveLength(2);
+    // ...Code Conductor's own Git does not read the graph.
+    expect(commitsSince(repo, base).commits).toHaveLength(3);
+    expect(scanHistoryForNewSecrets(repo, base).findings.map((finding) => finding.path)).toEqual(['secret.txt']);
+  });
+
+  it('looks a branch up by its exact ref, never a tag spelt like it', () => {
+    const repo = repository();
+    const head = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'branch', 'cc/T-1/builder');
+    expect(branchCommit(repo, 'cc/T-1/builder')).toBe(head);
+    git(repo, 'tag', 'refs/heads/cc/T-1/gone');
+    expect(git(repo, 'rev-parse', '--verify', 'refs/heads/cc/T-1/gone^{commit}')).toBe(head);
+    expect(branchCommit(repo, 'cc/T-1/gone')).toBeUndefined();
   });
 });
