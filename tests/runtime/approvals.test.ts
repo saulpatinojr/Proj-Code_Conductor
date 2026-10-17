@@ -670,6 +670,54 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(git(worktree.path, 'log', '-1', '--format=%s')).toBe('detached');
   });
 
+  // An agent that commits on its branch and then moves HEAD back to the base leaves a
+  // worktree that looks untouched, while the branch a person merges carries its commits.
+  class BranchLeaver extends CountingAdapter {
+    constructor(id: string, provider: string, private readonly content: string, private readonly leave: 'detach' | 'detach and delete' | 'delete the ref' = 'detach') { super(id, provider); }
+    override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+      if (request.assignment.role === 'builder') {
+        const base = git(request.cwd, 'rev-parse', 'HEAD');
+        const branch = git(request.cwd, 'branch', '--show-current');
+        writeFileSync(join(request.cwd, 'config.ts'), this.content);
+        git(request.cwd, 'add', 'config.ts');
+        git(request.cwd, '-c', 'user.name=agent', '-c', 'user.email=agent@example.invalid', 'commit', '-q', '-m', 'on the branch');
+        if (this.leave === 'delete the ref') git(request.cwd, 'update-ref', '-d', `refs/heads/${branch}`);
+        else git(request.cwd, 'checkout', '-q', '--detach', base);
+        if (this.leave === 'detach and delete') git(request.cwd, 'branch', '-q', '-D', branch);
+        return FakeAdapter.prototype.execute.call(this, request);
+      }
+      return super.execute(request);
+    }
+  }
+
+  it('names commits the agent left on its branch after moving HEAD back to the base', async () => {
+    const { outcome } = await run(approveAll, { count: 0 }, { codex: new BranchLeaver('codex', 'openai', 'export const region = 1;\n') });
+    const builder = outcome.manifest.results[0]!;
+    expect(builder.recommendation).toBe('human_required');
+    expect(builder.risks.join(' ')).toMatch(/HEAD in .+ \([0-9a-f]{12}\) is not the tip of cc\/.+ \([0-9a-f]{12}\); the agent moved one off the other/);
+    expect(builder.risks.join(' ')).toContain('The agent made 1 commit(s) itself');
+    expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+  });
+
+  it('scans commits the agent left on its branch after moving HEAD back to the base', async () => {
+    const token = `ghp_${'b'.repeat(36)}`;
+    const { outcome } = await run(approveAll, { count: 0 }, { codex: new BranchLeaver('codex', 'openai', `export const token = '${token}';\n`) });
+    const builder = outcome.manifest.results[0]!;
+    expect(builder.status).toBe('blocked');
+    expect(builder.blockers.join(' ')).toContain('add credential-looking strings (config.ts:1 GitHub token)');
+    expect(JSON.stringify(outcome.manifest)).not.toContain(token);
+  });
+
+  it.each([
+    ['detach and delete', /it has a detached HEAD checked out, not a Code Conductor agent branch matching cc\//],
+    ['delete the ref', /cc\/.+ no longer exists: the agent deleted it\. Code Conductor committed nothing/],
+  ] as const)('blocks, naming why, when the agent deleted its own branch (%s)', async (leave, reason) => {
+    const { outcome } = await run(approveAll, { count: 0 }, { codex: new BranchLeaver('codex', 'openai', 'export const region = 1;\n', leave) });
+    const builder = outcome.manifest.results[0]!;
+    expect(builder.status).toBe('blocked');
+    expect(builder.blockers.join(' ')).toMatch(reason);
+  });
+
   it('stops when a gate command changes Git configuration, and keeps the worktree', async () => {
     const { outcome } = await run(approveAll, { count: 0 }, { keepWorktrees: false, gate: (cwd) => git(cwd, 'config', 'filter.gate.clean', 'cat') });
     const validator = outcome.manifest.results.find((result) => result.harness === 'internal-validator');

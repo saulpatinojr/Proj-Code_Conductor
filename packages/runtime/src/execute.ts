@@ -7,7 +7,7 @@ import type { ClientAuthStatus, HarnessAdapter, HarnessExecutionRequest } from '
 import { configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, removeCleanAgentWorktree, resolveCommit, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, type WorktreeHandle } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -386,11 +386,28 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           // Commits the agent made itself, whatever its result, happened under its own
           // sandbox rather than through a Code Conductor approval. Name them, check every
           // path they ever touched (a secret committed and then deleted is still in
-          // history), and leave the merge decision to a person.
-          const history = commitsSince(handle.path, handle.baseSha);
+          // history), and leave the merge decision to a person. Its history is what HEAD and its
+          // branch hold: an agent can move HEAD off the branch (git checkout --detach) and leave
+          // commits on the branch, which is what a person merges.
+          let branchTip: string;
+          try { branchTip = resolveCommit(handle.path, `refs/heads/${handle.branch}`); }
+          catch {
+            // A worktree that is not an agent worktree at all (#48) is refused as such first.
+            assertAgentWorktree(handle);
+            throw new Error(`${handle.branch} no longer exists: the agent deleted it. Code Conductor committed nothing; check ${handle.path} and its reflog before using it.`);
+          }
+          const head = resolveCommit(handle.path, 'HEAD');
+          const tips = [...new Set([head, branchTip])];
+          const histories = tips.map((tip) => commitsSince(handle.path, handle.baseSha, tip));
+          const history = { commits: [...new Set(histories.flatMap((item) => item.commits))], files: [...new Set(histories.flatMap((item) => item.files))].sort() };
           let ownCommits = '';
+          if (head !== branchTip) {
+            ownCommits = ` HEAD (${head.slice(0, 12)}) is not ${handle.branch} (${branchTip.slice(0, 12)}); both are checked.`;
+            result.recommendation = 'human_required';
+            result.risks = [...result.risks, `HEAD in ${handle.path} (${head.slice(0, 12)}) is not the tip of ${handle.branch} (${branchTip.slice(0, 12)}); the agent moved one off the other. Review both before merging.`];
+          }
           if (history.commits.length) {
-            ownCommits = ` The branch already carries ${history.commits.length} commit(s) the agent made itself (${shortList(history.commits)}), which this approval does not cover; the file list is the net change since base.`;
+            ownCommits += ` The branch already carries ${history.commits.length} commit(s) the agent made itself (${shortList(history.commits)}), which this approval does not cover; the file list is the net change since base.`;
             result.recommendation = 'human_required';
             result.risks = [...result.risks, `The agent made ${history.commits.length} commit(s) itself on ${handle.branch} (${shortList(history.commits)}) that Code Conductor did not approve; review them before merging.`];
             result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${history.commits[0]}`, summary: `Agent-authored commits on ${handle.branch} since ${handle.baseSha.slice(0, 12)}: ${shortList(history.commits)}. Paths touched: ${history.files.join(', ')}` });
@@ -398,16 +415,20 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             if (sensitive.length) throw new Error(`The agent's own commits on ${handle.branch} touch sensitive repository paths: ${sensitive.join(', ')}. Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
             // Every file version the commits introduced is scanned, so a credential added and
             // removed again is still found; history past the scan budget fails closed.
-            const scan = scanHistoryForNewSecrets(handle.path, handle.baseSha);
-            if (scan.findings.length) throw new Error(`The agent's own commits on ${handle.branch} add credential-looking strings (${describeSecrets(scan.findings)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
-            if (scan.unscanned.length) throw new Error(`The agent's own commits on ${handle.branch} could not be fully scanned for credentials: ${describeUnscanned(scan.unscanned)}. Code Conductor committed nothing; review the branch before using it.`);
+            for (const tip of tips) {
+              const scan = scanHistoryForNewSecrets(handle.path, handle.baseSha, tip);
+              if (scan.findings.length) throw new Error(`The agent's own commits on ${handle.branch} add credential-looking strings (${describeSecrets(scan.findings)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review the branch before using it.`);
+              if (scan.unscanned.length) throw new Error(`The agent's own commits on ${handle.branch} could not be fully scanned for credentials: ${describeUnscanned(scan.unscanned)}. Code Conductor committed nothing; review the branch before using it.`);
+            }
           }
-          // An agent can also move its branch away from the base (for example reset to an
-          // older commit); the net file list then includes undoing the base's own changes.
-          if (!isAncestor(handle.path, handle.baseSha)) {
-            ownCommits += ` ${handle.branch} no longer descends from its base ${handle.baseSha.slice(0, 12)}, so the file list also undoes changes the base had.`;
+          // An agent can also move its branch or HEAD away from the base (for example reset to
+          // an older commit); the net file list then includes undoing the base's own changes.
+          const strays = tips.filter((tip) => !isAncestor(handle.path, handle.baseSha, tip)).map((tip) => (tip === branchTip ? handle.branch : 'HEAD'));
+          if (strays.length) {
+            const moved = `${strays.join(' and ')} no longer descend${strays.length === 1 ? 's' : ''} from its base ${handle.baseSha.slice(0, 12)}`;
+            ownCommits += ` ${moved}, so the file list also undoes changes the base had.`;
             result.recommendation = 'human_required';
-            result.risks = [...result.risks, `${handle.branch} no longer descends from its base ${handle.baseSha.slice(0, 12)}; the agent rewrote or reset the branch.`];
+            result.risks = [...result.risks, `${moved}; the agent rewrote or reset it.`];
           }
           if (result.status === 'completed') {
             let expectedTree: string | undefined;
