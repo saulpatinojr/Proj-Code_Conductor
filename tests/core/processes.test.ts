@@ -44,9 +44,10 @@ void runIsolated(process.execPath, ['-e', "const fs = require('node:fs'); fs.wri
 setInterval(() => {}, 1000);`;
     const parent = spawn(process.execPath, ['--input-type=module', '-e', parentScript], { stdio: 'ignore' });
     const pidFile = join(root, 'gate.pid');
-    for (let attempt = 0; attempt < 200 && !existsSync(pidFile); attempt += 1) await new Promise((done) => setTimeout(done, 25));
-    const gate = Number(readFileSync(pidFile, 'utf8'));
+    let gate = 0;
     try {
+      for (let attempt = 0; attempt < 200 && !existsSync(pidFile); attempt += 1) await new Promise((done) => setTimeout(done, 25));
+      gate = Number(readFileSync(pidFile, 'utf8'));
       expect(isRunning(gate)).toBe(true);
       const exited = new Promise<NodeJS.Signals | null>((done) => parent.once('exit', (_code, signal) => done(signal)));
       parent.kill('SIGTERM');
@@ -55,7 +56,7 @@ setInterval(() => {}, 1000);`;
       expect(isRunning(gate)).toBe(false);
     } finally {
       // If an assertion failed, the gate's group may still run: never leave it behind.
-      for (const pid of [-gate, parent.pid ?? 0]) { try { if (pid) process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+      for (const pid of [gate ? -gate : 0, parent.pid ?? 0]) { try { if (pid) process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
     }
   }, 20_000);
 });

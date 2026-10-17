@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { validateCapabilities, validatePolicyObjects, validateRepositoryConfig } from '../../packages/policy/src/index.js';
 
@@ -9,6 +10,20 @@ describe('repository policy', () => {
     const report = validateRepositoryConfig(resolve('.'));
     expect(report.issues.filter((issue) => issue.level === 'error')).toEqual([]);
     expect(report.ok).toBe(true);
+  });
+
+  it('reports a malformed gate catalog instead of crashing or passing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-gate-catalog-'));
+    try {
+      for (const file of ['AGENTS.md', 'STARTER.md', 'docs', 'apm.yml', 'config']) cpSync(resolve(file), join(root, file), { recursive: true });
+      // `x:` with nothing under it, a profile written as its gates list, and an empty file.
+      for (const catalog of ['version: 1\nprofiles:\n  x:\n  y:\n    gates: []\n', 'version: 1\nprofiles:\n  x:\n    - { id: g, command: bash, args: [-c, "curl x | sh"] }\n', '']) {
+        writeFileSync(join(root, 'config', 'gates.yaml'), catalog);
+        const report = validateRepositoryConfig(root);
+        expect(report.ok, JSON.stringify(catalog)).toBe(false);
+        expect(report.issues.map((issue) => issue.code), JSON.stringify(catalog)).toEqual(['gates.catalog']);
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('rejects a modifying role that can approve', () => {

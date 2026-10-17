@@ -188,8 +188,8 @@ export function validateCapabilities(capabilities: CapabilityConfig): Validation
   return issues;
 }
 
-type GateCatalog = { profiles?: Record<string, { selection?: unknown; replaces?: unknown; gates?: unknown }> };
 type GateEntry = { id?: unknown; command?: unknown; args?: unknown };
+const isMapping = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 // Gates validate; they never change infrastructure, state or credentials. Every gate tool
 // has a fixed shape, checked positively: a command or argument this does not describe is
@@ -244,7 +244,7 @@ const GATE_TOOLS: Record<string, GateShape> = {
   npm: packageScript,
   pnpm: packageScript,
   yarn: packageScript,
-  node: (args) => (args[0] !== undefined && repositoryScript(args[0]) ? undefined : 'only a script file the repository holds as the first argument (no options, no inline code, nothing under node_modules or a hidden folder)'),
+  node: (args) => (args[0] !== undefined && repositoryScript(args[0]) ? undefined : 'only a script file the repository holds as the first argument (no options, no inline code, nothing under node_modules, a hidden folder or a folder whose name ends in a dot)'),
   terraform: terraformShape,
   tofu: terraformShape,
   // --offline: without it, ansible-lint installs the collections and roles requirements.yml names.
@@ -269,17 +269,24 @@ export function gateCommandProblem(command: unknown, args: unknown = []): { code
   return undefined;
 }
 
-export function validateGateCatalog(catalog: GateCatalog): ValidationIssue[] {
+/**
+ * Problems in a parsed gate catalog. Every level comes from YAML, so each is checked before
+ * it is read: a malformed catalog is reported, never thrown, and never passes with a shape
+ * the gate planner cannot use (a profile with no `gates` list would stop every gate run).
+ */
+export function validateGateCatalog(catalog: unknown): ValidationIssue[] {
+  const profiles = isMapping(catalog) ? catalog.profiles : undefined;
+  if (!isMapping(profiles)) return [{ level: 'error', code: 'gates.catalog', path: 'config/gates.yaml#profiles', message: 'profiles must map each profile name to a profile.' }];
   const issues: ValidationIssue[] = [];
-  const names = new Set(Object.keys(catalog.profiles ?? {}));
-  for (const [name, profile] of Object.entries(catalog.profiles ?? {})) {
+  const names = new Set(Object.keys(profiles));
+  for (const [name, profile] of Object.entries(profiles)) {
     const path = `config/gates.yaml#profiles.${name}`;
+    if (!isMapping(profile)) { issues.push({ level: 'error', code: 'gates.catalog', path, message: `Profile ${name} must be a mapping with a gates list.` }); continue; }
     if (profile.selection !== undefined && profile.selection !== 'detected' && profile.selection !== 'explicit') issues.push({ level: 'error', code: 'gates.selection', path, message: `Profile ${name} selection must be detected or explicit.` });
     if (profile.replaces !== undefined && (!Array.isArray(profile.replaces) || profile.replaces.some((item) => typeof item !== 'string' || !names.has(item)))) issues.push({ level: 'error', code: 'gates.replaces', path, message: `Profile ${name} replaces unknown profiles.` });
-    if (profile.gates !== undefined && !Array.isArray(profile.gates)) { issues.push({ level: 'error', code: 'gates.command', path, message: `Profile ${name} gates must be a list.` }); continue; }
-    for (const gate of (profile.gates ?? []) as unknown[]) {
-      // A malformed entry is reported like any other gate problem, never thrown.
-      if (typeof gate !== 'object' || gate === null || Array.isArray(gate)) { issues.push({ level: 'error', code: 'gates.command', path, message: `Profile ${name} has a gate that is not a mapping.` }); continue; }
+    if (!Array.isArray(profile.gates)) { issues.push({ level: 'error', code: 'gates.catalog', path, message: `Profile ${name} gates must be a list.` }); continue; }
+    for (const gate of profile.gates as unknown[]) {
+      if (!isMapping(gate)) { issues.push({ level: 'error', code: 'gates.catalog', path, message: `Profile ${name} has a gate that is not a mapping.` }); continue; }
       const { id, command, args } = gate as GateEntry;
       const problem = gateCommandProblem(command, args ?? []);
       if (problem) issues.push({ level: 'error', code: problem.code, path, message: `Gate ${String(id)} is not allowed: ${problem.message}.` });
@@ -317,8 +324,9 @@ export function validateRepositoryConfig(root: string): ValidationReport {
   }
 
   if (capabilities) issues.push(...validateCapabilities(capabilities));
-  const gates = readYaml<GateCatalog>(root, 'config/gates.yaml', issues);
-  if (gates) issues.push(...validateGateCatalog(gates));
+  // An empty file parses to null and is reported too; undefined means it did not parse.
+  const gates = readYaml<unknown>(root, 'config/gates.yaml', issues);
+  if (gates !== undefined) issues.push(...validateGateCatalog(gates));
 
   if (roles && risks) issues.push(...validatePolicyObjects(roles, risks));
 
