@@ -7,12 +7,16 @@
     that holds the section 13 checklist. The items only you can judge are left unchecked
     for you to complete before posting it.
 
-    1. The process check (section 10): no process may name the installed extension's
-       folder. Run this right after a warm start of VS Code; this check comes before the
-       script starts ccon itself.
+    1. Part of the process check (section 10): no process may name the installed
+       extension's folder, which is how Code Conductor's own runtime shows. Run this right
+       after a warm start of VS Code; it comes before the script starts ccon itself. Only
+       each such process's ID and name are kept. Clients started another way are for you
+       to check in Process Explorer.
     2. OS, VS Code version and workspace kind (local, WSL, SSH or container).
     3. With -PackageDirectory, the release files: SHA256SUMS, and each file's attestation
-       pinned to the Release workflow, tag and commit (docs/RELEASE.md).
+       pinned to the Release workflow, tag and commit (docs/RELEASE.md). It passes only
+       when a .vsix and its SBOM were both verified and SHA256SUMS lists every
+       code-conductor-* file in the folder.
     4. Provider and tool versions (section 4).
     5. ccon doctor on -Repository.
     6. With -Smoke, ccon harness-smoke read, then modify only after read passes, for each
@@ -79,6 +83,8 @@ $onWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $onLinux = (-not $onWindows) -and [bool](Get-Variable -Name IsLinux -ValueOnly -ErrorAction SilentlyContinue)
 if ($PackageDirectory -and -not $SourceCommit) { throw '-PackageDirectory needs -SourceCommit: the full commit the release notes name.' }
 $Repository = (Resolve-Path -LiteralPath $Repository).ProviderPath
+$OutFile = Resolve-OwnerPath -Path $OutFile -SessionState $ExecutionContext.SessionState
+if ($PackageDirectory) { $PackageDirectory = Resolve-OwnerPath -Path $PackageDirectory -SessionState $ExecutionContext.SessionState }
 
 function Find-CconRuntime {
     $roots = foreach ($name in @('.vscode', '.vscode-insiders', '.vscode-server', '.vscode-server-insiders')) { Join-Path (Join-Path $HOME $name) 'extensions' }
@@ -108,13 +114,15 @@ function Find-CconRuntime {
 function Get-ExtensionProcess([string] $Folder) {
     $needle = $Folder.TrimEnd('\', '/').Replace('/', '\')
     $all = if ($onWindows) {
-        Get-CimInstance -ClassName Win32_Process | ForEach-Object { [pscustomobject]@{ Id = [int]$_.ProcessId; CommandLine = [string]$_.CommandLine } }
+        Get-CimInstance -ClassName Win32_Process | ForEach-Object { [pscustomobject]@{ Id = [int]$_.ProcessId; Name = [string]$_.Name; CommandLine = [string]$_.CommandLine } }
     } else {
-        (Invoke-Native -FilePath 'ps' -ArgumentList @('-axo', 'pid=,args=')).Output | ForEach-Object {
-            if ($_ -match '^\s*(\d+)\s+(.*)$') { [pscustomobject]@{ Id = [int]$Matches[1]; CommandLine = $Matches[2] } }
+        (Invoke-Native -FilePath 'ps' -ArgumentList @('-axo', 'pid=,comm=,args=')).Output | ForEach-Object {
+            if ($_ -match '^\s*(\d+)\s+(\S+)\s+(.*)$') { [pscustomobject]@{ Id = [int]$Matches[1]; Name = $Matches[2]; CommandLine = $Matches[3] } }
         }
     }
-    @($all | Where-Object { $_.Id -ne $PID -and $_.CommandLine -and $_.CommandLine.Replace('/', '\').IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+    # The command line decides the match but is not kept: it can hold any argument.
+    @($all | Where-Object { $_.Id -ne $PID -and $_.CommandLine -and $_.CommandLine.Replace('/', '\').IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+        ForEach-Object { [pscustomobject]@{ Id = $_.Id; Name = $_.Name; Runtime = $_.CommandLine -match 'ccon\.js' } })
 }
 
 function Get-FirstLine($Result) { @($Result.Output + $Result.Errors | Where-Object { $_.Trim() }) | Select-Object -First 1 }
@@ -140,7 +148,7 @@ Write-Host "Validating $extensionId"
 
 # 1. Before anything here starts ccon.
 $processes = @(Get-ExtensionProcess -Folder $extension)
-$details['Processes naming the extension folder'] = if ($processes.Count) { @($processes | ForEach-Object { "$($_.Id) $($_.CommandLine)" }) } else { @('none') }
+$details['Processes naming the extension folder'] = if ($processes.Count) { @($processes | ForEach-Object { "$($_.Id) $($_.Name)$(if ($_.Runtime) { ', runs ccon.js' })" }) } else { @('none') }
 
 # 2. The machine.
 $os = if ($onWindows) { $info = Get-CimInstance -ClassName Win32_OperatingSystem; "$($info.Caption) $($info.Version)" }
@@ -153,12 +161,15 @@ $machine = "$os; VS Code $code; workspace $workspace (detected); PowerShell $($P
 $package = $null
 if ($PackageDirectory) {
     $lines = New-Object System.Collections.Generic.List[string]
+    $listed = New-Object System.Collections.Generic.List[string]
+    $verified = New-Object System.Collections.Generic.List[string]
     $ok = $true
     foreach ($line in @(Get-Content -LiteralPath (Join-Path $PackageDirectory 'SHA256SUMS'))) {
         if (-not $line.Trim()) { continue }
         if ($line -notmatch '^(?<hash>[0-9a-fA-F]{64}) [ *](?<file>[^\\/]+)$') { throw "SHA256SUMS has a line that is not '<hash>  <file name>': $line" }
         $file = $Matches.file
         $expected = $Matches.hash
+        $listed.Add($file)
         $path = Join-Path $PackageDirectory $file
         $hashOk = (Test-Path -LiteralPath $path -PathType Leaf) -and (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash -eq $expected
         $lines.Add("sha256 $file : $(if ($hashOk) { 'OK' } else { 'FAILED' })")
@@ -168,7 +179,14 @@ if ($PackageDirectory) {
             '--cert-identity', "https://github.com/$GitHubRepository/.github/workflows/release.yml@refs/tags/$tag",
             '--source-ref', "refs/tags/$tag", '--source-digest', $SourceCommit, '--deny-self-hosted-runners')
         $lines.Add("attestation $file ($tag) : $(if ($verify.ExitCode -eq 0) { 'verified' } else { "FAILED: $(Get-LastLine $verify)" })")
-        $ok = $ok -and $hashOk -and $verify.ExitCode -eq 0
+        if ($hashOk -and $verify.ExitCode -eq 0) { $verified.Add($file) } else { $ok = $false }
+    }
+    # Nothing verified is not a pass: a package and its SBOM must be, and nothing may go unlisted.
+    foreach ($file in @(Get-ChildItem -LiteralPath $PackageDirectory -File -Filter 'code-conductor-*' | ForEach-Object { $_.Name })) {
+        if ($listed -notcontains $file) { $ok = $false; $lines.Add("sha256 $file : FAILED, not listed in SHA256SUMS") }
+    }
+    foreach ($kind in @('*.vsix', '*.cdx.json')) {
+        if (-not @($verified | Where-Object { $_ -like $kind }).Count) { $ok = $false; $lines.Add("$kind : FAILED, none verified") }
     }
     $onMain = Invoke-Native -FilePath 'gh' -ArgumentList @('api', "repos/$GitHubRepository/compare/$SourceCommit...main", '--jq', '.status')
     $status = Get-FirstLine $onMain
@@ -211,10 +229,12 @@ if ($smokeResults.Count) { $details['ccon harness-smoke'] = @($smokeResults | Fo
 # 7. The compress boundary. Only the outcome is kept, never the prepared content.
 $sample = Join-Path $Repository 'README.md'
 $compress = 'not checked: the repository has no README.md'
+$compressOk = $false
 if (Test-Path -LiteralPath $sample -PathType Leaf) {
     $result = Invoke-Native -FilePath 'node' -ArgumentList @($runtime, 'compress', $sample, '--root', $Repository)
     $outcome = if ($result.ExitCode -eq 0) { @($result.Output | Where-Object { $_ -like 'Estimated tokens saved*' }) | Select-Object -First 1 } else { @($result.Errors)[0] }
     $documented = ($result.ExitCode -eq 0) -eq $onLinux
+    $compressOk = $documented
     $compress = "README.md exit $($result.ExitCode), $(if ($documented) { 'as documented' } else { 'NOT as documented' }) for this OS: $outcome"
 }
 $details['Compress boundary (ADR 0007)'] = @($compress)
@@ -222,21 +242,22 @@ $details['Compress boundary (ADR 0007)'] = @($compress)
 # The report.
 function Get-Mark([bool] $Done) { if ($Done) { '[x]' } else { '[ ]' } }
 $smokeSummary = if ($smokeResults.Count) { ($smokeResults | ForEach-Object { "$($_.Client) $($_.Mode) $($_.Outcome)" }) -join '; ' } else { '*fill in* (run with -Smoke claude,codex,kiro)' }
-$smokedAll = -not (@('claude', 'codex', 'kiro') | Where-Object { $client = $_; -not @($smokeResults | Where-Object { $_.Client -eq $client -and $_.Outcome -ne 'not run' }).Count })
+# Checked only for a pass: read and modify, for each of the three clients.
+$smokedAll = -not @(foreach ($client in @('claude', 'codex', 'kiro')) { foreach ($mode in @('read', 'modify')) { if (-not @($smokeResults | Where-Object { $_.Client -eq $client -and $_.Mode -eq $mode -and $_.Outcome -eq 'pass' }).Count) { "$client $mode" } } }).Count
 $report = New-Object System.Text.StringBuilder
 $null = $report.AppendLine('## Workstation validation evidence').AppendLine()
 $null = $report.AppendLine("Collected $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC by ``scripts/owner/Invoke-WorkstationValidation.ps1`` for $extensionId. Items marked *fill in* are yours.").AppendLine()
 $null = $report.AppendLine("- $(Get-Mark ($package -eq $true)) Package, checksums and attestation: $(if ($null -eq $package) { '*fill in* (run with -PackageDirectory and -SourceCommit)' } elseif ($package) { 'verified' } else { 'FAILED, see below' })")
 $null = $report.AppendLine("- [x] OS, VS Code and workspace: $machine")
 $null = $report.AppendLine('- [x] Provider and tool versions: below')
-$null = $report.AppendLine("- [x] ``ccon doctor``: exit $($doctor.ExitCode), below")
+$null = $report.AppendLine("- $(Get-Mark ($doctor.ExitCode -eq 0)) ``ccon doctor``: exit $($doctor.ExitCode), below")
 $null = $report.AppendLine("- $(Get-Mark $smokedAll) ``ccon harness-smoke`` read and modify: $smokeSummary")
 $null = $report.AppendLine("- [ ] Activation times, first run / warm start / changed configuration: *fill in* (Developer: Show Running Extensions). Process check: $(if ($processes.Count) { "$($processes.Count) process(es) named the extension folder, below" } else { 'none named the extension folder' })")
 $null = $report.AppendLine('- [ ] Minimum MCP and tool profiles used: *fill in*')
 $null = $report.AppendLine('- [ ] R1 and R2 run IDs, structured results and gates: *fill in*')
 $null = $report.AppendLine('- [ ] Worktree and draft pull request: `ccon pr` preview, the URL, `ccon github-gate` before and after re-review: *fill in*')
 $null = $report.AppendLine('- [ ] Final readiness decision, and who made it: *fill in*')
-$null = $report.AppendLine("- [x] Compress boundary: $compress")
+$null = $report.AppendLine("- $(Get-Mark $compressOk) Compress boundary: $compress")
 foreach ($name in $details.Keys) {
     $null = $report.AppendLine().AppendLine("<details><summary>$name</summary>").AppendLine().AppendLine('```text')
     foreach ($line in @($details[$name])) { $null = $report.AppendLine([string]$line) }

@@ -20,10 +20,19 @@ function Invoke-Native {
     $ErrorActionPreference = 'Continue'
     $out = New-Object System.Collections.Generic.List[string]
     $err = New-Object System.Collections.Generic.List[string]
-    & $FilePath @ArgumentList 2>&1 | ForEach-Object {
-        if ($_ -is [System.Management.Automation.ErrorRecord]) { $err.Add($_.ToString()) } else { $out.Add([string]$_) }
+    # PowerShell decodes a program's output with the console encoding, an OEM code page on
+    # Windows; gh and git write UTF-8. A host without a console cannot change it.
+    $encoding = $null
+    try { $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { $encoding = $null }
+    try {
+        & $FilePath @ArgumentList 2>&1 | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) { $err.Add($_.ToString()) } else { $out.Add([string]$_) }
+        }
+        $code = $LASTEXITCODE
+    } finally {
+        if ($encoding) { try { [Console]::OutputEncoding = $encoding } catch { $encoding = $null } }
     }
-    [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $out.ToArray(); Errors = $err.ToArray() }
+    [pscustomobject]@{ ExitCode = $code; Output = $out.ToArray(); Errors = $err.ToArray() }
 }
 
 function Invoke-Gh {
@@ -35,7 +44,7 @@ function Invoke-Gh {
     $result = Invoke-Native -FilePath 'gh' -ArgumentList $ArgumentList
     if ($result.ExitCode -ne 0) {
         $message = ($result.Errors + $result.Output) -join ' '
-        throw "gh $($ArgumentList[0]) failed (exit $($result.ExitCode)): $message"
+        throw "gh $($ArgumentList -join ' ') failed (exit $($result.ExitCode)): $message"
     }
     $result.Output -join "`n"
 }
@@ -123,12 +132,34 @@ function Protect-EvidenceText {
     # Longest first, so a longer form is replaced whole before a shorter one inside it.
     $homes = @($HOME, $env:USERPROFILE) | Where-Object { $_ -and $_.Length -gt 3 } | Select-Object -Unique | Sort-Object -Property Length -Descending
     foreach ($folder in $homes) {
-        foreach ($form in @($folder, $folder.Replace('\', '/'))) {
-            $result = [regex]::Replace($result, [regex]::Escape($form), '~', 'IgnoreCase')
-        }
+        # As written, with forward slashes, escaped in JSON, and as WSL sees a Windows folder.
+        $forms = @($folder.Replace('\', '\\'), $folder, $folder.Replace('\', '/'))
+        if ($folder -match '^([A-Za-z]):\\(.+)$') { $forms += "/mnt/$($Matches[1].ToLowerInvariant())/$($Matches[2].Replace('\', '/'))" }
+        foreach ($form in $forms) { $result = [regex]::Replace($result, [regex]::Escape($form), '~', 'IgnoreCase') }
     }
     $result = [regex]::Replace($result, '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '[email]')
-    [regex]::Replace($result, '(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})', '[redacted]')
+    $result = [regex]::Replace($result, '(AccountKey|SharedAccessSignature|sig)=[^;&\s"]+', '$1=[redacted]')
+    $tokens = @(
+        'gh[pousr]_[A-Za-z0-9]{20,}', 'github_pat_[A-Za-z0-9_]{20,}', 'glpat-[A-Za-z0-9_-]{20,}', 'sk-[A-Za-z0-9_-]{20,}',
+        'xox[abprs]-[A-Za-z0-9-]{10,}', 'AKIA[0-9A-Z]{16}', 'AIza[0-9A-Za-z_-]{35}', 'npm_[A-Za-z0-9]{36}',
+        'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+    )
+    [regex]::Replace($result, '(' + ($tokens -join '|') + ')', '[redacted]')
 }
 
-Export-ModuleMember -Function Invoke-Native, Invoke-Gh, Write-Utf8File, Invoke-GhApi, Get-GhList, Assert-GhRepository, Protect-EvidenceText
+function Resolve-OwnerPath {
+    <#
+    .SYNOPSIS
+        Makes a path absolute against the current PowerShell location, expanding ~.
+    .DESCRIPTION
+        File methods in .NET, and programs, resolve a relative path against the process's
+        own folder, which is not always PowerShell's location.
+    #>
+    param([Parameter(Mandatory = $true)][string] $Path, [Parameter(Mandatory = $true)] $SessionState)
+    $full = $SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    # Windows PowerShell 5.1 passes "C:\a b\" to a program as C:\a b" (the backslash escapes the quote).
+    if ($full.Length -gt 3) { $full = $full.TrimEnd('\', '/') }
+    $full
+}
+
+Export-ModuleMember -Function Invoke-Native, Invoke-Gh, Write-Utf8File, Invoke-GhApi, Get-GhList, Assert-GhRepository, Protect-EvidenceText, Resolve-OwnerPath
