@@ -113,7 +113,9 @@ Reviewers and gate commands then run in the builder's worktree, and anything the
 running can still write there. Before the merge decision, Code Conductor checks that the
 worktree's history still ends where the builder's check left it. Commits added since are
 named, scanned and checked the same way, with the steps that ran there. They make the run
-`human_required`, and a credential, a sensitive path or a deleted branch blocks it.
+`human_required`, and a credential, a sensitive path or a deleted branch blocks it. A write
+after the decision is not seen here: `ccon pr` scans the branch again before it pushes, but
+a merge you make yourself is not checked.
 
 Every decision is single-use. Nothing reads approval records back as
 authority, so a stored record cannot approve a later action, and `ccon import` rejects

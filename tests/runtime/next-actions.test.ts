@@ -103,6 +103,14 @@ describe('next actions', () => {
     expect(actions[1]?.commands).toEqual([['ccon', 'pr', '--run', 'CC-1', '--assignment', builder.id], ['ccon', 'pr', '--run', 'CC-1', '--assignment', builder.id, '--create']]);
   });
 
+  it('shows no pull-request command for an identifier that is not plain', () => {
+    const odd = assignment('--create', 'builder', 'codex', ['observe', 'recommend', 'modify_worktree']);
+    const actions = nextActions(manifest({ results: [result(odd, { changes: ['src/a.ts'] })], worktrees: [{ ...worktree, assignmentId: '--create' }], mergeDecision: { decision: 'ready', rationale: 'ok', evidenceIds: [] } }), { worktreeRoot: ROOT });
+    const pr = actions.find((action) => action.kind === 'prepare_pull_request');
+    expect(pr?.commands).toBeUndefined();
+    expect(pr?.detail).toContain('No command is shown because the run or assignment identifier is not plain.');
+  });
+
   it('does not offer a pull request when the builder committed nothing', () => {
     const actions = nextActions(manifest({ results: [result(builder), result(reviewer)], worktrees: [worktree], mergeDecision: { decision: 'ready', rationale: 'ok', evidenceIds: [] } }), { worktreeRoot: ROOT });
     expect(actions.map((action) => action.kind)).toEqual(['review_changes']);

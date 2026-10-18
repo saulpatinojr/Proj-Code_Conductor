@@ -563,9 +563,14 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     // they left running can still write there. Before the decision, its history must still end
     // where that check left it; commits added since are named and scanned the same way.
     for (const [path, { handle, assignmentId, tips }] of checked) {
-      if (stopped) break;
       const result = manifest.results.find((item) => item.assignmentId === assignmentId);
       if (!result) continue;
+      if (stopped) {
+        // No Git runs under changed configuration, so say where the history was last checked.
+        result.recommendation = 'human_required';
+        result.risks = [...result.risks, `${handle.branch} was checked at ${tips.branch!.slice(0, 12)}; nothing after that was re-checked, because the run stopped for a Git configuration change. Compare ${handle.branch} with ${tips.branch!.slice(0, 12)} before using it.`];
+        continue;
+      }
       try {
         stopped = controlChange(path, 'before the merge decision');
         if (stopped) throw new Error(stopped);

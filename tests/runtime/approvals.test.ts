@@ -807,6 +807,13 @@ describe('pre-action approval enforcement (#44)', () => {
       expect(builder.blockers.join(' ')).toMatch(/cc\/\S+ in .+ names no commit after the agent's own commits were checked/);
     });
 
+    it('says where the branch was checked when the run stopped for a Git configuration change', async () => {
+      const { outcome } = await run(approveAll, { count: 0 }, reviewerDoes((cwd) => { commitIn(cwd, 'late.ts', 'export const x = 1;\n'); git(cwd, 'config', 'filter.planted.clean', 'cat'); }));
+      const builder = outcome.manifest.results.find((result) => result.role === 'builder')!;
+      expect(builder.recommendation).toBe('human_required');
+      expect(builder.risks.join(' ')).toMatch(/cc\/\S+ was checked at [0-9a-f]{12}; nothing after that was re-checked, because the run stopped for a Git configuration change/);
+    });
+
     it('leaves an ordinary run ready: Code Conductor\'s own commit is where the check left the branch', async () => {
       const { outcome } = await run(approveAll);
       expect(outcome.manifest.mergeDecision?.decision).toBe('ready');
