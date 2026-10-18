@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ApprovalRecord, ApprovalRequest, RunManifest, WorktreeRecord } from '@code-conductor/schemas';
-import { commitsSince, gitChangedFiles, isSensitiveRepositoryPath, MAX_SCAN_BYTES, onRemote, pushCommit, redactSecrets, redactUrl, remoteUrls, resolveCommit, scanHistoryForNewSecrets, treeChangedFiles } from '@code-conductor/git';
+import { branchCommit, commitsSince, gitChangedFiles, isSensitiveRepositoryPath, MAX_SCAN_BYTES, onRemote, pushCommit, redactSecrets, redactUrl, remoteUrls, scanHistoryForNewSecrets, treeChangedFiles } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import type { RunStore } from '@code-conductor/evidence';
 import { shortList, summarizeFiles } from './change-summary.js';
@@ -124,7 +124,8 @@ export function planPullRequest(manifest: RunManifest, options: PullRequestOptio
   if (!manifest.mergeDecision) throw new Error(`Run ${manifest.runId} has no outcome yet (still running, or interrupted).`);
   const record = pickWorktree(manifest, options.assignmentId, options.worktreeRoot);
   const remote = options.remote ?? 'origin';
-  const head = resolveCommit(record.path, `refs/heads/${record.branch}`);
+  const head = branchCommit(record.path, record.branch);
+  if (!head) throw new Error(`${record.branch} names no commit in ${record.path}; it was deleted or is unreadable.`);
   const history = commitsSince(record.path, record.baseSha, head);
   const files = treeChangedFiles(record.path, record.baseSha, head);
   const { fetch, push } = remoteUrls(record.path, remote);
