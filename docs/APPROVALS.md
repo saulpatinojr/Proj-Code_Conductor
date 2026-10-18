@@ -109,6 +109,12 @@ blocks the assignment, and Code Conductor commits nothing on top. A branch the a
 reset or rewrote so that it no longer descends from its base is flagged too. Either
 makes the run `human_required`.
 
+Reviewers and gate commands then run in the builder's worktree, and anything they leave
+running can still write there. Before the merge decision, Code Conductor checks that the
+worktree's history still ends where the builder's check left it. Commits added since are
+named, scanned and checked the same way, with the steps that ran there. They make the run
+`human_required`, and a credential, a sensitive path or a deleted branch blocks it.
+
 Every decision is single-use. Nothing reads approval records back as
 authority, so a stored record cannot approve a later action, and `ccon import` rejects
 manifests that carry approval records.

@@ -99,7 +99,8 @@ describe('next actions', () => {
     const actions = nextActions(manifest({ results: [result(builder, { changes: ['src/a.ts'] }), result(reviewer)], worktrees: [worktree], mergeDecision: { decision: 'ready', rationale: 'ok', evidenceIds: ['E-1'] } }), { worktreeRoot: ROOT });
     expect(actions.map((action) => action.kind)).toEqual(['review_changes', 'prepare_pull_request']);
     expect(actions[0]).toMatchObject({ surface: 'source_control', path: worktree.path });
-    expect(actions[1]?.commands).toEqual([['git', '-C', worktree.path, 'push', '-u', 'origin', worktree.branch], ['gh', 'pr', 'create', '--draft', '--head', worktree.branch, '--fill']]);
+    // ccon pr scans exactly what it pushes; a raw git push would publish whatever the branch holds now.
+    expect(actions[1]?.commands).toEqual([['ccon', 'pr', '--run', 'CC-1', '--assignment', builder.id], ['ccon', 'pr', '--run', 'CC-1', '--assignment', builder.id, '--create']]);
   });
 
   it('does not offer a pull request when the builder committed nothing', () => {
