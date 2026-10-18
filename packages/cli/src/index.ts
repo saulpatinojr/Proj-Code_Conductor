@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -51,13 +51,16 @@ function isCodeConductorSource(root: string): boolean {
 
 // VS Code records the extensions it installed in extensions.json, in its extensions
 // folder. Reading that starts no process: on Windows `code` is a batch file, which needs
-// cmd.exe and which Code Conductor does not run. The folders are VS Code's own choices
-// (VSCODE_EXTENSIONS, then VSCODE_PORTABLE, then the home folder), plus the remote hosts'.
+// cmd.exe and which Code Conductor does not run. The folders are the ones VS Code and its
+// remote server choose from (VSCODE_EXTENSIONS, VSCODE_PORTABLE, VSCODE_AGENT_FOLDER, then
+// the home folder). VS Code uses only the first that applies, but doctor's environment
+// need not be VS Code's, so it reads them all.
 const VSCODE_EXTENSION_FOLDERS = ['.vscode', '.vscode-insiders', '.vscode-server', '.vscode-server-insiders', '.vscode-remote'];
 function vscodeExtensions(home = homedir(), env = process.env): { ids: Set<string>; read: number; unreadable: string[] } {
+  const absolute = (value: string | undefined): value is string => Boolean(value && isAbsolute(value));
   const folders = [
-    ...(env.VSCODE_EXTENSIONS && isAbsolute(env.VSCODE_EXTENSIONS) ? [env.VSCODE_EXTENSIONS] : []),
-    ...(env.VSCODE_PORTABLE && isAbsolute(env.VSCODE_PORTABLE) ? [join(env.VSCODE_PORTABLE, 'extensions')] : []),
+    ...(absolute(env.VSCODE_EXTENSIONS) ? [env.VSCODE_EXTENSIONS] : []),
+    ...[env.VSCODE_PORTABLE, env.VSCODE_AGENT_FOLDER].filter(absolute).map((folder) => join(folder, 'extensions')),
     ...VSCODE_EXTENSION_FOLDERS.map((folder) => join(home, folder, 'extensions')),
   ];
   const ids = new Set<string>();
@@ -68,25 +71,32 @@ function vscodeExtensions(home = homedir(), env = process.env): { ids: Set<strin
     let entries: unknown;
     // VS Code reads an empty file as no extensions.
     try { const text = readBoundedFile(file, 1048576).toString('utf8'); entries = text.trim() ? JSON.parse(text) : []; } catch { entries = undefined; }
-    if (!Array.isArray(entries)) { unreadable.push(file.startsWith(home) ? `~${file.slice(home.length)}` : file); continue; }
+    if (!Array.isArray(entries)) { unreadable.push(file.startsWith(join(home, sep)) ? `~${sep}${relative(home, file)}` : file); continue; }
     read += 1;
     for (const entry of entries as Array<{ identifier?: { id?: unknown } } | null>) if (typeof entry?.identifier?.id === 'string') ids.add(entry.identifier.id.toLowerCase());
   }
   return { ids, read, unreadable };
 }
 
-// Every file under the smoke test's workspace except Git's own, with a hash of its content
-// (a symlink by its target). Comparing two of these shows what a client changed, which
-// `git status` can hide: status.showUntrackedFiles=no or a global exclude makes it silent.
+// Every entry under the smoke test's workspace except Git's own: directories, symlinks by
+// target, other special files by type, and regular files by executable bits and content.
+// Comparing two of these shows what a client changed, which `git status` can hide:
+// status.showUntrackedFiles=no or a global exclude makes it silent. Only regular files are
+// opened, bounded and never through a symlink, so a FIFO the client left cannot block the
+// check. The workspace starts with small files only, so a larger one is new, or changed size.
 function workspaceFiles(root: string): Map<string, string> {
   const files = new Map<string, string>();
   const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (dir === root && entry.name === '.git') continue;
-      const path = join(dir, entry.name);
-      if (files.size >= 10000) throw new Error('The smoke workspace holds more than 10,000 files.');
-      if (entry.isDirectory()) walk(path);
-      else files.set(relative(root, path).split(sep).join('/'), entry.isSymbolicLink() ? `link:${readlinkSync(path)}` : createHash('sha256').update(readFileSync(path)).digest('hex'));
+    for (const entry of readdirSync(dir)) {
+      if (dir === root && entry === '.git') continue;
+      const path = join(dir, entry);
+      const name = relative(root, path).split(sep).join('/');
+      if (files.size >= 10000) throw new Error('The smoke workspace holds more than 10,000 entries.');
+      const stat = lstatSync(path);
+      if (stat.isDirectory()) { files.set(`${name}/`, 'directory'); walk(path); }
+      else if (stat.isSymbolicLink()) files.set(name, `link:${readlinkSync(path)}`);
+      else if (!stat.isFile()) files.set(name, `special:${stat.mode}`);
+      else files.set(name, `${stat.mode & 0o111}:${stat.size > 1048576 ? `size:${stat.size}` : createHash('sha256').update(readBoundedFile(path, 1048576)).digest('hex')}`);
     }
   };
   walk(root);
@@ -103,7 +113,8 @@ function workspaceChanges(before: Map<string, string>, after: Map<string, string
 // UTF-8 with a byte-order mark, or UTF-16LE.
 function writtenText(bytes: Buffer): { text: string; encoding: string } {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return { text: bytes.subarray(3).toString('utf8'), encoding: 'utf-8 with BOM' };
-  if (bytes[0] === 0xff && bytes[1] === 0xfe) return { text: bytes.subarray(2).toString('utf16le'), encoding: 'utf-16le' };
+  // A trailing odd byte, which toString would drop, shows as U+FFFD and so never matches.
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return { text: `${bytes.subarray(2).toString('utf16le')}${bytes.length % 2 ? '\ufffd' : ''}`, encoding: 'utf-16le' };
   return { text: bytes.toString('utf8'), encoding: 'utf-8' };
 }
 
@@ -161,7 +172,7 @@ async function doctor(root: string): Promise<number> {
   if (extensions.read) {
     for (const [name, id] of knownExtensions) console.log(`${extensions.ids.has(id) ? 'OK' : 'INFO'} vscode-extension ${name}: ${id}`);
   } else if (!extensions.unreadable.length) {
-    console.log(`INFO vscode-extension inventory unavailable: no extensions.json in ${VSCODE_EXTENSION_FOLDERS.map((folder) => `~/${folder}/extensions`).join(', ')}, VSCODE_EXTENSIONS or VSCODE_PORTABLE.`);
+    console.log(`INFO vscode-extension inventory unavailable: no extensions.json in ${VSCODE_EXTENSION_FOLDERS.map((folder) => `~/${folder}/extensions`).join(', ')}, VSCODE_EXTENSIONS, VSCODE_PORTABLE or VSCODE_AGENT_FOLDER.`);
   }
   if (extensions.unreadable.length) console.log(`WARN vscode-extension inventory: could not read ${printable(extensions.unreadable.join(', '), 600)} (over 1 MiB, a symlink, or not a JSON list).`);
 
@@ -282,7 +293,7 @@ async function harnessSmoke(args: string[]): Promise<number> {
     if (!ok) {
       // Each check's own value, so a failure on a real workstation says which one failed.
       const result = parsed.status === 'completed' ? 'completed' : `${parsed.status} (${printable(parsed.blockers[0] ?? 'no reason given', 200)})`;
-      const shown = output ? `${printable(JSON.stringify(output.text.slice(0, 40)), 80)}${output.encoding === 'utf-8' ? '' : ` (${output.encoding})`}` : present ? 'unreadable (over 1 KiB, or a symlink)' : 'missing';
+      const shown = output ? `${printable(JSON.stringify(output.text.slice(0, 40)), 80)}${output.encoding === 'utf-8' ? '' : ` (${output.encoding})`}` : present ? 'unreadable (not a regular file of at most 1 KiB)' : 'missing';
       const written = mode === 'modify' ? ` output=${shown}` : '';
       console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} result=${result} changed=${printable(changed.join(','), 200) || 'none'}${written}`);
       return 1;

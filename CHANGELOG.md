@@ -74,6 +74,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
     - `OUTPUT.txt` may also carry a UTF-8 byte-order mark or be UTF-16LE, as PowerShell 5.1 writes them. It is read bounded, and never through a symlink.
     - The modify prompt now says to create or change no other file.
     - Doctor also reads `VSCODE_EXTENSIONS`, `VSCODE_PORTABLE` and Codespaces' `~/.vscode-remote`. It treats an empty `extensions.json` as no extensions, as VS Code does, and warns, naming the file, when one exists but cannot be read.
+  - After independent review of that follow-up, which was merged before the review finished:
+    - The smoke test's scan opens only regular files, bounded and never through a symlink. A FIFO a client left in the workspace made it block in `open()`, beyond the reach of Ctrl-C. It also records directories, special files and each file's executable bits. Read mode passed when a client made a tracked file executable, which `git status` had reported; it now fails, as it does when a client creates an empty folder.
+    - A UTF-16LE `OUTPUT.txt` with a stray odd byte no longer passes.
+    - Doctor also reads the VS Code server's `VSCODE_AGENT_FOLDER`, and shortens only paths inside the home folder to `~`.
   - Every `ccon run --execute` that created an agent worktree on Windows stopped before starting the provider, reporting that Git configuration had changed when nothing had.
     - **Cause:** the check compared the repository's shared configuration as read from the agent worktree with the reading from the primary checkout. On Windows, Git names `.git/config` with forward slashes in the agent worktree. Code Conductor turned the primary checkout's relative `.git/config` into a path with backslashes, so the two readings never matched. On any system, `includeIf "gitdir:..."` and `"onbranch:..."` also legitimately differ between the two.
     - **Fix:** each directory is now compared only with its own first reading. The directory that first read the repository is read again whenever another of its worktrees is checked, so a change an earlier assignment made there is still caught.
