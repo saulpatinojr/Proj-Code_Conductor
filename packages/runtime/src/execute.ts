@@ -265,6 +265,27 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           save();
           continue;
         }
+        // Read-only assignments ran in the builder's worktree after its commit (#111). Gate
+        // evidence is bound to the working tree, while `ccon pr` pushes the committed branch,
+        // so the two must still be the same content before any gate runs. An edit left there
+        // by a read-only agent, or by something it started, is named and needs a person.
+        if (primaryBuilderWorktree && validationRoot === primaryBuilderWorktree.path) {
+          let drift: string | undefined;
+          try {
+            const state = workingTreeState(validationRoot);
+            if (state.tree !== headTree(validationRoot)) {
+              const steps = laterSteps.get(validationRoot);
+              drift = `The working tree of ${validationRoot} no longer matches its HEAD commit${steps ? ` after ${steps.join(', ')} ran there` : ''}: ${summarizeFiles(treeChangedFiles(validationRoot, state.revision, state.tree))}. Gate evidence would describe content that \`ccon pr\` never pushes, so the gate commands did not run. Review the worktree, then commit or discard the edits yourself.`;
+            }
+          } catch (error) {
+            drift = `The working tree of ${validationRoot} could not be compared with its HEAD commit before the gate commands (${error instanceof Error ? error.message : String(error)}); they did not run.`;
+          }
+          if (drift) {
+            manifest.results.push(blockedResult(assignment, drift));
+            save();
+            continue;
+          }
+        }
         const runnable = gatePlan.filter((item) => !item.missing.length);
         if (runnable.length) {
           // Gate profiles run the target repository's own scripts, so they are local execution.
