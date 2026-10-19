@@ -13,7 +13,9 @@ targets:
   - agent-skills
 
 dependencies:
-  apm: []
+  apm:
+    - saulpatinojr/Proj-Agent_Packs/typescript-distinguished-engineer-pack#16f41836d65cbf79070ecdb2ef835c78c57b6ae6
+    - saulpatinojr/Proj-Agent_Packs/github-expert-engineer-pack#16f41836d65cbf79070ecdb2ef835c78c57b6ae6
   mcp: []
 
 includes: auto

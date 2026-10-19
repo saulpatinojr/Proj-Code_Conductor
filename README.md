@@ -124,7 +124,7 @@ Start with [`docs/README.md`](docs/README.md). Key documents include:
 ## Repository truth model
 
 - GitHub issue #7 / the linked GitHub Project is the durable product roadmap/backlog once the Project is created.
-- `.apm/` holds Code Conductor's own skills only; specialist packs come from Agent Packs through APM (ADR 0015).
+- `.apm/` holds Code Conductor's own skills only; specialist packs come from Agent Packs through APM (ADR 0015). `apm.yml` pins the packs this repository works with to a tagged commit, and the files under `.claude/`, `.codex/`, `.github/`, `.kiro/` and `.agents/` that APM materializes from them are generated state recorded in `apm.lock.yaml`, not sources to edit here.
 - `apm.yml` declares package targets/dependencies.
 - `apm.lock.yaml` and harness-specific projections are generated/materialized state and are committed for reproducibility; do not hand-edit the lockfile.
 - `config/mcp-catalog.yaml` is Code Conductor's policy-driven MCP catalog. `.github/mcp.json` is a minimal Copilot CLI repository configuration, not a second catalog.
