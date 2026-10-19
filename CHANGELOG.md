@@ -63,6 +63,8 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Changed
 
+- Claude Code reviews run with `--max-turns 40`, the same budget as a modifying assignment, instead of 20 (#4). In the 2026-10-19 R1 dogfood one of two reviews of this repository stopped at a tool call on the 20th turn, after 174 seconds, without reaching its final `CC_RESULT_JSON` line. The blocker for such a result now says so (`Claude Code reported error_max_turns after 20 turn(s), stopped at tool_use`).
+
 - Reviewers and gate commands run in the builder's worktree after its own commits were checked, and could add commits there unnamed and unscanned. `ccon next` then suggested a plain `git push` of the branch. Before the merge decision, Code Conductor now checks that the worktree's history still ends where the builder's check left it. Commits added since are named, with the steps that ran there, scanned and path-checked. A HEAD moved off the branch, or a rewritten branch, makes the run `human_required`; a credential, a sensitive path or a deleted branch blocks it. `ccon next` now suggests `ccon pr`, which scans exactly what it pushes. (From the security review of #104.)
 - The check of an agent's own commits now reads both HEAD and the agent's branch. An agent could commit on its branch and then move HEAD back to the base (`git checkout --detach`): the worktree looked untouched, and the branch a person merges carried commits that were neither named nor scanned for credentials. Both are now checked. A HEAD that is not the branch tip makes the run `human_required`, and a branch the agent deleted blocks it.
   - After independent security review:

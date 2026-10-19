@@ -82,6 +82,8 @@ describe('how a client process ended (2026-10-19 dogfood, #4)', () => {
     expect(terminalReason('claude', maxTurns)).toBe('Claude Code reported error_max_turns after 20 turn(s)');
     expect(terminalReason('claude', JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 3, result: 'ok' }))).toBeUndefined();
     expect(terminalReason('claude', JSON.stringify({ type: 'result', is_error: true, result: 'x' }))).toBe('Claude Code reported an error result');
+    // The 2026-10-19 run-2 reviewer: cut off at a tool call on the turn limit.
+    expect(terminalReason('claude', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 20, stop_reason: 'tool_use', duration_api_ms: 174215 }))).toBe('Claude Code reported error_max_turns after 20 turn(s), stopped at tool_use');
     expect(terminalReason('claude', 'not json')).toBeUndefined();
     expect(processEnding('claude', ended({ exitCode: 1, stdout: maxTurns }))).toBe('exited with code 1 (Claude Code reported error_max_turns after 20 turn(s))');
     // The reason reaches the blocker list, so `ccon next` says why there is no result.

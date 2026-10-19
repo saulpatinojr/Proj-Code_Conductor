@@ -95,11 +95,13 @@ function plainReason(text: string): string {
 export function terminalReason(harness: string, stdout: string): string | undefined {
   const parse = (text: string): unknown => { try { return JSON.parse(text) as unknown; } catch { return undefined; } };
   if (harness === 'claude') {
-    const value = parse(stdout.trim()) as { subtype?: unknown; is_error?: unknown; num_turns?: unknown } | undefined;
+    const value = parse(stdout.trim()) as { subtype?: unknown; is_error?: unknown; num_turns?: unknown; stop_reason?: unknown } | undefined;
     if (!value || typeof value !== 'object') return undefined;
     const turns = typeof value.num_turns === 'number' ? ` after ${value.num_turns} turn(s)` : '';
-    if (typeof value.subtype === 'string' && value.subtype !== 'success') return plainReason(`Claude Code reported ${value.subtype}${turns}`);
-    if (value.is_error === true) return plainReason(`Claude Code reported an error result${turns}`);
+    // A turn limit leaves the model mid-action: stop_reason says what it was about to do.
+    const stopped = typeof value.stop_reason === 'string' && value.stop_reason !== 'end_turn' ? `, stopped at ${value.stop_reason}` : '';
+    if (typeof value.subtype === 'string' && value.subtype !== 'success') return plainReason(`Claude Code reported ${value.subtype}${turns}${stopped}`);
+    if (value.is_error === true) return plainReason(`Claude Code reported an error result${turns}${stopped}`);
     return undefined;
   }
   if (harness === 'codex') {
@@ -296,7 +298,10 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
       // and commands load; the repository's own are not loaded under this flag.
       return writeAllowed
         ? ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'acceptEdits', '--max-turns', '40', request.prompt]
-        : ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '20', request.prompt];
+        // 40 turns for a review too: in the 2026-10-19 R1 dogfood (#4) one of two
+        // reviews of this repository stopped at a tool call on the 20th turn, after
+        // 174 s, without reaching its final CC_RESULT_JSON line.
+        : ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '40', request.prompt];
     default:
       return [request.prompt];
   }

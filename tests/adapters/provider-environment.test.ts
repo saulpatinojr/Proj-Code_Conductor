@@ -107,7 +107,7 @@ describe('provider client environment', () => {
   it('starts Claude with only user and managed settings, in both modes', () => {
     const claude = createBuiltinAdapters().get('claude')!;
     const request = (authority: string[]) => ({ cwd: '/r', timeoutMs: 1, prompt: 'P', task: { id: 'T' }, assignment: { authority } }) as unknown as HarnessExecutionRequest;
-    expect(claude.invocation!(request(['observe'])).args).toEqual(['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '20', 'P']);
+    expect(claude.invocation!(request(['observe'])).args).toEqual(['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '40', 'P']);
     expect(claude.invocation!(request(['modify_worktree'])).args).toEqual(['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'acceptEdits', '--max-turns', '40', 'P']);
   });
 
