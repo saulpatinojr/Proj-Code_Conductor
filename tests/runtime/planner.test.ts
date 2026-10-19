@@ -84,3 +84,12 @@ describe('task planner', () => {
     expect(finalizer?.authority).not.toContain('merge');
   });
 });
+
+describe('R0 composition (AGENTS.md section 5)', () => {
+  it('gives a trivial task its deterministic check: a builder and the internal validator', () => {
+    const task = createTask('Fix a typo', 'R0', resolve('.'));
+    const plan = planTask(resolve('.'), task, { availableHarnesses: new Set(['codex', 'claude']) });
+    expect(plan.assignments.map((a) => a.role)).toEqual(['builder', 'validator']);
+    expect(plan.assignments.find((a) => a.role === 'validator')?.harness).toBe('internal-validator');
+  });
+});

@@ -212,3 +212,43 @@ describe('run execution', () => {
     } finally { rmSync(temp, { recursive: true, force: true }); }
   });
 });
+
+// A client that reports completion and then exits with an error (2026-10-19 dogfood, #4).
+class CrashingAfterReportAdapter extends FakeAdapter {
+  override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+    const outcome = await super.execute(request);
+    return request.assignment.role === 'reviewer' ? { ...outcome, exitCode: 1 } : outcome;
+  }
+}
+
+describe('trust in a completion claim (2026-10-19 dogfood, #4)', () => {
+  it('does not trust a completion claim from a client that exited with an error', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'cc-run-test-'));
+    try {
+      const adapters = new Map<string, HarnessAdapter>([['codex', new FakeAdapter('codex', 'openai')], ['claude', new CrashingAfterReportAdapter('claude', 'anthropic')]]);
+      const outcome = await executeTask(resolve('.'), createTask('crash after report', 'R1', resolve('.')), {
+        execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp),
+        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true, approver: approveAll,
+      });
+      const reviewer = outcome.manifest.results.find((result) => result.role === 'reviewer');
+      expect(reviewer?.status).toBe('failed');
+      expect(reviewer?.recommendation).toBe('changes_required');
+      expect(reviewer?.blockers.join(' ')).toContain('The claude client exited with code 1 after reporting completion');
+      expect(outcome.manifest.mergeDecision?.decision).toBe('changes_required');
+    } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+
+  it('runs the deterministic check for an R0 task: a builder and the internal validator (AGENTS.md section 5)', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'cc-run-test-'));
+    try {
+      const adapters = new Map<string, HarnessAdapter>([['codex', new FakeAdapter('codex', 'openai')], ['claude', new FakeAdapter('claude', 'anthropic')]]);
+      const outcome = await executeTask(resolve('.'), createTask('trivial R0 change', 'R0', resolve('.')), {
+        execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp),
+        gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true, approver: approveAll,
+      });
+      expect(outcome.manifest.results.map((result) => result.role)).toEqual(['builder', 'validator']);
+      expect(outcome.manifest.gates.length).toBeGreaterThan(0);
+      expect(outcome.manifest.mergeDecision?.decision).toBe('ready');
+    } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+});

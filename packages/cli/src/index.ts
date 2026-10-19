@@ -11,7 +11,7 @@ import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand
 import { RunStore } from '@code-conductor/evidence';
 import { agentWorktreeRemovalProblem, defaultWorktreeRoot, redactSecrets, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
-import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, providerEnvironment } from '@code-conductor/adapters';
+import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, processSucceeded, providerEnvironment } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
@@ -288,9 +288,8 @@ async function harnessSmoke(args: string[]): Promise<number> {
     const writeOk = mode === 'modify'
       ? (output?.text === 'WRITE_OK\n' || output?.text === 'WRITE_OK\r\n') && changed.length === 1 && changed[0] === '+OUTPUT.txt'
       : changed.length === 0;
-    const processOk = adapter.executionSurface === 'acp'
-      ? !outcome.timedOut && (outcome.exitCode === null || outcome.exitCode === 0)
-      : outcome.exitCode === 0;
+    // The same rule a run applies before trusting a completion claim.
+    const processOk = processSucceeded(outcome);
     const ok = processOk && parsed.status === 'completed' && writeOk;
     if (!ok) {
       // Each check's own value, so a failure on a real workstation says which one failed.

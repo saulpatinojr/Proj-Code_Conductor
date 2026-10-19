@@ -3,7 +3,10 @@ version: 1
 risk_classes:
   R0:
     description: trivial, bounded, low-impact
-    required_roles: [builder]
+    # AGENTS.md section 5: single builder plus a deterministic check. The validator is
+    # the internal gate runner, not a second agent; without it no gate runs and the run
+    # could only fail closed (2026-10-19 dogfood finding, #4).
+    required_roles: [builder, validator]
     deterministic_validation: true
     human_approval: false
 

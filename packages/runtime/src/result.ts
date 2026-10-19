@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { validateContract, type AgentAssignment, type AgentResult, type Evidence } from '@code-conductor/schemas';
-import { hasFinalMessage, type HarnessExecutionOutcome } from '@code-conductor/adapters';
+import { hasFinalMessage, processEnding, processSucceeded, terminalReason, type HarnessExecutionOutcome } from '@code-conductor/adapters';
 
 const marker = 'CC_RESULT_JSON:';
 
@@ -11,6 +11,10 @@ function fallbackResult(assignment: AgentAssignment, outcome: HarnessExecutionOu
     source: `${assignment.harness}:${assignment.surface ?? outcome.surface}:${assignment.agentId}`,
     summary: [(outcome.message ?? outcome.stdout).trim(), outcome.stderr.trim()].filter(Boolean).join('\n').slice(0, 12000) || 'Agent returned no structured result.',
   };
+  // How the client ended says why there is no result: a usage error, a turn limit, a crash.
+  const ending = !processSucceeded(outcome) || terminalReason(assignment.harness, outcome.stdout)
+    ? [`The ${assignment.harness} client ${processEnding(assignment.harness, outcome)}.`]
+    : [];
   return {
     taskId: assignment.taskId,
     assignmentId: assignment.id,
@@ -27,7 +31,7 @@ function fallbackResult(assignment: AgentAssignment, outcome: HarnessExecutionOu
     evidence: [evidence],
     findings: [],
     risks: [],
-    blockers: [reason],
+    blockers: [reason, ...ending],
     recommendation: 'changes_required',
   };
 }

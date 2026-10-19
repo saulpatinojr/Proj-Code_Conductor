@@ -12,7 +12,7 @@ installation, a successful smoke test and a final `ready` decision are not appro
 |---|---|---|
 | `local_execution` | before starting a provider client process, including every retry | run, task, assignment, attempt, recipient `provider/harness@surface`, working directory, HEAD revision, working-tree content, exact client argv (prompt redacted), surface, authority, billing channel |
 | `context_disclosure` | before sending the task prompt and repository access to a provider, including every retry | attempt, recipient, working directory, HEAD revision, working-tree content, prompt SHA-256 and byte length |
-| `local_execution` (gates) | before running the target repository's deterministic gate commands | validation directory, HEAD revision, working-tree content, digest of the exact planned commands |
+| `local_execution` (gates) | before running the target repository's deterministic gate commands | validation directory, HEAD revision, working-tree content, digest of the exact planned commands (profile, gate, command, resolved file, interpreter arguments such as Windows npm's `npm-cli.js`, gate arguments, timeout, unmet prerequisites) |
 | `commit` | before Code Conductor commits agent changes | agent worktree, HEAD revision, exact Git tree to be committed, agent branch, base SHA, changed-file list |
 | `deployment` | API for native pipeline connectors | recipient pipeline/environment plus deployment-specific bindings |
 

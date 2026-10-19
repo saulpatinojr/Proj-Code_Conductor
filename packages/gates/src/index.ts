@@ -203,6 +203,8 @@ export interface PlannedGate {
   explicit: boolean;
   /** Absolute file the command resolved to; this exact file is what runs and what approval binds. */
   executable?: string;
+  /** Arguments placed before the gate's own when `executable` is an interpreter running the command's script (Windows npm and npx, D-074); bound by the approval too. */
+  prefixArgs?: string[];
 }
 
 function missingPrerequisites(root: string, gate: GateDefinition): string[] {
@@ -231,8 +233,8 @@ export function planGates(root: string, profiles?: string[], config = loadGateCo
     return profile.gates.map((gate) => {
       const forbidden = forbiddenGateReason(gate);
       if (forbidden) throw new Error(`Gate ${profileName}/${gate.id} is not allowed: ${forbidden}`);
-      const executable = resolveExecutable(gate.command).path;
-      return { profile: profileName, gate, timeoutMs: gate.timeout_ms ?? config.default_timeout_ms ?? 600000, missing: missingPrerequisites(root, gate), explicit, ...(executable ? { executable } : {}) };
+      const resolved = resolveExecutable(gate.command);
+      return { profile: profileName, gate, timeoutMs: gate.timeout_ms ?? config.default_timeout_ms ?? 600000, missing: missingPrerequisites(root, gate), explicit, ...(resolved.path ? { executable: resolved.path } : {}), ...(resolved.prefixArgs?.length ? { prefixArgs: [...resolved.prefixArgs] } : {}) };
     });
   });
 }
@@ -257,7 +259,11 @@ export async function executeGatePlan(root: string, plan: readonly PlannedGate[]
       executions.push({ profile, blocking: true, result: { gate: gate.id, status: 'failed', evidenceIds: [evidenceId], summary }, evidence: { id: evidenceId, kind: 'test', source: commandLine, summary, sha256: createHash('sha256').update('').digest('hex') } });
       continue;
     }
-    const outcome = await executor(root, gate.command, gate.args ?? [], timeoutMs, executable!);
+    // What actually starts: the resolved file, then any interpreter arguments the resolution
+    // added (Windows npm and npx), then the gate's own arguments.
+    const prefixArgs = item.prefixArgs ?? [];
+    const launched = [executable!, ...prefixArgs].join(' ');
+    const outcome = await executor(root, gate.command, [...prefixArgs, ...(gate.args ?? [])], timeoutMs, executable!);
     const passed = outcome.status === 0 && !outcome.timedOut;
     const evidenceId = `E-${randomUUID()}`;
     const combined = [outcome.stdout.trim(), outcome.stderr.trim()].filter(Boolean).join('\n');
@@ -269,7 +275,7 @@ export async function executeGatePlan(root: string, plan: readonly PlannedGate[]
     let uri: string | undefined;
     if (options.render) {
       try {
-        const rendered = options.render({ evidenceId, profile, gate, commandLine, executable: executable!, outcome, passed, headline: summary, sha256: digest, combined });
+        const rendered = options.render({ evidenceId, profile, gate, commandLine, executable: launched, outcome, passed, headline: summary, sha256: digest, combined });
         if (rendered?.text !== undefined) text = rendered.text;
         if (rendered?.uri) uri = rendered.uri;
       } catch (error) {
@@ -279,7 +285,7 @@ export async function executeGatePlan(root: string, plan: readonly PlannedGate[]
     const evidence: Evidence = {
       id: evidenceId,
       kind: 'test',
-      source: `${commandLine} (${executable})`,
+      source: `${commandLine} (${launched})`,
       summary: text ? `${summary}\n${text}` : summary,
       ...(uri ? { uri } : {}),
       sha256: digest,
@@ -304,6 +310,6 @@ export async function executeGatePlan(root: string, plan: readonly PlannedGate[]
   return executions;
 }
 
-export function blockingGateFailure(executions: GateExecution[]): boolean {
+export function blockingGateFailure(executions: readonly GateExecution[]): boolean {
   return executions.some((item) => item.blocking && item.result.status === 'failed');
 }
