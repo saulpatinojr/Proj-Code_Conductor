@@ -127,6 +127,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Reconciled Phase 1 tracking: issue #2 is complete and live workstation/R1/R2 validation is tracked in issue #4.
 - Renamed the canonical repository to `saulpatinojr/Proj-Code_Conductor` and the APM package to `proj-code-conductor`; in-tree clone, issue-template, VS Code packaging, and repository-layout references now use the new name. See ADR 0010 and D-001.
 
+### Fixed
+
+- Codex never started (#4; D-073): the adapter passed `--ask-for-approval never` to `codex exec`, a flag the headless surface does not accept (its approval policy is already Never), so the client exited 2 with a usage error before any prompt ran. The flag is removed; the sandbox flag, `--cd` and `--json` stay. A failed `ccon harness-smoke` now prints the client's last stderr lines on its `SMOKE FAIL` line, redacted and escaped, so a usage error, a sandbox refusal or a cancelled permission is visible in the evidence.
+
 ### Security
 
 - Local CodeQL (`security-and-quality`, 2026-10-19) findings fixed: a remote URL's query/fragment is now cut by index rather than a regular expression CodeQL rated polynomial; the Agent Catalog inventory script, the provider-native inventory and `ccon import` read each file through the one descriptor they check (no final symlink followed, size checked on the open file), instead of checking a path and then reading it by name; two unused imports removed. Actions queries reported nothing.

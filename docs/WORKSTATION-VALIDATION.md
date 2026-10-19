@@ -205,6 +205,11 @@ node "$CC_JS" harness-smoke claude --mode modify
 
 If a smoke test fails, do not mark the harness trusted manually; inspect the installed client's permissions/sandbox configuration and current official documentation.
 
+Reading a `SMOKE FAIL` line: each field is one check. `exit=` and `signal=` are the client process; `result=` is the structured result it returned; `changed=` lists what changed in the temporary workspace; `output=` (modify only) is what `OUTPUT.txt` holds; `stderr=` shows the client's last stderr lines, redacted and with control characters escaped. Two shapes are worth knowing:
+
+- `exit=2 ... changed=none` from a CLI client is a command-line usage error: the client rejected an argument and never ran the prompt. `stderr=` names the argument. This is a Code Conductor defect to report, not a workstation problem (D-073 was one).
+- `exit=null signal=SIGTERM timeout=false` from Kiro is the adapter's own teardown after the prompt returned, not a crash. The failed check is `result=` or `output=`; a modify smoke that ends with `output=missing` and `[ACP permission cancelled]` lines in `stderr=` is the designed fail-closed outcome while Kiro's permission model is unvalidated.
+
 ## 8. GitHub Gatekeeper validation
 
 Verify:

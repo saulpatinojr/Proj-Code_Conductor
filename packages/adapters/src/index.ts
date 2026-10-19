@@ -222,7 +222,13 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
   const writeAllowed = request.assignment.authority.includes('modify_worktree');
   switch (id) {
     case 'codex':
-      return ['exec', '--json', '--ask-for-approval', 'never', '--sandbox', writeAllowed ? 'workspace-write' : 'read-only', '--cd', request.cwd, request.prompt];
+      // `codex exec` is the headless surface: its approval policy is Never by
+      // construction and it accepts no --ask-for-approval flag (codex-rs/exec/src/lib.rs
+      // and codex-rs/utils/cli/src/shared_options.rs at rust-v0.163.0; the same at every
+      // release checked back to 0.40). An unknown flag is a usage error, exit 2, before
+      // the prompt runs, which is how the 2026-10-19 workstation smoke failed (D-073).
+      // The sandbox flag is what limits the client to the worktree.
+      return ['exec', '--json', '--sandbox', writeAllowed ? 'workspace-write' : 'read-only', '--cd', request.cwd, request.prompt];
     case 'claude':
       // --setting-sources user: the repository's .claude/settings*.json and .mcp.json are
       // not read. Under -p Claude Code would otherwise apply their env block, apiKeyHelper

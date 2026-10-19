@@ -52,6 +52,25 @@ function writingClaude(write: string, reply = 'Done.\nCC_RESULT_JSON:{"status":"
   return { home, env: { ...process.env, PATH: `${root}${delimiter}${process.env.PATH ?? ''}`, CODE_CONDUCTOR_HOME: home } };
 }
 
+// A fake Claude Code that rejects its command line the way a clap-based client such as
+// Codex does: a usage message on stderr, nothing on stdout, exit status 2.
+function rejectingClaude(): { home: string; env: NodeJS.ProcessEnv } {
+  const root = mkdtempSync(join(tmpdir(), 'cc-smoke-reject-'));
+  temps.push(root);
+  writeFileSync(join(root, 'claude'), [
+    '#!/bin/sh',
+    'if [ "$1" = "--version" ]; then echo "1.0.0 (Claude Code)"; exit 0; fi',
+    'if [ "$1 $2" = "auth status" ]; then echo \'{"loggedIn":true,"authMethod":"claude.ai"}\'; exit 0; fi',
+    `printf '%s\\n' "error: unexpected argument '--ask-for-approval' found" "" "Usage: codex exec [OPTIONS] [PROMPT]" "" "For more information, try '--help'." >&2`,
+    `printf '\\033[31mred\\033[0m\\n' >&2`,
+    `printf '%s\\n' "token sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef" >&2`,
+    'exit 2',
+  ].join('\n'));
+  chmodSync(join(root, 'claude'), 0o755);
+  const home = join(root, 'home');
+  return { home, env: { ...process.env, PATH: `${root}${delimiter}${process.env.PATH ?? ''}`, CODE_CONDUCTOR_HOME: home } };
+}
+
 // Each test starts the CLI and gives it 60 s; creating 10,001 files alone can take seconds
 // on a slow file system. SIGKILL, because a CLI blocked in a system call (opening a FIFO,
 // say) never runs its own SIGTERM handler, and spawnSync would wait for it forever.
@@ -95,6 +114,16 @@ describe.skipIf(process.platform === 'win32')('ccon harness-smoke --mode modify'
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('SMOKE FAIL claude cli modify: exit=0 signal=null timeout=false');
     expect(run.stderr).toContain(detail);
+    expect(trusted(client.home)).toBe(false);
+  });
+
+  it('shows the client\'s last stderr lines, redacted and escaped, when it exits without a result', () => {
+    const client = rejectingClaude();
+    const run = smoke(client.env);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`SMOKE FAIL claude cli modify: exit=2 signal=null timeout=false result=failed (Agent did not return a valid CC_RESULT_JSON structured result.) changed=none output=missing stderr=error: unexpected argument '--ask-for-approval' found | Usage: codex exec [OPTIONS] [PROMPT] | For more information, try '--help'. | ?[31mred?[0m | token [redacted OpenAI API key]`);
+    expect(run.stderr).not.toContain('sk-proj-');
+    expect(run.stderr).not.toMatch(/[\u0007\u001b]/);
     expect(trusted(client.home)).toBe(false);
   });
 
