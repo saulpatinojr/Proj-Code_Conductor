@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { loadConfiguration, type ConfigurationName } from '@code-conductor/policy';
+import { loadConfiguration, roleInstructionsProblem, type ConfigurationName } from '@code-conductor/policy';
 import type { AgentAssignment, BillingChannel, RiskClass, Stance, TaskEnvelope } from '@code-conductor/schemas';
 
 interface RoleConstraints {
@@ -17,6 +17,7 @@ interface RoleDefinition {
   may_approve?: boolean;
   may_merge?: boolean;
   constraints?: RoleConstraints;
+  instructions?: unknown;
 }
 interface RolesDocument { roles: Record<string, RoleDefinition> }
 interface RiskDefinition { required_roles?: string[]; inherits?: RiskClass }
@@ -44,6 +45,18 @@ interface CapabilityDocument {
 const riskRank: Record<RiskClass, number> = { R0: 0, R1: 1, R2: 2, R3: 3, R4: 4 };
 
 function load<T>(root: string, name: ConfigurationName): T { return loadConfiguration<T>(root, name).document; }
+
+/**
+ * The rules a role's assignment prompt carries, from the configured role (packaged
+ * defaults, narrowed by user and workspace preferences). Malformed rules are refused
+ * here as well, so a configuration `ccon validate` would reject never reaches a prompt.
+ */
+export function roleInstructions(root: string, role: string): string[] {
+  const definition = load<RolesDocument>(root, 'roles').roles?.[role];
+  const problem = roleInstructionsProblem(definition?.instructions);
+  if (problem) throw new Error(`Role ${role} in config/roles.yaml: ${problem}.`);
+  return [...((definition?.instructions as string[] | undefined) ?? [])];
+}
 function inheritedRoles(risks: RiskDocument, risk: RiskClass, seen = new Set<RiskClass>()): string[] {
   if (seen.has(risk)) throw new Error(`Risk inheritance cycle at ${risk}`);
   seen.add(risk);

@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
-import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, stoppedForGitControl, TOOL_OUTPUT_MODES, type NextAction, type PullRequestOptions, type ToolOutputMode } from '@code-conductor/runtime';
+import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, roleInstructions, stoppedForGitControl, TOOL_OUTPUT_MODES, type NextAction, type PullRequestOptions, type ToolOutputMode } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
 import { agentWorktreeRemovalProblem, defaultWorktreeRoot, redactSecrets, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
@@ -470,7 +470,8 @@ function handoff(args: string[]): number {
     if (args.includes('--json')) { console.log(terminalSafeJson(handoff?.packet ?? null)); return 0; }
     // stderr carries guidance; stdout is only the prompt so it can be piped or copied exactly.
     console.error(`Manual handoff for ${printable(assignment.role)} (${printable(assignment.harness)}@${printable(assignment.surface ?? 'manual')}). Paste the prompt below into the official client yourself; this disclosure is your decision. Keep the client's result with run ${printable(runId)}.`);
-    const text = assignmentPrompt(manifest.task, assignment, handoff);
+    // The same role rules a run would render, from the configuration of the task's repository.
+    const text = assignmentPrompt(manifest.task, assignment, handoff, roleInstructions(resolve(manifest.task.repository ?? '.'), assignment.role));
     if (!process.stdout.isTTY) { process.stdout.write(`${text}\n`); return 0; }
     // On a terminal, untrusted task text must not drive it: each line is shown with
     // control and format characters replaced. Redirect stdout for the exact bytes.

@@ -33,7 +33,7 @@ function harness(initial: Record<string, unknown>) {
   const statePath = join(base, 'state.json');
   writeFileSync(statePath, JSON.stringify({ repository: REPOSITORY, calls: [], nextId: 1, variables: {}, policies: [], ...initial }));
   const run = (script: string, args = '', cwd = base, prefix = '') => spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `${prefix}& ${quote(join(OWNER, script))} ${args}`], {
-    encoding: 'utf8', cwd, env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, FAKE_GH_STATE: statePath, HOME: base, NO_COLOR: '1' },
+    encoding: 'utf8', cwd, env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`, FAKE_GH_STATE: statePath, HOME: base, USERPROFILE: base, NO_COLOR: '1' },
   });
   const read = (): State => JSON.parse(readFileSync(statePath, 'utf8')) as State;
   const writes = (): string[] => read().calls.filter((call) => call.method && call.method !== 'GET').map((call) => `${call.method} ${call.endpoint}`);
@@ -84,7 +84,10 @@ describe('scripts/owner, statically', () => {
   });
 });
 
-describe.skipIf(!hasPwsh)('scripts/owner, with PowerShell', { timeout: PWSH_TIMEOUT }, () => {
+// The fake gh is a shell script. On Windows the scripts find only applications (.exe, .cmd),
+// and a .cmd shim goes through cmd.exe, which splits API URLs on `&` and `?`; so these run
+// where a shell script is a program: Linux and macOS, including CI.
+describe.skipIf(!hasPwsh || process.platform === 'win32')('scripts/owner, with PowerShell', { timeout: PWSH_TIMEOUT }, () => {
   it('parse without errors', () => {
     const files = readdirSync(OWNER).filter((name) => /\.ps(m?1)$/.test(name)).map((name) => quote(join(OWNER, name))).join(',');
     const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command',

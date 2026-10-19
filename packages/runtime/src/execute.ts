@@ -10,7 +10,7 @@ import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, ty
 import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, redactSecrets, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, worktreeTips, type GitControlState, type WorktreeHandle, type WorktreeTips } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
-import { planTask, type TaskPlan } from './planner.js';
+import { planTask, roleInstructions, type TaskPlan } from './planner.js';
 import { CLIENT_BILLS_SEPARATELY, CLIENT_NOT_SIGNED_IN, GIT_CONTROL_CHANGED } from './next-actions.js';
 import { shortList, summarizeFiles } from './change-summary.js';
 import { gateOutputRenderer, type ToolOutputMode } from './tool-output.js';
@@ -46,10 +46,15 @@ export interface ExecuteOptions {
 }
 export interface ExecuteOutcome { plan: TaskPlan; manifest: RunManifest; manifestPath: string; pendingExternal: AgentAssignment[]; worktrees: WorktreeHandle[] }
 
-/** The exact prompt an assignment receives; also used for a person-driven manual handoff. */
-export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment, handoff?: { packet: HandoffPacket; sha256?: string }): string {
+/**
+ * The exact prompt an assignment receives; also used for a person-driven manual handoff.
+ * `rules` are the role's configured instructions (`roleInstructions`), rendered after the
+ * role line so every client gets the same role text whatever agents it has installed.
+ */
+export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment, handoff?: { packet: HandoffPacket; sha256?: string }, rules: readonly string[] = []): string {
   return [
     `Code Conductor task ${task.id}.`, `Objective: ${task.objective}`, `Role: ${assignment.role}. Stance: ${assignment.stance}.`,
+    ...(rules.length ? ['Role rules:', ...rules.map((rule) => `- ${rule}`)] : []),
     `Harness: ${assignment.harness}. Surface: ${assignment.surface ?? 'unspecified'}.`,
     `Authority: ${assignment.authority.join(', ') || 'observe'}.`,
     `Acceptance criteria: ${task.acceptanceCriteria.length ? task.acceptanceCriteria.join(' | ') : 'Use repository task definition and policy.'}`,
@@ -368,7 +373,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       stopped = controlChange(cwd, `before starting ${recipient}`);
       const prepared = stopped ? {} : prepareHandoff(assignment, cwd);
       const handoff = prepared.handoff;
-      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment, handoff) };
+      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment, handoff, roleInstructions(root, assignment.role)) };
       // Starting the client and disclosing the prompt plus repository access are
       // approved together but recorded separately, each bound to this recipient.
       // Every start, including a retry, is a new process and a new disclosure, so
