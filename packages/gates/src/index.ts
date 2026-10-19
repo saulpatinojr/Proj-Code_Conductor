@@ -1,6 +1,6 @@
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { absolutePathEnvironment, resolveExecutable, runIsolated } from '@code-conductor/core/processes';
 import { gateCommandProblem, loadConfiguration } from '@code-conductor/policy';
@@ -65,6 +65,36 @@ export interface GateExecution {
   evidence: Evidence;
   blocking: boolean;
 }
+
+/** One executed gate's output, offered to the caller before the evidence record is written. */
+export interface GateOutputContext {
+  evidenceId: string;
+  profile: string;
+  gate: GateDefinition;
+  commandLine: string;
+  executable: string;
+  outcome: CommandOutcome;
+  passed: boolean;
+  /** The verdict line the evidence summary starts with; the verdict never comes from the output text. */
+  headline: string;
+  /** Digest recorded in the evidence: the runner's full-output digest, or one over the combined text. */
+  sha256: string;
+  /** stdout and stderr, trimmed and joined, as the default evidence shows them (bounded). */
+  combined: string;
+}
+
+export interface GateExecutionOptions {
+  /**
+   * Called for each gate that ran. It may store the full output (returning its `uri`)
+   * and replace the bounded text shown under the headline (#94). The verdict, the
+   * digest and the headline are not its to change. A thrown error fails the gate's
+   * evidence closed with the error in its summary; the gate's status is unaffected.
+   */
+  render?: (context: GateOutputContext) => { text?: string; uri?: string } | undefined;
+}
+
+/** Characters of combined output the default evidence record shows under the headline. */
+export const BOUNDED_OUTPUT_CHARS = 8000;
 
 const MAX_CAPTURE = 4 * 1024 * 1024;
 
@@ -207,12 +237,12 @@ export function planGates(root: string, profiles?: string[], config = loadGateCo
   });
 }
 
-export async function runGates(root: string, profiles?: string[], executor: CommandExecutor = defaultExecutor): Promise<GateExecution[]> {
-  return executeGatePlan(root, planGates(root, profiles), executor);
+export async function runGates(root: string, profiles?: string[], executor: CommandExecutor = defaultExecutor, options: GateExecutionOptions = {}): Promise<GateExecution[]> {
+  return executeGatePlan(root, planGates(root, profiles), executor, options);
 }
 
 /** Execute exactly the planned commands, so an approval bound to a plan covers what runs. */
-export async function executeGatePlan(root: string, plan: readonly PlannedGate[], executor: CommandExecutor = defaultExecutor): Promise<GateExecution[]> {
+export async function executeGatePlan(root: string, plan: readonly PlannedGate[], executor: CommandExecutor = defaultExecutor, options: GateExecutionOptions = {}): Promise<GateExecution[]> {
   const executions: GateExecution[] = [];
   for (const item of plan) {
     const { profile, gate, timeoutMs } = item;
@@ -234,12 +264,25 @@ export async function executeGatePlan(root: string, plan: readonly PlannedGate[]
     const summary = `${passed
       ? `${commandLine} passed.`
       : `${commandLine} failed${outcome.timedOut ? ' (timeout)' : ` (exit ${String(outcome.status)})`}.`}${outcome.truncated ? ' Output exceeded the capture limit and was truncated.' : ''}`;
+    const digest = outcome.sha256 ?? createHash('sha256').update(combined).digest('hex');
+    let text = combined.slice(0, BOUNDED_OUTPUT_CHARS);
+    let uri: string | undefined;
+    if (options.render) {
+      try {
+        const rendered = options.render({ evidenceId, profile, gate, commandLine, executable: executable!, outcome, passed, headline: summary, sha256: digest, combined });
+        if (rendered?.text !== undefined) text = rendered.text;
+        if (rendered?.uri) uri = rendered.uri;
+      } catch (error) {
+        text = `${combined.slice(0, BOUNDED_OUTPUT_CHARS)}\n[The full output could not be stored or summarised: ${error instanceof Error ? error.message : String(error)}]`;
+      }
+    }
     const evidence: Evidence = {
       id: evidenceId,
       kind: 'test',
       source: `${commandLine} (${executable})`,
-      summary: combined ? `${summary}\n${combined.slice(0, 8000)}` : summary,
-      sha256: outcome.sha256 ?? createHash('sha256').update(combined).digest('hex'),
+      summary: text ? `${summary}\n${text}` : summary,
+      ...(uri ? { uri } : {}),
+      sha256: digest,
     };
     executions.push({
       profile,

@@ -118,6 +118,46 @@ group ([`APPROVALS.md`](APPROVALS.md)). Windows has no process-group isolation.
   with environment protection and its own approval (#32 deployment boundary, C02
   `deployment` action).
 
+## Stored output and the summary mode (#94)
+
+Every gate's full captured output is stored with the run, owner-only, under
+`runs/<runId>/tool-output/<evidenceId>.{stdout,stderr,json}`. The evidence record keeps
+its `sha256` over the full output (above), gains a `uri` naming the stored record, and
+ends with a **recovery pointer**: the stored path and that digest. Storage is bounded by
+the capture limit; when a capture was truncated, the record says so and the digest still
+covers the bytes that were not kept.
+
+`ccon gate-output --evidence <E-id> [--run <runId>] [--stderr]` prints a stored output
+back after two checks: the streams must match the digests written with them, and, unless
+the capture was truncated, they must reproduce the evidence digest in the manifest. Output
+altered after the run is refused. On a terminal, control and format characters are
+replaced for display; redirect stdout for the exact bytes.
+
+What the evidence shows under its verdict line is chosen per run with
+`ccon run --tool-output <bounded|summary>`:
+
+- **`bounded`** (default): the first 8,000 characters of the combined output, as before.
+- **`summary`** (explicit opt-in, D-071): a deterministic summary made only of the
+  output's own lines, produced by the context optimizer (ADR 0007). It keeps verbatim the
+  head and tail, every line carrying counts (`2 failed | 523 passed`), the first failure
+  blocks of a test report (the failure line through the next blank line, five by
+  default), and other error-looking lines while a 4,000-character budget lasts. Runs of
+  identical lines collapse to one line plus a count; everything left out is counted, never
+  silently dropped. A JSON document is described by shape and size. Output that already
+  fits is shown unchanged. Nothing kept is rewritten: error messages, paths, line numbers,
+  numbers and exit codes appear exactly as the tool printed them.
+
+Two rules hold in both modes. The **verdict never comes from the text shown**: a gate
+passes or fails on its exit status and timeout, and the full output is what a person
+reads when the summary is not enough. And summaries apply only to deterministic tool
+output: instructions, policy, acceptance criteria and security rationale are never
+summarised (AGENTS.md §12).
+
+Each recorded output adds a `gate.output.recorded` event to the run's `events.jsonl`
+with local character-count estimates of the original and the shown text. They are
+relative telemetry for comparing the two modes on your own runs (the baseline #94 asks
+for), not provider billing or quota data.
+
 ## Not covered here
 
 - Gates run in the validation worktree as it exists on disk, including dependencies the

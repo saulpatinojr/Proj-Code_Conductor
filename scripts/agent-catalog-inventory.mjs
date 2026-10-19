@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, extname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -68,6 +68,15 @@ function collectPaths(root, outPath) {
   return paths;
 }
 
+function readRegularFile(path) {
+  let descriptor;
+  try { descriptor = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); } catch { return undefined; }
+  try {
+    if (!fstatSync(descriptor).isFile()) return undefined;
+    return readFileSync(descriptor);
+  } finally { closeSync(descriptor); }
+}
+
 export function buildInventory(sourceRoot, outputPath) {
   const root = realpathSync(resolve(sourceRoot));
   const out = outputPath ? resolve(outputPath) : undefined;
@@ -106,7 +115,10 @@ export function buildInventory(sourceRoot, outputPath) {
     }
 
     if (!stat.isFile()) continue;
-    const bytes = readFileSync(path);
+    // Read through one descriptor opened without following a symlink, so a file swapped
+    // for a link after the lstat above is refused rather than followed and hashed.
+    const bytes = readRegularFile(path);
+    if (!bytes) continue;
     const digest = sha256(bytes);
     const extension = extname(path).toLowerCase();
     const isText = TEXT_EXTENSIONS.has(extension) || basename(path).toLowerCase() === 'codeowners';

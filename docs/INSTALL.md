@@ -88,7 +88,7 @@ Uninstalling removes the extension only. Code Conductor never uploads anything, 
 leaves your data where it is:
 
 - `~/.code-conductor/`, or `$CODE_CONDUCTOR_HOME` if you set it:
-  - `runs/`: manifests, events, approvals and handoff packets;
+  - `runs/`: manifests, events, approvals, handoff packets and stored gate output;
   - `worktrees/`: agent worktrees;
   - `workstation.json`: smoke-test trust (or the file `$CODE_CONDUCTOR_WORKSTATION_STATE`
     names);

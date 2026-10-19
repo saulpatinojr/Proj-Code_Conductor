@@ -159,7 +159,7 @@ needs GitHub Enterprise Cloud.
 - **Unpublish, never remove:** unpublishing keeps statistics and the name. Removing an
   extension reserves its name permanently, even for its publisher.
 
-## Publishing to the Marketplace (owner setup, not automated yet)
+## Publishing to the Marketplace (owner setup, then an approved job)
 
 Publication needs decisions only the repository owner can make. They are tracked in #14.
 Once you have the publisher ID, `scripts/owner/Set-MarketplaceEnvironment.ps1 -Publisher <id>`
@@ -167,17 +167,33 @@ does the GitHub side of steps 1 and 3 ([`scripts/owner`](../scripts/owner/README
 
 1. **Create or choose the Marketplace publisher.** Confirm that the display name is
    available, then set it as the `VSCE_PUBLISHER` repository variable.
-2. **Prefer Microsoft Entra ID over a personal access token.** Use workload identity
-   federation with `vsce publish --azure-credential`, which needs no long-lived secret.
-   Azure DevOps retires global personal access tokens on December 1, 2026
-   ([secure automated publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace)).
-3. **Create a `marketplace` deployment environment.** Make yourself its required
-   reviewer, allow only `v*` tags, and keep any publishing credential in that
-   environment, not in the repository.
+2. **Use Microsoft Entra ID, not a personal access token.** Register an application in
+   Entra ID, add it to the publisher as a member, and give it a federated credential for
+   this repository's `marketplace` environment (subject
+   `repo:saulpatinojr/Proj-Code_Conductor:environment:marketplace`). Store its
+   `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` as **environment** secrets of `marketplace`.
+   There is no long-lived secret: the job signs in with a short-lived OIDC token
+   (`vsce publish --azure-credential`;
+   [secure automated publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace)).
+   Azure DevOps retires global personal access tokens on December 1, 2026.
+3. **Create the `marketplace` deployment environment.** Make yourself its required
+   reviewer and allow only `v*` tags. Keep the two secrets in that environment, not in
+   the repository.
 4. Have the tag and branch rulesets from [Prerequisites](#prerequisites-repository-settings)
    in place.
+5. **Turn the job on:** set the repository variable `MARKETPLACE_PUBLISH` to `true`
+   (`gh variable set MARKETPLACE_PUBLISH --body true`). Do this last: the Publish job
+   is skipped while the variable is absent, and a skipped job never creates the
+   environment, so nothing can publish through an environment that has no reviewer yet.
 
-A publish job gated on that environment can then be added to the Release workflow.
+The **Publish** job then runs after the Draft job on each release tag. It waits for your
+approval in the `marketplace` environment, which is the human approval before this
+external side effect. It checks the candidate again (checksums, the attestation against
+this workflow, tag and commit, and that the tag still names the built commit), signs in
+to Entra ID, and publishes the verified `.vsix` with the repository's locked `@vscode/vsce`
+(`npx --no-install`). It runs no repository script. Approve it only after reviewing the
+draft release as described above; declining leaves the draft and the attestation in
+place and publishes nothing.
 
 ## Privacy
 

@@ -77,6 +77,30 @@ describe('deterministic gates', () => {
     expect(executions[0]?.evidence.summary.length).toBeLessThan(longOutput.length);
   });
 
+  it('lets a render hook store the output and replace the shown text, never the verdict or digest (#94)', async () => {
+    const longOutput = `${'noise\n'.repeat(3000)}FAIL something\n`;
+    const executions = await runGates(resolve('.'), ['code-conductor'], () => ({ status: 1, stdout: longOutput, stderr: '' }), {
+      render: (context) => {
+        expect(context.passed).toBe(false);
+        expect(context.outcome.stdout).toBe(longOutput);
+        return { text: `summary for ${context.evidenceId}`, uri: `/private/${context.evidenceId}.json` };
+      },
+    });
+    const first = executions[0]!;
+    expect(first.result.status).toBe('failed');
+    expect(first.evidence.summary).toBe(`${first.result.summary}\nsummary for ${first.evidence.id}`);
+    expect(first.evidence.uri).toBe(`/private/${first.evidence.id}.json`);
+    expect(first.evidence.sha256).toBe(createHash('sha256').update(longOutput.trim()).digest('hex'));
+  });
+
+  it('keeps the bounded text and records the problem when the render hook throws', async () => {
+    const executions = await runGates(resolve('.'), ['code-conductor'], () => ({ status: 0, stdout: 'all good', stderr: '' }), { render: () => { throw new Error('disk full'); } });
+    expect(executions[0]!.result.status).toBe('passed');
+    expect(executions[0]!.evidence.summary).toContain('all good');
+    expect(executions[0]!.evidence.summary).toContain('could not be stored or summarised: disk full');
+    expect(executions[0]!.evidence.uri).toBeUndefined();
+  });
+
   it('blocks on a failed blocking gate', async () => {
     const executions = await runGates(resolve('.'), ['code-conductor'], () => ({ status: 1, stdout: '', stderr: 'failed' }));
     expect(blockingGateFailure(executions)).toBe(true);

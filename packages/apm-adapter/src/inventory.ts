@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
@@ -109,13 +109,25 @@ function tomlName(text: string): string | undefined {
   return text.match(/^name\s*=\s*"([^"\n]+)"/m)?.[1]?.trim() || undefined;
 }
 
+const SMALL_FILE_BYTES = 256 * 1024;
+
+/** Read a small text file through one descriptor: the size checked is the size read, and no final symlink is followed. */
 function readSmall(path: string): string {
+  let descriptor: number;
+  try { descriptor = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)); } catch { return ''; }
   try {
-    if (lstatSync(path).size > 256 * 1024) return '';
-    return readFileSync(path, 'utf8');
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile() || stat.size > SMALL_FILE_BYTES) return '';
+    const buffer = Buffer.alloc(stat.size + 1);
+    let length = 0;
+    for (let read = -1; read !== 0 && length < buffer.length;) {
+      read = readSync(descriptor, buffer, length, buffer.length - length, null);
+      length += read;
+    }
+    return length > stat.size ? '' : buffer.subarray(0, length).toString('utf8');
   } catch {
     return '';
-  }
+  } finally { closeSync(descriptor); }
 }
 
 function agentEntryName(file: string, ecosystem: NativeEcosystem): string | undefined {

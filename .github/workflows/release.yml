@@ -168,3 +168,76 @@ jobs:
               --source-ref "refs/tags/$TAG" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
           done
           gh release create "$TAG" --draft --verify-tag --title "Code Conductor $TAG" --notes-file NOTES.md code-conductor-* SHA256SUMS
+
+  publish:
+    name: Publish to the Marketplace
+    # Opt-in: the owner sets the MARKETPLACE_PUBLISH repository variable to "true" only
+    # after the `marketplace` environment exists with a required reviewer and its tag
+    # policy (docs/RELEASE.md). Until then the job is skipped, and a skipped job does not
+    # create the environment, so a release can never publish through an unprotected one.
+    # The environment's required reviewer is the human approval before this external
+    # side effect (D-022); the job waits there.
+    if: vars.MARKETPLACE_PUBLISH == 'true'
+    needs: draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: marketplace
+      url: https://marketplace.visualstudio.com/items?itemName=${{ vars.VSCE_PUBLISHER }}.code-conductor-vscode
+    permissions:
+      contents: read
+      id-token: write # Microsoft Entra ID workload identity for the publisher (no long-lived secret)
+      attestations: read # verifies the attestation again before publishing
+    steps:
+      # The checkout serves one purpose: the locked `@vscode/vsce` version. No repository
+      # script runs here; the package was built and tested in the candidate job.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-candidate-${{ github.ref_name }}
+          path: candidate
+      - name: Verify the candidate and the tag again
+        shell: bash
+        working-directory: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          read -r type tagged < <(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '"\(.object.type) \(.object.sha)"')
+          while [ "$type" = tag ]; do
+            read -r type tagged < <(gh api "repos/$GH_REPO/git/tags/$tagged" --jq '"\(.object.type) \(.object.sha)"')
+          done
+          if [ "$type" != commit ] || [ "$tagged" != "$GITHUB_SHA" ]; then
+            echo "::error::$TAG now points at $type $tagged, not the built commit $GITHUB_SHA."
+            exit 1
+          fi
+          for file in code-conductor-*; do
+            gh attestation verify "$file" --repo "$GH_REPO" \
+              --cert-identity "$GITHUB_SERVER_URL/$GH_REPO/.github/workflows/release.yml@refs/tags/$TAG" \
+              --source-ref "refs/tags/$TAG" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          done
+          packages=(code-conductor-*.vsix)
+          test "${#packages[@]}" -eq 1
+      - name: Sign in to Microsoft Entra ID (workload identity federation)
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Publish the verified package
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The locked vsce from node_modules, never a download; the package is published as
+          # built, with the publisher the candidate job stamped into it.
+          npx --no-install vsce publish --azure-credential --packagePath candidate/code-conductor-*.vsix

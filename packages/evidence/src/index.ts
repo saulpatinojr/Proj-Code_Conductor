@@ -19,6 +19,54 @@ export function conductorHome(env: NodeJS.ProcessEnv = process.env): string {
 
 /** Stored handoff packets are bounded on write and read. */
 const MAX_HANDOFF_BYTES = 4 * 1024 * 1024;
+/** Each stored tool-output stream is bounded on write and read (the gates' capture bound). */
+export const MAX_TOOL_OUTPUT_BYTES = 4 * 1024 * 1024;
+const EVIDENCE_ID = /^E-[A-Za-z0-9-]{8,80}$/;
+
+/** The full output of one deterministic tool run, stored next to its evidence record (#94). */
+export interface ToolOutputRecord {
+  evidenceId: string;
+  /** The command line and executable, as the evidence's `source`. */
+  source: string;
+  status: number | null;
+  timedOut: boolean;
+  /** Output beyond the capture bound was discarded before it reached the store; `sha256` still covers it. */
+  truncated: boolean;
+  stdout: string;
+  stderr: string;
+  /** The digest recorded in the evidence. */
+  sha256: string;
+  /**
+   * How `sha256` was computed: `streams` is SHA-256 over the digests of all stdout bytes
+   * then all stderr bytes (the gate runner); `combined` is SHA-256 over the trimmed,
+   * joined text (an injected executor without its own digest).
+   */
+  digestMethod: 'streams' | 'combined';
+}
+
+export interface StoredToolOutput {
+  /** Path of the JSON record; the streams sit next to it as `<id>.stdout` and `<id>.stderr`. */
+  path: string;
+  /** SHA-256 of the stored stdout and stderr text, as written. */
+  stdoutSha256: string;
+  stderrSha256: string;
+}
+
+/** What a read-back established about a stored output. */
+export interface ToolOutputVerification {
+  /** The stored streams match the digests written with them. */
+  storedIntact: boolean;
+  /** The stored streams reproduce the evidence digest; undefined when truncation makes that impossible. */
+  matchesEvidence: boolean | undefined;
+}
+
+function combinedDigest(stdout: string, stderr: string): string {
+  return createHash('sha256').update([stdout.trim(), stderr.trim()].filter(Boolean).join('\n')).digest('hex');
+}
+
+function streamsDigest(stdout: string, stderr: string): string {
+  return createHash('sha256').update(createHash('sha256').update(stdout).digest()).update(createHash('sha256').update(stderr).digest()).digest('hex');
+}
 
 function ensurePrivateDirectory(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
@@ -116,12 +164,59 @@ export class RunStore {
     return JSON.parse(text) as unknown;
   }
 
+  /**
+   * Persist the full output of one gate command next to the run's evidence, owner-only,
+   * so a bounded or summarised evidence record can always be traced back to it. Returns
+   * the record path (the evidence `uri`) and the digests of what was written.
+   */
+  saveToolOutput(runId: string, record: ToolOutputRecord): StoredToolOutput {
+    if (!EVIDENCE_ID.test(record.evidenceId)) throw new Error(`Invalid evidence id: ${record.evidenceId}`);
+    if (Buffer.byteLength(record.stdout) > MAX_TOOL_OUTPUT_BYTES || Buffer.byteLength(record.stderr) > MAX_TOOL_OUTPUT_BYTES) throw new Error(`Tool output for ${record.evidenceId} exceeds ${MAX_TOOL_OUTPUT_BYTES} bytes per stream.`);
+    const directory = join(this.runDirectory(runId), 'tool-output');
+    ensurePrivateDirectory(directory);
+    const write = (name: string, text: string): string => {
+      const target = join(directory, name);
+      writeFileSync(`${target}.tmp`, text, { encoding: 'utf8', mode: 0o600 });
+      renameSync(`${target}.tmp`, target);
+      chmodSync(target, 0o600);
+      return createHash('sha256').update(text).digest('hex');
+    };
+    const stdoutSha256 = write(`${record.evidenceId}.stdout`, record.stdout);
+    const stderrSha256 = write(`${record.evidenceId}.stderr`, record.stderr);
+    const header = { evidenceId: record.evidenceId, runId, source: record.source, status: record.status, timedOut: record.timedOut, truncated: record.truncated, sha256: record.sha256, digestMethod: record.digestMethod, stdoutSha256, stderrSha256, stdoutBytes: Buffer.byteLength(record.stdout), stderrBytes: Buffer.byteLength(record.stderr) };
+    const path = join(directory, `${record.evidenceId}.json`);
+    write(`${record.evidenceId}.json`, `${JSON.stringify(header, null, 2)}\n`);
+    return { path, stdoutSha256, stderrSha256 };
+  }
+
+  /**
+   * Read a stored tool output back and say what the read established: whether the
+   * streams still match the digests stored with them, and whether they reproduce the
+   * evidence digest (unknowable when the capture was truncated).
+   */
+  readToolOutput(runId: string, evidenceId: string): { record: ToolOutputRecord; verification: ToolOutputVerification } {
+    if (!EVIDENCE_ID.test(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`);
+    const directory = join(this.root, safeRunDirectoryName(runId), 'tool-output');
+    const header = JSON.parse(readStoredText(join(directory, `${evidenceId}.json`), 1024 * 1024, `Tool output record ${evidenceId}`)) as Partial<ToolOutputRecord> & { runId?: string; stdoutSha256?: string; stderrSha256?: string };
+    if (header.evidenceId !== evidenceId || header.runId !== runId) throw new Error(`Tool output record ${evidenceId} does not belong to run ${runId}.`);
+    const stdout = readStoredText(join(directory, `${evidenceId}.stdout`), MAX_TOOL_OUTPUT_BYTES, `Tool output ${evidenceId} stdout`);
+    const stderr = readStoredText(join(directory, `${evidenceId}.stderr`), MAX_TOOL_OUTPUT_BYTES, `Tool output ${evidenceId} stderr`);
+    const digest = (text: string): string => createHash('sha256').update(text).digest('hex');
+    const storedIntact = digest(stdout) === header.stdoutSha256 && digest(stderr) === header.stderrSha256;
+    const record: ToolOutputRecord = {
+      evidenceId, source: String(header.source ?? ''), status: typeof header.status === 'number' ? header.status : null, timedOut: header.timedOut === true, truncated: header.truncated === true,
+      stdout, stderr, sha256: String(header.sha256 ?? ''), digestMethod: header.digestMethod === 'combined' ? 'combined' : 'streams',
+    };
+    const matchesEvidence = record.truncated ? undefined : (record.digestMethod === 'combined' ? combinedDigest(stdout, stderr) : streamsDigest(stdout, stderr)) === record.sha256;
+    return { record, verification: { storedIntact, matchesEvidence } };
+  }
+
   /** Age of a stored run (from its manifest) in milliseconds; undefined when it cannot be read. */
   runAgeMs(runId: string, now = Date.now()): number | undefined {
     try { return now - lstatSync(join(this.root, safeRunDirectoryName(runId), 'manifest.json')).mtimeMs; } catch { return undefined; }
   }
 
-  /** Delete one stored run's local evidence (manifest, events, handoffs). Never touches worktrees. */
+  /** Delete one stored run's local evidence (manifest, events, handoffs, tool output). Never touches worktrees. */
   deleteRun(runId: string): void {
     const name = safeRunDirectoryName(runId);
     const target = join(this.root, name);

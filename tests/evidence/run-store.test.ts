@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -101,5 +102,56 @@ describe('run evidence store', () => {
     const name = safeRunDirectoryName(`${'-'.repeat(200_000)}x${'-'.repeat(200_000)}!`);
     expect(name).toMatch(/^x-[a-f0-9]{12}$/);
     expect(safeRunDirectoryName('__../..__')).toMatch(/^run-[a-f0-9]{12}$/);
+  });
+});
+
+describe('stored tool output (#94)', () => {
+  function sample(root: string) {
+    const store = new RunStore(join(root, 'runs'));
+    const stdout = 'Tests  1 failed | 3 passed\n';
+    const stderr = 'AssertionError: expected 1 to be 2\n';
+    const streams = createHash('sha256').update(createHash('sha256').update(stdout).digest()).update(createHash('sha256').update(stderr).digest()).digest('hex');
+    const stored = store.saveToolOutput('RUN-1', { evidenceId: 'E-11111111-aaaa', source: 'npm test (/usr/bin/npm)', status: 1, timedOut: false, truncated: false, stdout, stderr, sha256: streams, digestMethod: 'streams' });
+    return { store, stored, stdout, stderr, streams };
+  }
+
+  it('stores stdout, stderr and a record owner-only, and reads them back verified against the evidence digest', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-tool-output-'));
+    try {
+      const { store, stored, stdout, stderr, streams } = sample(root);
+      expect(stored.path).toBe(join(root, 'runs', 'RUN-1', 'tool-output', 'E-11111111-aaaa.json'));
+      expect(readFileSync(join(root, 'runs', 'RUN-1', 'tool-output', 'E-11111111-aaaa.stdout'), 'utf8')).toBe(stdout);
+      if (process.platform !== 'win32') {
+        expect(mode(stored.path)).toBe(0o600);
+        expect(mode(join(root, 'runs', 'RUN-1', 'tool-output'))).toBe(0o700);
+      }
+      const { record, verification } = store.readToolOutput('RUN-1', 'E-11111111-aaaa');
+      expect(record).toMatchObject({ source: 'npm test (/usr/bin/npm)', status: 1, stdout, stderr, sha256: streams, digestMethod: 'streams' });
+      expect(verification).toEqual({ storedIntact: true, matchesEvidence: true });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('detects a stored stream altered after the run, and cannot vouch for truncated captures', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-tool-output-'));
+    try {
+      const { store } = sample(root);
+      writeFileSync(join(root, 'runs', 'RUN-1', 'tool-output', 'E-11111111-aaaa.stdout'), 'Tests  4 passed\n');
+      expect(store.readToolOutput('RUN-1', 'E-11111111-aaaa').verification).toEqual({ storedIntact: false, matchesEvidence: false });
+      store.saveToolOutput('RUN-1', { evidenceId: 'E-22222222-bbbb', source: 'x', status: 0, timedOut: false, truncated: true, stdout: 'partial', stderr: '', sha256: 'f'.repeat(64), digestMethod: 'streams' });
+      expect(store.readToolOutput('RUN-1', 'E-22222222-bbbb').verification).toEqual({ storedIntact: true, matchesEvidence: undefined });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('verifies the combined-text digest of an injected executor and refuses foreign records and bad ids', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-tool-output-'));
+    try {
+      const store = new RunStore(join(root, 'runs'));
+      const combined = createHash('sha256').update('ok\nwarn').digest('hex');
+      store.saveToolOutput('RUN-2', { evidenceId: 'E-33333333-cccc', source: 'x', status: 0, timedOut: false, truncated: false, stdout: 'ok\n', stderr: 'warn\n', sha256: combined, digestMethod: 'combined' });
+      expect(store.readToolOutput('RUN-2', 'E-33333333-cccc').verification.matchesEvidence).toBe(true);
+      expect(() => store.readToolOutput('RUN-1', 'E-33333333-cccc')).toThrow(/not stored/);
+      expect(() => store.readToolOutput('RUN-2', '../manifest')).toThrow(/Invalid evidence id/);
+      expect(() => store.saveToolOutput('RUN-2', { evidenceId: 'E-x', source: 'x', status: 0, timedOut: false, truncated: false, stdout: '', stderr: '', sha256: '', digestMethod: 'combined' })).toThrow(/Invalid evidence id/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

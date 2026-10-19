@@ -13,6 +13,7 @@ import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
 import { CLIENT_BILLS_SEPARATELY, CLIENT_NOT_SIGNED_IN, GIT_CONTROL_CHANGED } from './next-actions.js';
 import { shortList, summarizeFiles } from './change-summary.js';
+import { gateOutputRenderer, type ToolOutputMode } from './tool-output.js';
 
 export interface ExecuteOptions {
   execute?: boolean;
@@ -32,6 +33,12 @@ export interface ExecuteOptions {
   approver?: Approver;
   /** Gate profiles a person chose for this run; otherwise profiles are detected. */
   gateProfiles?: string[];
+  /**
+   * How gate output appears in evidence: `bounded` (default, the first 8,000 characters)
+   * or the opt-in `summary` (verbatim-line summary). The full output is stored with the
+   * run either way, and every record ends with its recovery pointer (#94).
+   */
+  toolOutput?: ToolOutputMode;
   approvalTtlMs?: number;
   /** How long a handoff packet stays valid (default 24 hours). */
   handoffTtlMs?: number;
@@ -269,7 +276,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             continue;
           }
         }
-        const gateExecutions = await executeGatePlan(validationRoot, gatePlan, options.gateExecutor);
+        const render = gateOutputRenderer(store, plan.runId, options.toolOutput ?? 'bounded', (telemetry) => store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'gate.output.recorded', assignmentId: assignment.id, message: `${telemetry.evidenceId}: ${telemetry.mode}`, data: { ...telemetry } }));
+        const gateExecutions = await executeGatePlan(validationRoot, gatePlan, options.gateExecutor, { render });
         ranIn(validationRoot, `gate commands (${assignment.id})`);
         executedGates.push(...gateExecutions);
         manifest.gates.push(...gateExecutions.map((item) => item.result));

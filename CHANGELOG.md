@@ -6,6 +6,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Added
 
+- Recoverable gate output (#94; D-071, ADR 0007 decision 10): every deterministic gate's full output is stored owner-private with the run, its evidence names the stored record (`uri`) and ends with a recovery pointer (path and full-output SHA-256), and `ccon gate-output --evidence <E-id>` prints it back after verifying the stored streams against their digests and the evidence digest. `ccon run --tool-output summary` is an explicit opt-in that shows, instead of the first 8,000 characters, a deterministic summary made only of the output's own lines (head, tail, count lines, failure blocks, error-looking lines; repeats collapsed with a count; omissions counted; nothing rewritten). The verdict still comes from the exit status. A `gate.output.recorded` event per gate carries estimated original and shown token counts, for comparing the modes on real runs. The summariser lives in the context optimizer and is pure: no clock, network or file access.
+- Release workflow (#14): a **Publish to the Marketplace** job after the Draft job. It is skipped until the owner sets `MARKETPLACE_PUBLISH=true`, runs in the `marketplace` environment (required reviewer, `v*` tags), verifies the candidate's checksums, attestation and tag again, signs in to Microsoft Entra ID with workload identity federation (`azure/login`, pinned) and publishes the verified `.vsix` with the locked `@vscode/vsce` (`vsce publish --azure-credential`). No personal access token and no repository script. `docs/RELEASE.md` lists the owner's setup in order.
+- Decision D-072: #32's deferred infrastructure scope and the optional backlog deferred on 2026-10-16 (#16, #53, #54, #55) are recorded as deferred; activating any of them needs a new ADR, and their issues are closed until then.
+
 - Owner scripts (`scripts/owner`, PowerShell 5.1 and 7) for the steps only the repository owner can take, with the owner's own `gh` sign-in:
   - `Set-RepositoryGovernance.ps1` (#3): the `main` and all-tags rulesets, plus the branch, security and Actions settings. Required checks are pinned to the GitHub Actions app. It reads everything back and checks it.
   - `Remove-StaleBranches.ps1`: deletes the branches you confirm, with a reason and a restore command for each.
@@ -123,6 +127,8 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Renamed the canonical repository to `saulpatinojr/Proj-Code_Conductor` and the APM package to `proj-code-conductor`; in-tree clone, issue-template, VS Code packaging, and repository-layout references now use the new name. See ADR 0010 and D-001.
 
 ### Security
+
+- Local CodeQL (`security-and-quality`, 2026-10-19) findings fixed: a remote URL's query/fragment is now cut by index rather than a regular expression CodeQL rated polynomial; the Agent Catalog inventory script, the provider-native inventory and `ccon import` read each file through the one descriptor they check (no final symlink followed, size checked on the open file), instead of checking a path and then reading it by name; two unused imports removed. Actions queries reported nothing.
 
 - Handoff disclosure summaries count redaction markers with an exact string search instead of a regular expression whose worst case is quadratic (CodeQL `js/polynomial-redos`). The serialized packet always puts a closing bracket after agent-written text, so the old count was already linear in practice; the count no longer depends on that layout.
 - Subscription-first billing policy and detection of API-key environment variables that could bypass intended billing paths.
