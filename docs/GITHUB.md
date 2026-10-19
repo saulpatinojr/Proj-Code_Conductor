@@ -97,8 +97,8 @@ With `--create`, in an interactive terminal:
 
 Approval, push and pull-request events, including a refused push, a `gh` failure and an
 unconfirmed URL, are appended to the run's `events.jsonl`. If the push succeeds but `gh`
-fails, the branch stays pushed and the command to open the draft yourself is printed. `ccon next` still shows the manual `git push` / `gh pr create`
-commands for people who prefer to run them themselves.
+fails, the branch stays pushed and the command to open the draft yourself is printed. `ccon next` suggests
+`ccon pr`, not a plain `git push`: a push you run yourself publishes whatever the branch holds at that moment, unscanned.
 
 ## Not covered
 

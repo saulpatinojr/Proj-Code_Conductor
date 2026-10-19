@@ -7,7 +7,7 @@ import type { ClientAuthStatus, HarnessAdapter, HarnessExecutionRequest } from '
 import { configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
-import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, redactSecrets, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, worktreeTips, type GitControlState, type WorktreeHandle } from '@code-conductor/git';
+import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, redactSecrets, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, worktreeTips, type GitControlState, type WorktreeHandle, type WorktreeTips } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, type TaskPlan } from './planner.js';
@@ -65,6 +65,35 @@ function describeUnscanned(files: readonly string[]): string {
   return `${files.length} file(s) past the ${MAX_SCAN_BYTES / (1024 * 1024)} MiB credential-scan budget were not scanned: ${files.slice(0, 10).join(', ')}${files.length > 10 ? `, … (${files.length - 10} more)` : ''}`;
 }
 
+// The ends of an agent worktree's history, each labelled as a person would look for it: the
+// branch, or HEAD with the branch it is on or "detached".
+function historyEnds(found: WorktreeTips, branch: string): Map<string, string> {
+  const ends = new Map<string, string>();
+  if (found.branch) ends.set(found.branch, branch);
+  if (found.head && found.head !== found.branch) ends.set(found.head, `HEAD (${found.headRef ? `on ${found.headRef.replace(/^refs\/heads\//, '')}` : 'detached'} at ${found.head.slice(0, 12)})`);
+  return ends;
+}
+
+// The commits between `from` and each end, the paths they touched, and the ends that carry them.
+function historySince(path: string, from: string, ends: ReadonlyMap<string, string>): { commits: string[]; files: string[]; where: string } {
+  const histories = [...ends].map(([tip, label]) => ({ label, ...commitsSince(path, from, tip) }));
+  return {
+    commits: [...new Set(histories.flatMap((item) => item.commits))],
+    files: [...new Set(histories.flatMap((item) => item.files))].sort(),
+    where: histories.filter((item) => item.commits.length).map((item) => item.label).join(' and '),
+  };
+}
+
+// Every file version those commits introduced is scanned, so a credential added and removed
+// again is still found; history past the scan budget fails closed.
+function assertHistoryClean(path: string, from: string, ends: ReadonlyMap<string, string>, subject: (label: string) => string, then: (label: string) => string): void {
+  for (const [tip, label] of ends) {
+    const scan = scanHistoryForNewSecrets(path, from, tip);
+    if (scan.findings.length) throw new Error(`${subject(label)} add credential-looking strings (${describeSecrets(scan.findings)}). Even if later removed, their content stays in history. ${then(label)}`);
+    if (scan.unscanned.length) throw new Error(`${subject(label)} could not be fully scanned for credentials: ${describeUnscanned(scan.unscanned)}. ${then(label)}`);
+  }
+}
+
 function mergeDecision(task: TaskEnvelope, results: AgentResult[], gates: GateExecution[], approvals: readonly ApprovalRecord[]): MergeDecision {
   const evidenceIds = [...new Set([...results.flatMap((r) => r.evidence.map((e) => e.id)), ...gates.flatMap((g) => g.result.evidenceIds)])];
   if (results.some((r) => r.status === 'awaiting_external')) return { decision: 'human_required', rationale: 'One or more assignments require an external/manual platform step.', evidenceIds };
@@ -118,6 +147,11 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
     }
   };
   const pendingExternal: AgentAssignment[] = [];
+  // Where each agent worktree's history ended once its own commits were checked, and the steps
+  // that ran in it afterwards (reviewers and gate commands use the builder's worktree).
+  const checked = new Map<string, { handle: WorktreeHandle; assignmentId: string; tips: WorktreeTips }>();
+  const laterSteps = new Map<string, string[]>();
+  const ranIn = (path: string, step: string): void => { if (checked.has(path)) laterSteps.set(path, [...(laterSteps.get(path) ?? []), step]); };
   const createdWorktrees: WorktreeHandle[] = [];
   const executedGates: GateExecution[] = [];
   let primaryBuilderWorktree: WorktreeHandle | undefined;
@@ -236,6 +270,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           }
         }
         const gateExecutions = await executeGatePlan(validationRoot, gatePlan, options.gateExecutor);
+        ranIn(validationRoot, `gate commands (${assignment.id})`);
         executedGates.push(...gateExecutions);
         manifest.gates.push(...gateExecutions.map((item) => item.result));
         const failed = blockingGateFailure(gateExecutions);
@@ -396,6 +431,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         } catch (error) { lastError = error; }
       }
       result ??= { taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance, provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: assignment.billingChannel, status: 'failed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [lastError instanceof Error ? lastError.message : 'Harness execution failed after bounded retry.'], recommendation: 'changes_required' };
+      if (!assignmentWorktree) ranIn(cwd, `${assignment.role} ${assignment.id}`);
       stopped ??= controlChanged();
       if (stopped) {
         result.status = 'blocked';
@@ -414,17 +450,14 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           // (git checkout --detach) and leave commits on the branch, or the other way round.
           // Every end that names a commit is named and scanned before anything is refused.
           const found = worktreeTips(handle.path, handle.branch);
-          const tips = new Map<string, string>();
-          if (found.branch) tips.set(found.branch, handle.branch);
-          if (found.head && found.head !== found.branch) tips.set(found.head, `HEAD (${found.headRef ? `on ${found.headRef.replace(/^refs\/heads\//, '')}` : 'detached'} at ${found.head.slice(0, 12)})`);
+          const tips = historyEnds(found, handle.branch);
           const paths = (files: readonly string[]): string => redactSecrets(files.join(', ')).text;
           if (found.head && found.branch && found.head !== found.branch) {
             result.recommendation = 'human_required';
             result.risks = [...result.risks, `${tips.get(found.head)} in ${handle.path} is not the tip of ${handle.branch} (${found.branch.slice(0, 12)}); the agent moved one off the other. Review both before merging.`];
           }
-          const histories = [...tips].map(([tip, label]) => ({ label, ...commitsSince(handle.path, handle.baseSha, tip) }));
-          const history = { commits: [...new Set(histories.flatMap((item) => item.commits))], files: [...new Set(histories.flatMap((item) => item.files))].sort() };
-          const where = histories.filter((item) => item.commits.length).map((item) => item.label).join(' and ');
+          const history = historySince(handle.path, handle.baseSha, tips);
+          const { where } = history;
           let ownCommits = '';
           if (history.commits.length) {
             ownCommits = ` The branch already carries ${history.commits.length} commit(s) the agent made itself (${shortList(history.commits)}), which this approval does not cover; the file list is the net change since base.`;
@@ -433,13 +466,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${history.commits[0]}`, summary: `Agent-authored commits on ${where} since ${handle.baseSha.slice(0, 12)}: ${shortList(history.commits)}. Paths touched: ${paths(history.files)}` });
             const sensitive = history.files.filter(isSensitiveRepositoryPath);
             if (sensitive.length) throw new Error(`The agent's own commits on ${where} touch sensitive repository paths: ${paths(sensitive)}. Even if later removed, their content stays in history. Code Conductor committed nothing; review ${where} before using it.`);
-            // Every file version the commits introduced is scanned, so a credential added and
-            // removed again is still found; history past the scan budget fails closed.
-            for (const [tip, label] of tips) {
-              const scan = scanHistoryForNewSecrets(handle.path, handle.baseSha, tip);
-              if (scan.findings.length) throw new Error(`The agent's own commits on ${label} add credential-looking strings (${describeSecrets(scan.findings)}). Even if later removed, their content stays in history. Code Conductor committed nothing; review ${label} before using it.`);
-              if (scan.unscanned.length) throw new Error(`The agent's own commits on ${label} could not be fully scanned for credentials: ${describeUnscanned(scan.unscanned)}. Code Conductor committed nothing; review ${label} before using it.`);
-            }
+            assertHistoryClean(handle.path, handle.baseSha, tips, (label) => `The agent's own commits on ${label}`, (label) => `Code Conductor committed nothing; review ${label} before using it.`);
           }
           // An agent can also move its branch or HEAD away from the base (for example reset to
           // an older commit); the net file list then includes undoing the base's own changes.
@@ -519,6 +546,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
               store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'worktree.committed', assignmentId: assignment.id, message: `${handle.branch}@${commit.sha}` });
             }
           }
+          checked.set(handle.path, { handle, assignmentId: assignment.id, tips: worktreeTips(handle.path, handle.branch) });
         } catch (error) {
           result.status = 'blocked';
           if (result.recommendation !== 'human_required') result.recommendation = 'changes_required';
@@ -531,6 +559,46 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       save();
     }
 
+    // Later steps run in the builder's worktree after its own commits were checked, and anything
+    // they left running can still write there. Before the decision, its history must still end
+    // where that check left it; commits added since are named and scanned the same way.
+    for (const [path, { handle, assignmentId, tips }] of checked) {
+      const result = manifest.results.find((item) => item.assignmentId === assignmentId);
+      if (!result) continue;
+      if (stopped) {
+        // No Git runs under changed configuration, so say where the history was last checked.
+        result.recommendation = 'human_required';
+        result.risks = [...result.risks, `${handle.branch} was checked at ${tips.branch!.slice(0, 12)}; nothing after that was re-checked, because the run stopped for a Git configuration change. Compare ${handle.branch} with ${tips.branch!.slice(0, 12)} before using it.`];
+        continue;
+      }
+      try {
+        stopped = controlChange(path, 'before the merge decision');
+        if (stopped) throw new Error(stopped);
+        const now = worktreeTips(path, handle.branch);
+        if (now.head === tips.head && now.branch === tips.branch) continue;
+        result.recommendation = 'human_required';
+        const steps = laterSteps.get(path);
+        const when = `after the agent's own commits were checked${steps ? `, while ${steps.join(', ')} ran in ${path}` : ` (${path})`}`;
+        const ends = historyEnds(now, handle.branch);
+        const from = tips.branch!;
+        const added = historySince(path, from, ends);
+        if (added.commits.length) {
+          result.risks = [...result.risks, `${added.commits.length} commit(s) were added on ${added.where} ${when}: ${shortList(added.commits)}. Code Conductor did not approve them; review them before merging.`];
+          result.evidence.push({ id: `E-${randomUUID()}`, kind: 'repository', source: `git:${added.commits[0]}`, summary: `Commits added on ${added.where} ${when}: ${shortList(added.commits)}. Paths touched: ${redactSecrets(added.files.join(', ')).text}` });
+          const sensitive = added.files.filter(isSensitiveRepositoryPath);
+          if (sensitive.length) throw new Error(`The commits added on ${added.where} ${when} touch sensitive repository paths: ${redactSecrets(sensitive.join(', ')).text}. Review ${added.where} before using it.`);
+          assertHistoryClean(path, from, ends, (label) => `The commits added on ${label} ${when}`, (label) => `Review ${label} before using it.`);
+        }
+        if (!now.branch || !now.head) throw new Error(`${now.branch ? 'HEAD' : handle.branch} in ${path} names no commit ${when}. Check it and its reflog before using it.`);
+        if (now.head !== now.branch) result.risks = [...result.risks, `${ends.get(now.head)} in ${path} is not the tip of ${handle.branch} (${now.branch.slice(0, 12)}) ${when}. Review both before merging.`];
+        const strays = [...ends].filter(([tip]) => !isAncestor(path, from, tip)).map(([, label]) => label);
+        if (strays.length) result.risks = [...result.risks, `${strays.join(' and ')} no longer contain${strays.length === 1 ? 's' : ''} ${from.slice(0, 12)}, where the check left ${handle.branch}, ${when}; it was rewritten or reset.`];
+      } catch (error) {
+        result.status = 'blocked';
+        result.recommendation = 'human_required';
+        result.blockers = [...result.blockers, error instanceof Error ? error.message : String(error)];
+      }
+    }
     manifest.mergeDecision = mergeDecision(task, manifest.results, executedGates, approvals.records);
     manifestPath = save();
     store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'run.completed', message: manifest.mergeDecision.decision });

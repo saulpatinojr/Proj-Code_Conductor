@@ -24,11 +24,11 @@ class CountingAdapter extends WritingAdapter {
 const temps: string[] = [];
 afterEach(() => { for (const temp of temps.splice(0)) rmSync(temp, { recursive: true, force: true }); });
 
-async function run(approver: Approver | undefined, gateCalls = { count: 0 }, setup: { codex?: CountingAdapter; sandbox?: (repository: string) => void; keepWorktrees?: boolean; gate?: (cwd: string) => void } = {}) {
+async function run(approver: Approver | undefined, gateCalls = { count: 0 }, setup: { codex?: CountingAdapter; claude?: CountingAdapter; sandbox?: (repository: string) => void; keepWorktrees?: boolean; gate?: (cwd: string) => void } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'cc-approval-test-'));
   temps.push(temp);
   const codex = setup.codex ?? new CountingAdapter('codex', 'openai');
-  const claude = new CountingAdapter('claude', 'anthropic');
+  const claude = setup.claude ?? new CountingAdapter('claude', 'anthropic');
   const adapters = new Map<string, HarnessAdapter>([['codex', codex], ['claude', claude]]);
   const worktrees = new SandboxWorktrees(temp);
   setup.sandbox?.(worktrees.sandboxRepository);
@@ -755,6 +755,69 @@ describe('pre-action approval enforcement (#44)', () => {
     expect(builder.status).toBe('blocked');
     expect(builder.blockers.join(' ')).toContain('context changed after approval was requested; the stale approval was rejected and the action was not performed');
     expect(git(outcome.worktrees[0]!.path, 'log', '-1', '--format=%s')).toBe('late');
+  });
+
+  // Reviewers and gate commands run in the builder's worktree after its own commits were checked.
+  describe('commits added to the builder worktree by later steps (#104 review)', () => {
+    class LaterStep extends CountingAdapter {
+      constructor(id: string, provider: string, private readonly script: (cwd: string) => void) { super(id, provider); }
+      override async execute(request: HarnessExecutionRequest): Promise<HarnessExecutionOutcome> {
+        if (request.assignment.role === 'reviewer') this.script(request.cwd);
+        return super.execute(request);
+      }
+    }
+    const commitIn = (cwd: string, file: string, content: string): void => {
+      writeFileSync(join(cwd, file), content);
+      git(cwd, 'add', file);
+      git(cwd, '-c', 'user.name=later', '-c', 'user.email=later@example.invalid', 'commit', '-q', '-m', `add ${file}`);
+    };
+    const reviewerDoes = (script: (cwd: string) => void) => ({ codex: new LaterStep('codex', 'openai', script), claude: new LaterStep('claude', 'anthropic', script) });
+    // Assembled at run time, so this file holds no literal credential.
+    const token = `gh${'p_'}${'e'.repeat(36)}`;
+
+    it('scans a credential a reviewer committed on the builder branch, and blocks', async () => {
+      const { outcome } = await run(approveAll, { count: 0 }, reviewerDoes((cwd) => commitIn(cwd, 'leak.ts', `export const token = '${token}';\n`)));
+      const builder = outcome.manifest.results.find((result) => result.role === 'builder')!;
+      expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
+      expect(builder.blockers.join(' ')).toMatch(/The commits added on cc\/\S+ after the agent's own commits were checked, while reviewer \S+, gate commands \(\S+\) ran in .+ add credential-looking strings \(leak\.ts:1 GitHub token\)/);
+      expect(outcome.manifest.mergeDecision?.decision).not.toBe('ready');
+      expect(JSON.stringify(outcome.manifest)).not.toContain(token);
+    });
+
+    it('names a commit gate commands added, and needs a person', async () => {
+      const { outcome } = await run(approveAll, { count: 0 }, { gate: (cwd) => commitIn(cwd, `gate-${Date.now()}.txt`, 'gate\n') });
+      const builder = outcome.manifest.results.find((result) => result.role === 'builder')!;
+      expect(builder.recommendation).toBe('human_required');
+      expect(builder.risks.join(' ')).toMatch(/\d+ commit\(s\) were added on cc\/\S+ after the agent's own commits were checked, while .*gate commands \(\S+\) ran in /);
+      expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+    });
+
+    it('names HEAD moved off the builder branch by a reviewer', async () => {
+      const { outcome } = await run(approveAll, { count: 0 }, reviewerDoes((cwd) => { git(cwd, 'checkout', '-q', '--detach'); commitIn(cwd, 'aside.ts', 'export const x = 1;\n'); }));
+      const builder = outcome.manifest.results.find((result) => result.role === 'builder')!;
+      expect(builder.recommendation).toBe('human_required');
+      expect(builder.risks.join(' ')).toMatch(/HEAD \(detached at [0-9a-f]{12}\) in .+ is not the tip of cc\/\S+ \([0-9a-f]{12}\) after the agent's own commits were checked, while reviewer/);
+      expect(outcome.manifest.mergeDecision?.decision).toBe('human_required');
+    });
+
+    it('blocks when a later step deleted the builder branch', async () => {
+      const { outcome } = await run(approveAll, { count: 0 }, reviewerDoes((cwd) => { const branch = git(cwd, 'branch', '--show-current'); git(cwd, 'checkout', '-q', '--detach'); git(cwd, 'branch', '-q', '-D', branch); }));
+      const builder = outcome.manifest.results.find((result) => result.role === 'builder')!;
+      expect(builder).toMatchObject({ status: 'blocked', recommendation: 'human_required' });
+      expect(builder.blockers.join(' ')).toMatch(/cc\/\S+ in .+ names no commit after the agent's own commits were checked/);
+    });
+
+    it('says where the branch was checked when the run stopped for a Git configuration change', async () => {
+      const { outcome } = await run(approveAll, { count: 0 }, reviewerDoes((cwd) => { commitIn(cwd, 'late.ts', 'export const x = 1;\n'); git(cwd, 'config', 'filter.planted.clean', 'cat'); }));
+      const builder = outcome.manifest.results.find((result) => result.role === 'builder')!;
+      expect(builder.recommendation).toBe('human_required');
+      expect(builder.risks.join(' ')).toMatch(/cc\/\S+ was checked at [0-9a-f]{12}; nothing after that was re-checked, because the run stopped for a Git configuration change/);
+    });
+
+    it('leaves an ordinary run ready: Code Conductor\'s own commit is where the check left the branch', async () => {
+      const { outcome } = await run(approveAll);
+      expect(outcome.manifest.mergeDecision?.decision).toBe('ready');
+    });
   });
 
   it('stops when a gate command changes Git configuration, and keeps the worktree', async () => {

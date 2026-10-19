@@ -10,7 +10,7 @@ native surface that owns that step. It does not rebuild those surfaces.
 | Diffs and commits | VS Code Source Control / Git | Records each agent worktree (`RunManifest.worktrees`); **Review in Source Control** opens it in the built-in Git view. If the Git extension is unavailable, it opens the folder in a new window. |
 | Sign-in | Each provider's official client | Shows the official sign-in command and documentation link from the packaged capabilities; never asks for, stores, copies or forwards credentials. |
 | Approvals before actions | Your interactive terminal | `ccon run --execute` asks before each action ([`APPROVALS.md`](APPROVALS.md)). A refused or missing approval becomes a next action to re-run interactively. |
-| Pull requests and review | GitHub | Shows the `git push` and `gh pr create --draft` commands for **you** to run; merge stays a GitHub decision under branch protection and review. |
+| Pull requests and review | GitHub | Shows `ccon pr` for **you** to run: it previews the branch and scans exactly the commits it would push, and `--create` asks before pushing that commit and opening the draft. Merge stays a GitHub decision under branch protection and review. |
 | Deployment approval | Native pipeline environments | No deployment connector exists yet; any future one must use native environment protection plus a C02 `deployment` approval. |
 | Unsupported automation | You, in the official client | `ccon handoff` prints the exact assignment prompt for a manual run. |
 

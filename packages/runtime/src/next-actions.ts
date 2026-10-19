@@ -258,11 +258,15 @@ export function nextActions(manifest: RunManifest, options: NextActionOptions = 
   const committed = worktrees.filter((worktree) => (results.get(worktree.assignmentId)?.changes ?? []).length > 0);
   const builder = committed.find((worktree) => assignments.get(worktree.assignmentId)?.role === 'builder') ?? committed[0];
   if (manifest.mergeDecision?.decision === 'ready' && builder && !gitStopped) {
-    actions.push(withCommands({
-      kind: 'prepare_pull_request', title: 'Open a draft pull request',
-      detail: 'Deterministic gates and required reviews passed locally. Pushing and opening a pull request are your actions; merge remains a GitHub decision under branch protection and review. Run gh from inside the agent worktree so it targets this repository.',
-      surface: 'github', assignmentId: builder.assignmentId, path: builder.path, evidenceIds: manifest.mergeDecision.evidenceIds,
-    }, [['git', '-C', builder.path, 'push', '-u', 'origin', builder.branch], ['gh', 'pr', 'create', '--draft', '--head', builder.branch, '--fill']]));
+    const action = {
+      kind: 'prepare_pull_request' as const, title: 'Open a draft pull request',
+      detail: 'Deterministic gates and required reviews passed locally. `ccon pr` previews the branch and scans exactly the commits it would push; with --create it asks in this terminal, pushes that commit and opens the draft. Pushing and opening a pull request are your actions; merge remains a GitHub decision under branch protection and review.',
+      surface: 'github' as const, assignmentId: builder.assignmentId, path: builder.path, evidenceIds: manifest.mergeDecision.evidenceIds,
+    };
+    // Only plain identifiers go into a command: one such as `--create` would change what it does.
+    actions.push(PLAIN_ID.test(manifest.runId) && PLAIN_ID.test(builder.assignmentId)
+      ? withCommands(action, [['ccon', 'pr', '--run', manifest.runId, '--assignment', builder.assignmentId], ['ccon', 'pr', '--run', manifest.runId, '--assignment', builder.assignmentId, '--create']])
+      : { ...action, detail: `${action.detail} (No command is shown because the run or assignment identifier is not plain.)` });
   } else if (manifest.mergeDecision?.decision === 'human_required' && !actions.some((action) => action.kind === 'approve_interactively' || action.kind === 'decide' || action.kind === 'manual_handoff' || action.kind === 'github_review' || action.kind === 'inspect_git_configuration')) {
     actions.push({ kind: 'decide', title: 'Human decision required', detail: manifest.mergeDecision.rationale, surface: 'github', evidenceIds: manifest.mergeDecision.evidenceIds });
   }
