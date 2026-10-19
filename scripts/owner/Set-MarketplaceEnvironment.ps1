@@ -11,7 +11,8 @@
        approve each deployment, and only tags matching v* may deploy.
 
     It stores no credential. Creating the Marketplace publisher, and the Microsoft Entra ID
-    workload identity a publish job would sign in with, stay with you (listed at the end).
+    workload identity the Publish job signs in with, stay with you (listed at the end;
+    docs/MARKETPLACE-PUBLISHING.md).
 
 .PARAMETER Publisher
     The Marketplace publisher ID (not its display name).
@@ -83,10 +84,13 @@ foreach ($policy in $others) {
 
 Write-Host @"
 
-Still yours (docs/RELEASE.md, "Publishing to the Marketplace"):
+Still yours (docs/MARKETPLACE-PUBLISHING.md, steps 1 and 3 to 7):
   - Create the publisher '$Publisher' if it does not exist: https://marketplace.visualstudio.com/manage
   - The tag ruleset from Set-RepositoryGovernance.ps1 must be in place before the first release.
-  - A publish job is not in the Release workflow yet. When it is added, it signs in with a
-    Microsoft Entra ID workload identity (vsce publish --azure-credential), not a personal
-    access token; Azure DevOps retires global personal access tokens on 2026-12-01.
+  - Register the Microsoft Entra ID application with a federated credential for this
+    repository's '$Environment' environment and add it to the publisher as a Contributor.
+  - Store AZURE_CLIENT_ID and AZURE_TENANT_ID as '$Environment' environment secrets.
+  - Last, set the MARKETPLACE_PUBLISH repository variable to true. The Release workflow's
+    Publish job is skipped until then; it signs in with that workload identity
+    (vsce publish --azure-credential), never a personal access token.
 "@

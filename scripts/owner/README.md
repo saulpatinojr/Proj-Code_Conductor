@@ -8,7 +8,7 @@ The three that change GitHub take `-WhatIf`, and `Get-Help <script> -Full` docum
 |---|---|---|
 | `Set-RepositoryGovernance.ps1` | #3 | Applies the rulesets for `main` and all tags, and the branch, security and Actions settings of [`REPOSITORY-GOVERNANCE.md`](../../docs/REPOSITORY-GOVERNANCE.md). Then reads them back, checks them, and writes the read-back for #3 (`-PostEvidence` posts it). |
 | `Remove-StaleBranches.ps1` | Branch cleanup | Shows each branch other than `main` with the reason it may be stale. Keeps the head or base of an open pull request. Deletes the ones you confirm, and prints the command that restores each. With `-IncludeLocal`, it deletes a local copy only when GitHub had all of its commits. |
-| `Set-MarketplaceEnvironment.ps1` | #14 | Sets `VSCE_PUBLISHER` and creates the `marketplace` environment: you approve each deployment, and only `v*` tags may deploy ([`RELEASE.md`](../../docs/RELEASE.md#publishing-to-the-marketplace-owner-setup-not-automated-yet)). |
+| `Set-MarketplaceEnvironment.ps1` | #14 | Sets `VSCE_PUBLISHER` and creates the `marketplace` environment: you approve each deployment, and only `v*` tags may deploy ([`MARKETPLACE-PUBLISHING.md`](../../docs/MARKETPLACE-PUBLISHING.md), step 2). |
 | `Invoke-WorkstationValidation.ps1` | #4, #9, #10, #18, #41 | Collects the evidence of [`WORKSTATION-VALIDATION.md`](../../docs/WORKSTATION-VALIDATION.md) section 13 that needs no judgement into a checklist you complete and post. |
 
 ## Running them
