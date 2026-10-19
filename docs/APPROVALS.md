@@ -110,7 +110,12 @@ reset or rewrote so that it no longer descends from its base is flagged too. Eit
 makes the run `human_required`.
 
 Reviewers and gate commands then run in the builder's worktree, and anything they leave
-running can still write there. Before the merge decision, Code Conductor checks that the
+running can still write there. Before the gate commands run, Code Conductor compares the
+worktree's content with its HEAD commit (the same content-exact comparison the commit path
+uses): an edit a read-only assignment left behind, or one made by something it started,
+names the paths and the steps that ran there, runs no gate and makes the run
+`human_required`, because gate evidence would otherwise describe content that `ccon pr`
+never pushes (#111). Before the merge decision, Code Conductor checks that the
 worktree's history still ends where the builder's check left it. Commits added since are
 named, scanned and checked the same way, with the steps that ran there. They make the run
 `human_required`, and a credential, a sensitive path or a deleted branch blocks it. A write
@@ -190,7 +195,8 @@ stored, only their digests and sizes. Each decision is also appended to the run'
 - Commits an agent makes itself are not approved here, only reported and checked (see
   above and [`WORKTREES.md`](WORKTREES.md)). Every file version they introduced is
   scanned for credentials; history past the scan budget blocks the run.
-- Gate commands run in the validation worktree as it is on disk. The approval binds
+- Gate commands run in the validation worktree as it is on disk, after the worktree was
+  found equal to its HEAD commit (#111). The approval binds
   tracked and untracked non-ignored content, but not ignored files the agent wrote,
   working trees of nested repositories or submodules (only their commit pointers),
   symlink targets outside the tree, or differences Git normalises on `add` (`text`/`eol`,
