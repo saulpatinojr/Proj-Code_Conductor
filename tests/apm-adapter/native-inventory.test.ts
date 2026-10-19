@@ -56,6 +56,29 @@ describe('provider-native inventory', () => {
     expect(inventory.unmanagedProjectPaths).toEqual(['.claude/agents/handmade.md']);
   });
 
+  it('counts files an installed dependency deployed as managed, however the lock records them', () => {
+    const repo = scratch();
+    for (const name of ['from-dependency', 'from-deployments', 'handmade']) write(join(repo, `.claude/agents/${name}.md`), `---\nname: ${name}\ndescription: d\n---\n`);
+    write(join(repo, 'apm.lock.yaml'), [
+      "lockfile_version: '1'",
+      'dependencies:',
+      '- name: github-expert-engineer',
+      '  deployed_files:',
+      '  - .claude/agents/from-dependency.md',
+      'deployments:',
+      '- kind: project-relative',
+      '  value: .claude/agents/from-deployments.md',
+      '- kind: user',
+      '  value: .claude/agents/handmade.md',
+      'local_deployed_files: []',
+      '',
+    ].join('\n'));
+    const inventory = inventoryNativeCustomizations(repo, scratch());
+    const byName = Object.fromEntries(inventory.entries.map((entry) => [entry.name, entry.managedByApm]));
+    expect(byName).toEqual({ 'from-dependency': true, 'from-deployments': true, handmade: false });
+    expect(inventory.unmanagedProjectPaths).toEqual(['.claude/agents/handmade.md']);
+  });
+
   it('reads front matter names line by line, in linear time', () => {
     const repo = scratch();
     write(join(repo, '.claude/agents/quoted.md'), '---\nname: "Quoted Agent"\ndescription: d\n---\n');
