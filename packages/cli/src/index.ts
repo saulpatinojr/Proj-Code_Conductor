@@ -9,9 +9,9 @@ import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/pol
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, stoppedForGitControl, TOOL_OUTPUT_MODES, type NextAction, type PullRequestOptions, type ToolOutputMode } from '@code-conductor/runtime';
 import { RunStore } from '@code-conductor/evidence';
-import { agentWorktreeRemovalProblem, defaultWorktreeRoot, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
+import { agentWorktreeRemovalProblem, defaultWorktreeRoot, redactSecrets, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
-import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, providerEnvironment } from '@code-conductor/adapters';
+import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, processSucceeded, providerEnvironment } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
 import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
@@ -288,16 +288,21 @@ async function harnessSmoke(args: string[]): Promise<number> {
     const writeOk = mode === 'modify'
       ? (output?.text === 'WRITE_OK\n' || output?.text === 'WRITE_OK\r\n') && changed.length === 1 && changed[0] === '+OUTPUT.txt'
       : changed.length === 0;
-    const processOk = adapter.executionSurface === 'acp'
-      ? !outcome.timedOut && (outcome.exitCode === null || outcome.exitCode === 0)
-      : outcome.exitCode === 0;
+    // The same rule a run applies before trusting a completion claim.
+    const processOk = processSucceeded(outcome);
     const ok = processOk && parsed.status === 'completed' && writeOk;
     if (!ok) {
       // Each check's own value, so a failure on a real workstation says which one failed.
       const result = parsed.status === 'completed' ? 'completed' : `${parsed.status} (${printable(parsed.blockers[0] ?? 'no reason given', 200)})`;
       const shown = output ? `${printable(JSON.stringify(output.text.slice(0, 40)), 80)}${output.encoding === 'utf-8' ? '' : ` (${output.encoding})`}` : present ? 'unreadable (not a regular file of at most 1 KiB)' : 'missing';
       const written = mode === 'modify' ? ` output=${shown}` : '';
-      console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} result=${result} changed=${printable(changed.join(','), 200) || 'none'}${written}`);
+      // The client's last stderr lines, on the same line so the evidence script keeps
+      // them: a usage error, a sandbox refusal or the adapter's own permission notes
+      // say why a client that exited without a result did so. Credential-looking
+      // strings are redacted and control characters escaped before anything is shown.
+      const stderrLines = outcome.stderr.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(-5);
+      const diagnostics = stderrLines.length ? ` stderr=${printable(redactSecrets(stderrLines.join(' | ')).text, 600)}` : '';
+      console.error(`SMOKE FAIL ${harness} ${adapter.executionSurface} ${mode}: exit=${String(outcome.exitCode)} signal=${String(outcome.signal)} timeout=${outcome.timedOut} result=${result} changed=${printable(changed.join(','), 200) || 'none'}${written}${diagnostics}`);
       return 1;
     }
     if (adapter.version() !== clientVersion) { console.error(`SMOKE FAIL ${harness}: the client changed during the smoke test (${printable(clientVersion ?? 'no version')} before, ${printable(adapter.version() ?? 'no version')} after); run it again.`); return 1; }

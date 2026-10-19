@@ -323,3 +323,35 @@ describe('bounded gate execution', () => {
     expect(isRunning(grandchild)).toBe(false);
   }, 15_000);
 });
+
+describe('npm and npx on Windows (D-074)', () => {
+  it('runs them through the npm-cli.js bundled with the node.exe found on PATH, never the batch shim', () => {
+    const nodeDir = join(workspace(), 'nodejs');
+    mkdirSync(join(nodeDir, 'node_modules', 'npm', 'bin'), { recursive: true });
+    for (const file of ['node.exe', 'npm.cmd', 'npx.cmd', 'pnpm.cmd', join('node_modules', 'npm', 'bin', 'npm-cli.js'), join('node_modules', 'npm', 'bin', 'npx-cli.js')]) writeFileSync(join(nodeDir, file), '');
+    const env = { PATH: nodeDir };
+    expect(resolveExecutable('npm', env, 'win32')).toEqual({ path: join(nodeDir, 'node.exe'), prefixArgs: [join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js')] });
+    expect(resolveExecutable('npx', env, 'win32')).toEqual({ path: join(nodeDir, 'node.exe'), prefixArgs: [join(nodeDir, 'node_modules', 'npm', 'bin', 'npx-cli.js')] });
+    // Other shims still need cmd.exe and stay unsupported.
+    expect(resolveExecutable('pnpm', env, 'win32').problem).toMatch(/batch script \(pnpm\.cmd\).*not supported on Windows/);
+    // node.exe must come from an absolute PATH entry like any other tool.
+    expect(resolveExecutable('npm', { PATH: `${relative(process.cwd(), nodeDir)}` }, 'win32').problem).toMatch(/not found on PATH/);
+    // The shim alone is never run: without the bundled script, npm is reported, not started.
+    rmSync(join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+    expect(resolveExecutable('npm', env, 'win32').problem).toMatch(/npm bundled with Node was not found/);
+    // The POSIX rule is unchanged: a plain `npm` file on PATH, or nothing.
+    expect(resolveExecutable('npm', env, 'linux').problem).toMatch(/not found on PATH/);
+  });
+
+  it('passes the resolution\'s own arguments to the executor first and names them in the evidence and the approval binding', async () => {
+    const root = workspace();
+    const calls: string[][] = [];
+    const node = join(root, 'node.exe');
+    const script = join(root, 'npm-cli.js');
+    const plan: PlannedGate = { ...planned({ id: 'typecheck', command: 'npm', args: ['run', 'typecheck'], blocking: true }), executable: node, prefixArgs: [script] };
+    const executions = await executeGatePlan(root, [plan], (_cwd, command, args, _timeout, executable) => { calls.push([executable, command, ...args]); return { status: 0, stdout: 'ok', stderr: '' }; });
+    expect(calls).toEqual([[node, 'npm', script, 'run', 'typecheck']]);
+    expect(executions[0]?.result.status).toBe('passed');
+    expect(executions[0]?.evidence.source).toBe(`npm run typecheck (${node} ${script})`);
+  });
+});

@@ -205,6 +205,11 @@ node "$CC_JS" harness-smoke claude --mode modify
 
 If a smoke test fails, do not mark the harness trusted manually; inspect the installed client's permissions/sandbox configuration and current official documentation.
 
+Reading a `SMOKE FAIL` line: each field is one check. `exit=` and `signal=` are the client process; `result=` is the structured result it returned; `changed=` lists what changed in the temporary workspace; `output=` (modify only) is what `OUTPUT.txt` holds; `stderr=` shows the client's last stderr lines, redacted and with control characters escaped. Two shapes are worth knowing:
+
+- `exit=2 ... changed=none` from a CLI client is a command-line usage error: the client rejected an argument and never ran the prompt. `stderr=` names the argument. This is a Code Conductor defect to report, not a workstation problem (D-073 was one).
+- `exit=null signal=SIGTERM timeout=false` from Kiro is the adapter's own teardown after the prompt returned, not a crash. The failed check is `result=` or `output=`; a modify smoke that ends with `output=missing` and `[ACP permission cancelled]` lines in `stderr=` is the designed fail-closed outcome while Kiro's permission model is unvalidated.
+
 ## 8. GitHub Gatekeeper validation
 
 Verify:
@@ -290,6 +295,13 @@ node "$CC_JS" run --repo . --risk R1 --objective "Implement the approved test ta
 The run asks in the terminal before each consequential action: starting a provider, disclosing the prompt and repository to it, running gate commands, and committing. Each request is bound to the exact recipient, revision, content and diff ([`APPROVALS.md`](APPROVALS.md)). Validate on the workstation that the prompt appears in the integrated/task terminal, that only the literal `approve` proceeds, and that a denial leaves the run `human_required` with changes preserved.
 
 A modifying agent receives an isolated worktree. Review/validation remains independent, and GitHub PR/merge remains a separate gate.
+
+The gates run in the builder's worktree, which starts without `node_modules` or build
+output, and Code Conductor never installs them (D-061). When the gate approval prompt
+names that worktree, open a second terminal, read its `package.json`, and run
+`npm ci --ignore-scripts` then `npm run build:ts` there before typing the code; or approve
+as it is and read the `fix_validation` next action, which names each gate that could not
+run. On Windows the `npm` gates run through Node's bundled `npm-cli.js` (D-074).
 
 For the #94 token baseline, run the same scenario once more with `--tool-output summary` and compare the `gate.output.recorded` events in the two runs' `events.jsonl` (estimated original and shown tokens per gate). Check that the gate statuses and the merge decision are identical in both runs, and that `ccon gate-output --evidence <E-id>` prints the full output back for a summarised gate ([`GATE-PROFILES.md`](GATE-PROFILES.md#stored-output-and-the-summary-mode-94)).
 

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, statSync } from 'node:fs';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
 // Provider clients and gate commands run in their own session and process group on
 // POSIX. Without a controlling terminal they cannot open /dev/tty or inject keystrokes
@@ -141,19 +141,40 @@ export function absolutePathEnvironment(env: NodeJS.ProcessEnv = process.env): N
   return result;
 }
 
-export interface ResolvedExecutable { path?: string; problem?: string }
+export interface ResolvedExecutable {
+  path?: string;
+  /** Arguments that go before the caller's own, when `path` is an interpreter running the command's script (Windows npm and npx). */
+  prefixArgs?: string[];
+  problem?: string;
+}
+
+/**
+ * npm and npx are scripts shipped inside Node's own installation, next to `node.exe`.
+ * On Windows their PATH entries are batch shims, so the bundled script runs under that
+ * `node.exe` instead (D-074). Only these two: their location is fixed by Node's layout.
+ */
+const NODE_BUNDLED_SCRIPTS: Readonly<Record<string, string>> = {
+  npm: join('node_modules', 'npm', 'bin', 'npm-cli.js'),
+  npx: join('node_modules', 'npm', 'bin', 'npx-cli.js'),
+};
+
+function isRegularFile(path: string): boolean {
+  try { return statSync(path).isFile(); } catch { return false; }
+}
 
 /**
  * The absolute file a plain command name resolves to, searching absolute PATH entries
  * only: never the current directory, an empty entry or a relative entry, which the
  * repository a child runs in could control (on Windows, a bare name passed to spawn is
  * looked up in the child's working directory first). On Windows only .exe and .com files
- * run without a shell; a batch shim (.cmd/.bat, as npm, pnpm and yarn install) would
- * need cmd.exe and is reported as unsupported instead of being run.
+ * run without a shell. A batch shim (.cmd/.bat, as npm, pnpm and yarn install) would need
+ * cmd.exe: for npm and npx the script the shim would start is run under the `node.exe`
+ * found the same way (both files are returned and bound by the approval); any other shim
+ * is reported as unsupported instead of being run.
  */
-export function resolveExecutable(command: string, env: NodeJS.ProcessEnv = process.env): ResolvedExecutable {
+export function resolveExecutable(command: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): ResolvedExecutable {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(command)) return { problem: `\`${command}\` is not a plain command name` };
-  const windows = process.platform === 'win32';
+  const windows = platform === 'win32';
   const runnable = windows ? ['.exe', '.com'] : [''];
   let batch: string | undefined;
   for (const directory of (env.PATH ?? env.Path ?? '').split(delimiter)) {
@@ -167,6 +188,12 @@ export function resolveExecutable(command: string, env: NodeJS.ProcessEnv = proc
       } catch { /* keep looking */ }
     }
     if (windows) for (const extension of ['.cmd', '.bat']) { try { if (statSync(join(directory, `${command}${extension}`)).isFile()) batch ??= `${command}${extension}`; } catch { /* keep looking */ } }
+  }
+  if (batch && Object.hasOwn(NODE_BUNDLED_SCRIPTS, command)) {
+    const node = resolveExecutable('node', env, platform).path;
+    const script = node ? join(dirname(node), NODE_BUNDLED_SCRIPTS[command]!) : undefined;
+    if (node && script && isRegularFile(script)) return { path: node, prefixArgs: [script] };
+    return { problem: `\`${command}\` is a batch script (${batch}) and the ${command} bundled with Node was not found (${script ?? 'no node.exe on an absolute PATH entry'}), so it cannot run without cmd.exe` };
   }
   return { problem: batch ? `\`${command}\` is a batch script (${batch}), which cannot run without cmd.exe and is not supported on Windows` : `command \`${command}\` not found on PATH` };
 }

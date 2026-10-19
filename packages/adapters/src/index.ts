@@ -67,6 +67,65 @@ export function finalMessage(harness: string, stdout: string): string | undefine
   return undefined;
 }
 
+/**
+ * Whether the client process itself ended cleanly: a CLI client exits 0 with no signal; an
+ * ACP client is ended by the adapter once the prompt returns, so no exit status or 0 counts.
+ * A timeout never does. A structured result that claims completion is trusted only when
+ * this holds: a client that crashed or was killed after printing its report validated
+ * nothing after that point (2026-10-19 dogfood finding, #4).
+ */
+export function processSucceeded(outcome: Pick<HarnessExecutionOutcome, 'surface' | 'exitCode' | 'signal' | 'timedOut'>): boolean {
+  if (outcome.timedOut) return false;
+  if (outcome.surface === 'acp') return outcome.exitCode === null || outcome.exitCode === 0;
+  return outcome.exitCode === 0 && outcome.signal === null;
+}
+
+const REASON_LIMIT = 300;
+// One line of a client's own words, bounded and without control or format characters.
+function plainReason(text: string): string {
+  const safe = text.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').trim();
+  return safe.length > REASON_LIMIT ? `${safe.slice(0, REASON_LIMIT)}…` : safe;
+}
+
+/**
+ * The client's own account of why it stopped, from its documented output: Claude Code's
+ * result subtype and turn count (`error_max_turns`, for example), or Codex's `turn.failed`
+ * or `error` event. Undefined when the output names no reason.
+ */
+export function terminalReason(harness: string, stdout: string): string | undefined {
+  const parse = (text: string): unknown => { try { return JSON.parse(text) as unknown; } catch { return undefined; } };
+  if (harness === 'claude') {
+    const value = parse(stdout.trim()) as { subtype?: unknown; is_error?: unknown; num_turns?: unknown; stop_reason?: unknown } | undefined;
+    if (!value || typeof value !== 'object') return undefined;
+    const turns = typeof value.num_turns === 'number' ? ` after ${value.num_turns} turn(s)` : '';
+    // A turn limit leaves the model mid-action: stop_reason says what it was about to do.
+    const stopped = typeof value.stop_reason === 'string' && value.stop_reason !== 'end_turn' ? `, stopped at ${value.stop_reason}` : '';
+    if (typeof value.subtype === 'string' && value.subtype !== 'success') return plainReason(`Claude Code reported ${value.subtype}${turns}${stopped}`);
+    if (value.is_error === true) return plainReason(`Claude Code reported an error result${turns}${stopped}`);
+    return undefined;
+  }
+  if (harness === 'codex') {
+    let reason: string | undefined;
+    for (const line of stdout.split(/\r?\n/)) {
+      const event = parse(line) as { type?: unknown; message?: unknown; error?: { message?: unknown } } | undefined;
+      if (event?.type === 'turn.failed') reason = plainReason(`Codex reported turn.failed${typeof event.error?.message === 'string' ? `: ${event.error.message}` : ''}`);
+      else if (event?.type === 'error' && typeof event.message === 'string') reason = plainReason(`Codex reported an error: ${event.message}`);
+    }
+    return reason;
+  }
+  return undefined;
+}
+
+/** How the client process ended, for a blocker: its exit status or signal, with the client's own reason when its output names one. */
+export function processEnding(harness: string, outcome: HarnessExecutionOutcome): string {
+  const status = outcome.timedOut ? 'timed out'
+    : outcome.exitCode !== null ? `exited with code ${outcome.exitCode}`
+      : outcome.signal ? `was ended by signal ${outcome.signal}`
+        : 'ended without an exit status';
+  const reason = terminalReason(harness, outcome.stdout);
+  return reason ? `${status} (${reason})` : status;
+}
+
 export interface HarnessAdapter {
   id: string;
   provider: string;
@@ -222,7 +281,13 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
   const writeAllowed = request.assignment.authority.includes('modify_worktree');
   switch (id) {
     case 'codex':
-      return ['exec', '--json', '--ask-for-approval', 'never', '--sandbox', writeAllowed ? 'workspace-write' : 'read-only', '--cd', request.cwd, request.prompt];
+      // `codex exec` is the headless surface: its approval policy is Never by
+      // construction and it accepts no --ask-for-approval flag (codex-rs/exec/src/lib.rs
+      // and codex-rs/utils/cli/src/shared_options.rs at rust-v0.163.0; the same at every
+      // release checked back to 0.40). An unknown flag is a usage error, exit 2, before
+      // the prompt runs, which is how the 2026-10-19 workstation smoke failed (D-073).
+      // The sandbox flag is what limits the client to the worktree.
+      return ['exec', '--json', '--sandbox', writeAllowed ? 'workspace-write' : 'read-only', '--cd', request.cwd, request.prompt];
     case 'claude':
       // --setting-sources user: the repository's .claude/settings*.json and .mcp.json are
       // not read. Under -p Claude Code would otherwise apply their env block, apiKeyHelper
@@ -233,7 +298,10 @@ function argsFor(id: string, request: HarnessExecutionRequest): string[] {
       // and commands load; the repository's own are not loaded under this flag.
       return writeAllowed
         ? ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'acceptEdits', '--max-turns', '40', request.prompt]
-        : ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '20', request.prompt];
+        // 40 turns for a review too: in the 2026-10-19 R1 dogfood (#4) one of two
+        // reviews of this repository stopped at a tool call on the 20th turn, after
+        // 174 s, without reaching its final CC_RESULT_JSON line.
+        : ['-p', '--output-format', 'json', '--setting-sources', 'user', '--permission-mode', 'plan', '--max-turns', '40', request.prompt];
     default:
       return [request.prompt];
   }

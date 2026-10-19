@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createBuiltinAdapters, finalMessage, type HarnessExecutionOutcome, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
+import { createBuiltinAdapters, finalMessage, processEnding, processSucceeded, terminalReason, type HarnessExecutionOutcome, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
 import { parseAgentResult } from '../../packages/runtime/src/result.js';
 import type { AgentAssignment } from '../../packages/schemas/src/index.js';
 
@@ -61,5 +61,51 @@ describe('final messages from documented client output', () => {
     const request = { cwd: bin, timeoutMs: 10_000, prompt: 'p', task: { id: 'T-1' }, assignment } as unknown as HarnessExecutionRequest;
     const executed = await createBuiltinAdapters().get('claude')!.execute(request);
     expect(parseAgentResult(assignment, executed)).toMatchObject({ status: 'completed', recommendation: 'ready' });
+  });
+});
+
+describe('how a client process ended (2026-10-19 dogfood, #4)', () => {
+  const ended = (overrides: Partial<HarnessExecutionOutcome>): HarnessExecutionOutcome => ({ ...outcome(''), ...overrides });
+
+  it('counts only a clean exit as success: CLI clients exit 0 without a signal, ACP clients may have no exit status', () => {
+    expect(processSucceeded(ended({ exitCode: 0 }))).toBe(true);
+    expect(processSucceeded(ended({ exitCode: 1 }))).toBe(false);
+    expect(processSucceeded(ended({ exitCode: null, signal: 'SIGKILL' }))).toBe(false);
+    expect(processSucceeded(ended({ exitCode: 0, timedOut: true }))).toBe(false);
+    expect(processSucceeded(ended({ surface: 'acp', exitCode: null, signal: 'SIGTERM' }))).toBe(true);
+    expect(processSucceeded(ended({ surface: 'acp', exitCode: 1 }))).toBe(false);
+    expect(processSucceeded(ended({ surface: 'acp', exitCode: null, signal: 'SIGTERM', timedOut: true }))).toBe(false);
+  });
+
+  it('reads Claude Code\'s own reason for stopping from its result object', () => {
+    const maxTurns = JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 20, result: 'Still reading the repository.' });
+    expect(terminalReason('claude', maxTurns)).toBe('Claude Code reported error_max_turns after 20 turn(s)');
+    expect(terminalReason('claude', JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 3, result: 'ok' }))).toBeUndefined();
+    expect(terminalReason('claude', JSON.stringify({ type: 'result', is_error: true, result: 'x' }))).toBe('Claude Code reported an error result');
+    // The 2026-10-19 run-2 reviewer: cut off at a tool call on the turn limit.
+    expect(terminalReason('claude', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 20, stop_reason: 'tool_use', duration_api_ms: 174215 }))).toBe('Claude Code reported error_max_turns after 20 turn(s), stopped at tool_use');
+    expect(terminalReason('claude', 'not json')).toBeUndefined();
+    expect(processEnding('claude', ended({ exitCode: 1, stdout: maxTurns }))).toBe('exited with code 1 (Claude Code reported error_max_turns after 20 turn(s))');
+    // The reason reaches the blocker list, so `ccon next` says why there is no result.
+    const parsed = parseAgentResult(assignment, { ...ended({ exitCode: 1, stdout: maxTurns }), message: finalMessage('claude', maxTurns) });
+    expect(parsed.status).toBe('failed');
+    expect(parsed.blockers).toEqual(['Agent did not return a valid CC_RESULT_JSON structured result.', 'The claude client exited with code 1 (Claude Code reported error_max_turns after 20 turn(s)).']);
+    // A clean exit without a result keeps the single blocker.
+    const clean = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 2, result: 'Done.' });
+    expect(parseAgentResult(assignment, { ...ended({ exitCode: 0, stdout: clean }), message: finalMessage('claude', clean) }).blockers).toEqual(['Agent did not return a valid CC_RESULT_JSON structured result.']);
+  });
+
+  it('reads Codex\'s turn.failed and error events, bounded and without terminal control characters', () => {
+    const events = [
+      { type: 'thread.started', thread_id: 't' },
+      { type: 'item.completed', item: { id: 'i1', type: 'agent_message', text: 'Working.' } },
+      { type: 'turn.failed', error: { message: '\u001b[31msandbox denied\u001b[0m: ancestor directory' } },
+    ].map((event) => JSON.stringify(event)).join('\n');
+    expect(terminalReason('codex', events)).toBe('Codex reported turn.failed:  [31msandbox denied [0m: ancestor directory');
+    expect(terminalReason('codex', JSON.stringify({ type: 'error', message: `x${'y'.repeat(500)}` }))).toMatch(/^Codex reported an error: xy+…$/);
+    expect(terminalReason('codex', events.split('\n').slice(0, 2).join('\n'))).toBeUndefined();
+    expect(processEnding('codex', ended({ exitCode: null, signal: 'SIGKILL' }))).toBe('was ended by signal SIGKILL');
+    expect(processEnding('codex', ended({ exitCode: null, signal: null, timedOut: true }))).toBe('timed out');
+    expect(terminalReason('kiro', 'anything')).toBeUndefined();
   });
 });

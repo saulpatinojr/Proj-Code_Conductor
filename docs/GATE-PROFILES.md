@@ -46,9 +46,13 @@ The current directory, empty entries and relative entries are never searched, be
 the repository under validation could put a binary there. The resolved absolute file is
 what runs. It is shown in the approval summary and the evidence, and bound by the
 approval digest. Gate processes also see only the absolute `PATH` entries, so tools a gate
-starts itself (npm's `#!/usr/bin/env node`, for example) follow the same rule. On Windows only `.exe` and `.com` files run. Batch shims such as
-`npm.cmd`, `pnpm.cmd` or `yarn.cmd` would need `cmd.exe`, so those gates report an
-unsupported prerequisite instead of running.
+starts itself (npm's `#!/usr/bin/env node`, for example) follow the same rule. On Windows only `.exe` and `.com` files run. `npm` and `npx` are batch shims there, so
+those gates run the `npm-cli.js` or `npx-cli.js` bundled with the Node installation
+whose `node.exe` is on an absolute `PATH` entry, under that `node.exe`. Both files are
+shown in the approval summary and bound by the approval digest; the shim itself is never
+read or run, and when the bundled script is missing the gate reports that instead of
+running (D-074). Other batch shims such as `pnpm.cmd` or `yarn.cmd` would need `cmd.exe`,
+so those gates report an unsupported prerequisite instead of running.
 
 In an agent worktree, installed dependencies, `.terraform` and build output exist only
 because something in the run created them, possibly the agent. Git ignores them, so the
@@ -163,7 +167,7 @@ for), not provider billing or quota data.
 - Gates run in the validation worktree as it exists on disk, including dependencies the
   run created. A fresh checkout of exactly the approved commit, with dependencies you
   installed yourself, would need project bootstrap and is deferred.
-- npm, pnpm and yarn gates do not run on native Windows (batch shims, see above). The approval binding's limits are listed in [`APPROVALS.md`](APPROVALS.md).
+- pnpm and yarn gates do not run on native Windows (batch shims, see above); npm and npx gates run through Node's bundled scripts (D-074). The approval binding's limits are listed in [`APPROVALS.md`](APPROVALS.md).
 - Further ecosystems (Python, Go, Rust, Kubernetes/Helm) can be added as profiles with
   the same prerequisite and safety rules when a real repository needs them (#15).
 - A PowerShell profile is deferred (D-069). `pwsh` is a shell, which these rules refuse,

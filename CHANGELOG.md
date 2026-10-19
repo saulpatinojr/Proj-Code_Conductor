@@ -63,6 +63,8 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Changed
 
+- Claude Code reviews run with `--max-turns 40`, the same budget as a modifying assignment, instead of 20 (#4). In the 2026-10-19 R1 dogfood one of two reviews of this repository stopped at a tool call on the 20th turn, after 174 seconds, without reaching its final `CC_RESULT_JSON` line. The blocker for such a result now says so (`Claude Code reported error_max_turns after 20 turn(s), stopped at tool_use`).
+
 - Reviewers and gate commands run in the builder's worktree after its own commits were checked, and could add commits there unnamed and unscanned. `ccon next` then suggested a plain `git push` of the branch. Before the merge decision, Code Conductor now checks that the worktree's history still ends where the builder's check left it. Commits added since are named, with the steps that ran there, scanned and path-checked. A HEAD moved off the branch, or a rewritten branch, makes the run `human_required`; a credential, a sensitive path or a deleted branch blocks it. `ccon next` now suggests `ccon pr`, which scans exactly what it pushes. (From the security review of #104.)
 - The check of an agent's own commits now reads both HEAD and the agent's branch. An agent could commit on its branch and then move HEAD back to the base (`git checkout --detach`): the worktree looked untouched, and the branch a person merges carried commits that were neither named nor scanned for credentials. Both are now checked. A HEAD that is not the branch tip makes the run `human_required`, and a branch the agent deleted blocks it.
   - After independent security review:
@@ -126,6 +128,13 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 - Replaced the unsupported duplicate `.github/copilot-mcp.json` approach with minimal `.github/mcp.json`; removed the transplanted Copilot setup/token-minter workflow that referenced infrastructure and secrets not owned by this repository.
 - Reconciled Phase 1 tracking: issue #2 is complete and live workstation/R1/R2 validation is tracked in issue #4.
 - Renamed the canonical repository to `saulpatinojr/Proj-Code_Conductor` and the APM package to `proj-code-conductor`; in-tree clone, issue-template, VS Code packaging, and repository-layout references now use the new name. See ADR 0010 and D-001.
+
+### Fixed
+
+- The merge decision reported `ready` on four paths the 2026-10-19 R1 dogfood review found (#4; D-075): a completed reviewer recommending `changes_required` without a blocking finding, a `cancelled` assignment, a run with no results, and a run in which no deterministic gate ran (R0 planned no validator, so the fail-closed no-applicable-gates path was never reached and the rationale claimed gates had passed). Each now fails closed, `ready` requires a passed blocking gate, and R0 includes the internal validator as AGENTS.md section 5 requires. `mergeDecision` is exported for unit tests.
+- A `CC_RESULT_JSON` completion claim overrode the client's exit status: a client that printed its report and then exited with an error or was ended by a signal counted as completed (#4; D-075). The runtime now trusts a completion claim only from a process that ended cleanly (the same rule `harness-smoke` applies), and a result without a structured report names how the client ended, with the client's own reason when its output states one: `Claude Code reported error_max_turns after 20 turn(s)`, `Codex reported turn.failed: ...`.
+- `npm` and `npx` gates could not run on native Windows: the Node profile's `typecheck` and `unit-tests` gates reported `npm` as an unsupported batch shim, so every Node run on a Windows workstation ended `changes_required` (#4; D-074). They now run as the `node.exe` on `PATH` executing the `npm-cli.js` bundled in that Node installation; both files are in the approval summary and the approval digest, and the shim is never run. `pnpm` and `yarn` stay unsupported there.
+- Codex never started (#4; D-073): the adapter passed `--ask-for-approval never` to `codex exec`, a flag the headless surface does not accept (its approval policy is already Never), so the client exited 2 with a usage error before any prompt ran. The flag is removed; the sandbox flag, `--cd` and `--json` stay. A failed `ccon harness-smoke` now prints the client's last stderr lines on its `SMOKE FAIL` line, redacted and escaped, so a usage error, a sandbox refusal or a cancelled permission is visible in the evidence.
 
 ### Security
 

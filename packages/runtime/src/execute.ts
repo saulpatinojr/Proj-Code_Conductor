@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, HandoffPacket, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
 import { buildHandoffPacket, describeHandoff, handoffExpired, renderHandoff, validHandoffTtl } from './handoff.js';
 import type { ClientAuthStatus, HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
-import { configurationInsideRepository, createBuiltinAdapters } from '@code-conductor/adapters';
+import { configurationInsideRepository, createBuiltinAdapters, processEnding, processSucceeded } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
 import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, redactSecrets, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, worktreeTips, type GitControlState, type WorktreeHandle, type WorktreeTips } from '@code-conductor/git';
@@ -101,14 +101,24 @@ function assertHistoryClean(path: string, from: string, ends: ReadonlyMap<string
   }
 }
 
-function mergeDecision(task: TaskEnvelope, results: AgentResult[], gates: GateExecution[], approvals: readonly ApprovalRecord[]): MergeDecision {
+/**
+ * The run's merge decision, which fails closed: `ready` needs every result completed with
+ * a positive recommendation, no unresolved blocking finding, every approval granted and
+ * at least one blocking deterministic gate that ran and passed. A reviewer's
+ * `changes_required`, a cancelled assignment, a run with no results and a run in which no
+ * gate ran were each `ready` before the 2026-10-19 dogfood review found them (#4).
+ */
+export function mergeDecision(task: TaskEnvelope, results: readonly AgentResult[], gates: readonly GateExecution[], approvals: readonly ApprovalRecord[]): MergeDecision {
   const evidenceIds = [...new Set([...results.flatMap((r) => r.evidence.map((e) => e.id)), ...gates.flatMap((g) => g.result.evidenceIds)])];
+  if (!results.length) return { decision: 'human_required', rationale: 'No assignment produced a result, so nothing was built, reviewed or validated.', evidenceIds };
   if (results.some((r) => r.status === 'awaiting_external')) return { decision: 'human_required', rationale: 'One or more assignments require an external/manual platform step.', evidenceIds };
   if (approvals.some((record) => record.status !== 'approved')) return { decision: 'human_required', rationale: 'A required pre-action approval was missing, denied, expired or invalidated by a context change; those actions were not performed.', evidenceIds };
   if (results.some((r) => r.recommendation === 'human_required')) return { decision: 'human_required', rationale: 'An assignment needs a person to review it before merge, for example commits the agent made itself, which Code Conductor did not approve, or Git configuration changed during the run.', evidenceIds };
-  if (results.some((r) => r.status === 'failed' || r.status === 'blocked')) return { decision: 'changes_required', rationale: 'One or more agent assignments failed or are blocked.', evidenceIds };
+  if (results.some((r) => r.status === 'failed' || r.status === 'blocked' || r.status === 'cancelled')) return { decision: 'changes_required', rationale: 'One or more agent assignments failed, were blocked or were cancelled.', evidenceIds };
   if (blockingGateFailure(gates)) return { decision: 'changes_required', rationale: 'A blocking deterministic gate failed.', evidenceIds };
   if (results.some((r) => r.findings.some((f) => f.blocking))) return { decision: 'blocked', rationale: 'An unresolved blocking finding remains.', evidenceIds };
+  if (results.some((r) => r.recommendation === 'changes_required')) return { decision: 'changes_required', rationale: 'An assignment recommends changes before merge.', evidenceIds };
+  if (!gates.some((g) => g.blocking && g.result.status === 'passed')) return { decision: 'changes_required', rationale: 'No blocking deterministic gate ran and passed; readiness requires at least one (AGENTS.md section 5).', evidenceIds };
   if (task.risk === 'R3' || task.risk === 'R4') return { decision: 'human_required', rationale: `${task.risk} policy requires explicit human approval.`, evidenceIds };
   return { decision: 'ready', rationale: 'Required assignments completed and blocking deterministic gates passed.', evidenceIds };
 }
@@ -253,7 +263,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         const runnable = gatePlan.filter((item) => !item.missing.length);
         if (runnable.length) {
           // Gate profiles run the target repository's own scripts, so they are local execution.
-          const commands = runnable.map((item) => `${[item.gate.command, ...(item.gate.args ?? [])].join(' ')} [${item.executable ?? item.gate.command}]${item.gate.blocking === false ? ' (advisory)' : ''}`);
+          const commands = runnable.map((item) => `${[item.gate.command, ...(item.gate.args ?? [])].join(' ')} [${[item.executable ?? item.gate.command, ...(item.prefixArgs ?? [])].join(' ')}]${item.gate.blocking === false ? ' (advisory)' : ''}`);
           const disclosures = [...new Set(runnable.flatMap((item) => (item.gate.disclosure ? [item.gate.disclosure] : [])))];
           // In an agent worktree, dependencies, .terraform and build output exist only because
           // something in this run created them, possibly the agent; they are ignored by Git.
@@ -266,7 +276,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
             const state = workingTreeState(validationRoot);
             return [{
               action: 'local_execution', runId: plan.runId, taskId: task.id, assignmentId: assignment.id, repository: validationRoot, revision: state.revision, recipient: 'local:deterministic-gates',
-              bindings: { tree: state.tree, commands: sha256(JSON.stringify(gatePlan.map((item) => [item.profile, item.gate.id, item.gate.command, item.executable ?? null, item.gate.args ?? [], item.timeoutMs, item.missing]))), selection: gatePlan.some((item) => item.explicit) ? 'explicit' : 'detected' },
+              bindings: { tree: state.tree, commands: sha256(JSON.stringify(gatePlan.map((item) => [item.profile, item.gate.id, item.gate.command, item.executable ?? null, item.prefixArgs ?? [], item.gate.args ?? [], item.timeoutMs, item.missing]))), selection: gatePlan.some((item) => item.explicit) ? 'explicit' : 'detected' },
               summary: `Run ${runnable.length} deterministic gate command(s) from the target repository in ${validationRoot}, with your environment: ${commands.join('; ')}${runnable.length < gatePlan.length ? ` (${gatePlan.length - runnable.length} gate(s) with missing prerequisites will not run and count as blocking failures)` : ''}.${skipped}${disclosures.map((text) => ` ${text}`).join('')}${untrusted}`,
             }];
           });
@@ -427,6 +437,13 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         try {
           const outcome = await adapter.execute(request);
           const parsed = parseAgentResult(assignment, outcome);
+          // A completion claim from a client that did not end cleanly is not trusted: whatever
+          // it reported, it crashed, was ended by a signal or exited with an error afterwards.
+          if (!outcome.timedOut && parsed.status === 'completed' && !processSucceeded(outcome)) {
+            parsed.status = 'failed';
+            parsed.recommendation = 'changes_required';
+            parsed.blockers = [...new Set([...parsed.blockers, `The ${assignment.harness} client ${processEnding(assignment.harness, outcome)} after reporting completion; a report from a client that did not end cleanly is not trusted.`])];
+          }
           if (outcome.timedOut) {
             parsed.status = 'failed';
             parsed.recommendation = 'changes_required';
