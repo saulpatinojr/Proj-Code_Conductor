@@ -137,13 +137,27 @@ function agentEntryName(file: string, ecosystem: NativeEcosystem): string | unde
   return frontmatterName(text) ?? basename(file).replace(/\.agent\.md$|\.md$/, '');
 }
 
-/** Project paths APM recorded as deployed (`local_deployed_files`). */
+/**
+ * Project paths APM recorded as deployed: by the local package (`local_deployed_files`) and
+ * by each installed dependency (`dependencies[].deployed_files`, and the project-relative
+ * `deployments[]`), so a pack installed from Agent Packs (ADR 0015) is not reported as
+ * hand-placed.
+ */
 export function apmLockDeployedFiles(root: string): Set<string> | undefined {
   const lockPath = join(root, 'apm.lock.yaml');
   if (!existsSync(lockPath)) return undefined;
-  const parsed = parse(readFileSync(lockPath, 'utf8')) as { local_deployed_files?: unknown } | null;
-  const files = Array.isArray(parsed?.local_deployed_files) ? parsed.local_deployed_files : [];
-  return new Set(files.filter((value): value is string => typeof value === 'string').map((value) => value.replaceAll('\\', '/')));
+  const parsed = parse(readFileSync(lockPath, 'utf8')) as { local_deployed_files?: unknown; dependencies?: unknown; deployments?: unknown } | null;
+  const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
+  const files = strings(parsed?.local_deployed_files);
+  for (const dependency of Array.isArray(parsed?.dependencies) ? parsed.dependencies : []) {
+    if (dependency && typeof dependency === 'object') files.push(...strings((dependency as { deployed_files?: unknown }).deployed_files));
+  }
+  for (const deployment of Array.isArray(parsed?.deployments) ? parsed.deployments : []) {
+    if (!deployment || typeof deployment !== 'object') continue;
+    const { kind, value } = deployment as { kind?: unknown; value?: unknown };
+    if (kind === 'project-relative' && typeof value === 'string') files.push(value);
+  }
+  return new Set(files.map((value) => value.replaceAll('\\', '/')));
 }
 
 export function inventoryNativeCustomizations(root: string, home: string = homedir()): NativeInventory {
