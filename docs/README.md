@@ -29,6 +29,7 @@ This directory contains the maintained design, operating, and validation documen
 - [`GATE-PROFILES.md`](GATE-PROFILES.md) — deterministic gate profiles, prerequisites, bounded execution and the validate/plan/apply boundary.
 - [`INSTALL.md`](INSTALL.md) — installing the VS Code extension, prerequisites, compatibility, updates, running `ccon` from it, and uninstalling.
 - [`RELEASE.md`](RELEASE.md) — tagged releases: tests, SBOM, signed provenance, draft release, verification, versions, rollback and Marketplace setup.
+- [`MARKETPLACE-PUBLISHING.md`](MARKETPLACE-PUBLISHING.md) — the owner's step-by-step Marketplace setup: publisher, Entra ID application and federated credential, environment secrets, the publish switch.
 - [`PACKAGED-DEFAULTS.md`](PACKAGED-DEFAULTS.md) — packaged configuration defaults and bounded user/workspace preferences.
 - [`MCP-CATALOG.md`](MCP-CATALOG.md) — approved MCP/reference strategy and tool-plane rules.
 - [`REPOSITORY-GOVERNANCE.md`](REPOSITORY-GOVERNANCE.md) — branch, PR, required-check, and repository-setting baseline.

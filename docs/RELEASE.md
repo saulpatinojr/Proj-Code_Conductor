@@ -161,39 +161,28 @@ needs GitHub Enterprise Cloud.
 
 ## Publishing to the Marketplace (owner setup, then an approved job)
 
-Publication needs decisions only the repository owner can make. They are tracked in #14.
-Once you have the publisher ID, `scripts/owner/Set-MarketplaceEnvironment.ps1 -Publisher <id>`
-does the GitHub side of steps 1 and 3 ([`scripts/owner`](../scripts/owner/README.md)).
+Publication needs decisions only the repository owner can make. The exact steps, with the
+values fixed for this repository (publisher, Entra ID application, federated credential
+subject, environment secrets, the `MARKETPLACE_PUBLISH` switch) are in
+[`MARKETPLACE-PUBLISHING.md`](MARKETPLACE-PUBLISHING.md). In short:
 
-1. **Create or choose the Marketplace publisher.** Confirm that the display name is
-   available, then set it as the `VSCE_PUBLISHER` repository variable.
-2. **Use Microsoft Entra ID, not a personal access token.** Register an application in
-   Entra ID, add it to the publisher as a member, and give it a federated credential for
-   this repository's `marketplace` environment (subject
-   `repo:saulpatinojr/Proj-Code_Conductor:environment:marketplace`). Store its
-   `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` as **environment** secrets of `marketplace`.
-   There is no long-lived secret: the job signs in with a short-lived OIDC token
-   (`vsce publish --azure-credential`;
-   [secure automated publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace)).
-   Azure DevOps retires global personal access tokens on December 1, 2026.
-3. **Create the `marketplace` deployment environment.** Make yourself its required
-   reviewer and allow only `v*` tags. Keep the two secrets in that environment, not in
-   the repository.
-4. Have the tag and branch rulesets from [Prerequisites](#prerequisites-repository-settings)
-   in place.
-5. **Turn the job on:** set the repository variable `MARKETPLACE_PUBLISH` to `true`
-   (`gh variable set MARKETPLACE_PUBLISH --body true`). Do this last: the Publish job
-   is skipped while the variable is absent, and a skipped job never creates the
-   environment, so nothing can publish through an environment that has no reviewer yet.
+1. create the publisher and set `VSCE_PUBLISHER` (`scripts/owner/Set-MarketplaceEnvironment.ps1`
+   also creates the reviewed `marketplace` environment limited to `v*` tags);
+2. register an Entra ID application with a federated credential for this repository's
+   `marketplace` environment, and add it to the publisher as a Contributor;
+3. store `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` as **environment** secrets;
+4. set the repository variable `MARKETPLACE_PUBLISH` to `true`, last.
 
 The **Publish** job then runs after the Draft job on each release tag. It waits for your
 approval in the `marketplace` environment, which is the human approval before this
 external side effect. It checks the candidate again (checksums, the attestation against
 this workflow, tag and commit, and that the tag still names the built commit), signs in
-to Entra ID, and publishes the verified `.vsix` with the repository's locked `@vscode/vsce`
-(`npx --no-install`). It runs no repository script. Approve it only after reviewing the
+to Entra ID with `azure/login`, and publishes the verified `.vsix` with the repository's
+locked `@vscode/vsce` (`vsce publish --azure-credential --packagePath`, via
+`npx --no-install`). It runs no repository script. Approve it only after reviewing the
 draft release as described above; declining leaves the draft and the attestation in
-place and publishes nothing.
+place and publishes nothing. There is no personal access token anywhere in this flow;
+Azure DevOps retires global personal access tokens on December 1, 2026.
 
 ## Privacy
 

@@ -81,6 +81,33 @@ In a development checkout, `npm run ccon:doctor` builds and runs the same comman
 
 Missing optional tool commands are not failures when the active repository profile does not require them.
 
+**A client you installed reports `not found`.** Doctor, the smoke tests and the owner
+validation script all look for the client's command on `PATH`, the same way Code
+Conductor will start it. "Installed" as an IDE or editor extension is a different surface:
+the Codex extension (`openai.chatgpt`) is not the `codex` command, and the Kiro IDE is
+not `kiro-cli`. On Windows, check in a **new** PowerShell window:
+
+```powershell
+Get-Command codex, kiro-cli -CommandType Application -ErrorAction SilentlyContinue | Format-Table Name, Source
+$env:PATH -split ';' | Where-Object { $_ -match 'codex|kiro|npm' }
+wsl -e sh -lc 'command -v codex kiro-cli; codex --version; kiro-cli --version'
+```
+
+- Nothing found, and `wsl` finds them: the clients live in WSL. Run the validation from
+  WSL 2 with VS Code's Remote - WSL, where the extension and its runtime also run; that
+  is the Windows setup this runbook prefers (§1), and the only one where `ccon compress`
+  reads files (ADR 0007).
+- `codex.cmd` found (an `npm install -g @openai/codex` shim): Code Conductor does not run
+  batch shims on Windows (D-061, D-065), and Doctor reports the command as unsupported.
+  Install the native Windows build instead, which puts `codex.exe` on `PATH`
+  ([Codex CLI, Windows](https://learn.chatgpt.com/docs/codex/cli)):
+  `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`.
+- `kiro-cli` not found on native Windows: the CLI supports Windows 11 in PowerShell
+  ([Kiro installation](https://kiro.dev/docs/getting-started/installation/)):
+  `irm 'https://cli.kiro.dev/install.ps1' | iex`, then `kiro-cli login` and `kiro-cli --version`.
+- Found, but Doctor still says unavailable: the terminal Doctor ran in was opened before
+  the install. Restart VS Code (or the terminal) so it picks up the new `PATH`.
+
 `ccon doctor` should evolve under #10/#15 to report, without secrets:
 
 - provider name and official auth boundary;
