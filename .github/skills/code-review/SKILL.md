@@ -37,7 +37,7 @@ Map every touched path to its component and validation requirement:
 | `packages/mcp/**`, `config/mcp-catalog.yaml` | MCP selection & catalog | Vendor-official vs approved Code Conductor first-party provenance, least privilege, profile-driven activation, pinned executable versions, MCP must not become the scheduler. Run `npm test`. |
 | `.github/mcp.json` | Copilot CLI repository MCP config | Keep minimal and read-only. This file is for repository-scoped Copilot CLI configuration; GitHub.com Copilot code-review/cloud MCP servers are configured in repository settings and GitHub's built-in GitHub MCP should not be duplicated here. |
 | `packages/workstation/**` | Workstation trust | Private trust storage, fail-closed behavior for unvalidated harnesses. Run `npm test`. |
-| `packages/apm-adapter/**`, `.apm/**`, `apm*.yml` | APM packaging & projections | Lockfile consistency (`apm.lock.yaml`), canonical `.apm/` source matching projections in `.github/`, `.claude/`, `.codex/`, `.kiro/`. Run `apm audit`. |
+| `packages/apm-adapter/**`, `.apm/**`, `apm*.yml` | APM packaging & projections | Lockfile consistency (`apm.lock.yaml`), `.apm/` skill source matching projections in `.github/`, `.claude/`, `.codex/`, `.kiro/`; no agent files in `.apm/` (specialists come from Agent Packs, ADR 0015). Run `apm audit`. |
 | `apps/vscode/**` | VS Code extension cockpit | Extension activation, state labels matching real implementation status, non-blocking UI integration. Run `npm run typecheck`. |
 | `docs/**`, `*.md` | Governance & documentation | Check `AGENTS.md`, `docs/DECISIONS.md`, and ADRs. Ensure locked decisions are preserved. |
 

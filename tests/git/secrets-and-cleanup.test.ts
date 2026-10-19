@@ -76,12 +76,13 @@ describe('secret scan before commit approval', () => {
     writeFileSync(join(handle.path, 'blob.bin'), Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(fake.github), Buffer.from([0])]));
     writeFileSync(join(handle.path, 'utf16.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`x = ${fake.npm}\n`, 'utf16le')]));
     writeFileSync(join(handle.path, 'package-lock.json'), `${' '.repeat(2 * 1024 * 1024)}\n"${fake.github}"\n`);
+    // A file name that is not valid UTF-8 exists only on POSIX; NTFS names are UTF-16.
     const odd = Buffer.from([0x6f, 0x64, 0x64, 0xff, 0x2e, 0x74, 0x78, 0x74]); // "odd\xff.txt", not valid UTF-8
-    writeFileSync(Buffer.concat([Buffer.from(`${handle.path}/`), odd]), `${fake.aws}\n`);
+    if (process.platform !== 'win32') writeFileSync(Buffer.concat([Buffer.from(`${handle.path}/`), odd]), `${fake.aws}\n`);
     const scan = treeScan(handle);
     const kinds = Object.fromEntries(scan.findings.map((item) => [item.path, item.kind]));
     expect(kinds).toMatchObject({ 'blob.bin': 'GitHub token', 'utf16.txt': 'npm token', 'package-lock.json': 'GitHub token' });
-    expect(scan.findings.some((item) => item.path.startsWith('odd') && item.kind === 'AWS access key id')).toBe(true);
+    if (process.platform !== 'win32') expect(scan.findings.some((item) => item.path.startsWith('odd') && item.kind === 'AWS access key id')).toBe(true);
     expect(scan.findings.find((item) => item.path === 'package-lock.json')?.line).toBe(2);
   });
 

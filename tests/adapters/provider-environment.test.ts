@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, KiroAcpAdapter, providerEnvironment, type HarnessExecutionRequest } from '../../packages/adapters/src/index.js';
 
@@ -18,7 +18,8 @@ describe('provider client environment', () => {
   it('drops separately billed credentials, provider selection and repository-redirecting Git variables', () => {
     const env = providerEnvironment({ PATH: '/usr/bin', HOME: '/home/me', ...METERED, OPENAI_API_KEY: 'y', GIT_DIR: '/elsewhere/.git', GIT_INDEX_FILE: '/tmp/i', CLAUDE_CODE_OAUTH_TOKEN: 'subscription-token', KIRO_API_KEY: 'subscription-credits' });
     // Kiro API keys draw on the Kiro subscription's credits, so they are not metered billing.
-    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/me', CLAUDE_CODE_OAUTH_TOKEN: 'subscription-token', KIRO_API_KEY: 'subscription-credits' });
+    // Directories are made absolute for the platform (on Windows /home/me becomes C:\home\me).
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: resolve('/home/me'), CLAUDE_CODE_OAUTH_TOKEN: 'subscription-token', KIRO_API_KEY: 'subscription-credits' });
     expect([...BILLING_CREDENTIAL_VARIABLES, ...BILLING_ROUTING_VARIABLES]).toEqual(expect.arrayContaining(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'PERPLEXITY_API_KEY', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']));
   });
 
@@ -39,7 +40,10 @@ describe('provider client environment', () => {
 
   it('makes relative client configuration directories absolute, so the probe and the run read the same one', () => {
     const env = providerEnvironment({ PATH: '/usr/bin', HOME: 'home', USERPROFILE: './profile', CLAUDE_CONFIG_DIR: 'cfg', ANTHROPIC_CONFIG_DIR: '/home/me/.anthropic', CODEX_HOME: './codex', XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' }, '/work/start');
-    expect(env).toEqual({ PATH: '/usr/bin', HOME: join('/work/start', 'home'), USERPROFILE: join('/work/start', 'profile'), CLAUDE_CONFIG_DIR: join('/work/start', 'cfg'), ANTHROPIC_CONFIG_DIR: '/home/me/.anthropic', CODEX_HOME: join('/work/start', 'codex'), XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' });
+    // On Windows `/home/me/...` is root-relative, not fully absolute, so the absolute-only
+    // directories are removed there instead of resolved.
+    const absoluteOnly = process.platform === 'win32' ? {} : { ANTHROPIC_CONFIG_DIR: '/home/me/.anthropic', XDG_CONFIG_HOME: '/home/me/.config', XDG_DATA_HOME: '/home/me/.local/share' };
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: resolve('/work/start', 'home'), USERPROFILE: resolve('/work/start', 'profile'), CLAUDE_CONFIG_DIR: resolve('/work/start', 'cfg'), CODEX_HOME: resolve('/work/start', 'codex'), ...absoluteOnly });
   });
 
   it('reports a client configuration directory inside the repository, for that client only', () => {

@@ -3,7 +3,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
-import { validateCapabilities, validatePolicyObjects, validateRepositoryConfig } from '../../packages/policy/src/index.js';
+import { MAX_ROLE_INSTRUCTION_LENGTH, MAX_ROLE_INSTRUCTIONS, roleInstructionsProblem, validateCapabilities, validatePolicyObjects, validateRepositoryConfig } from '../../packages/policy/src/index.js';
 
 describe('repository policy', () => {
   it('validates the checked-in foundation configuration', () => {
@@ -41,6 +41,20 @@ describe('repository policy', () => {
       },
     );
     expect(issues.some((issue) => issue.code === 'authority.separation_of_duties')).toBe(true);
+  });
+
+  it('accepts role rules only as a short list of one-line strings', () => {
+    expect(roleInstructionsProblem(undefined)).toBeUndefined();
+    expect(roleInstructionsProblem(['Stay read-only.', 'Cite evidence for every blocking finding.'])).toBeUndefined();
+    expect(roleInstructionsProblem('Stay read-only.')).toMatch(/list of strings/);
+    expect(roleInstructionsProblem([''])).toMatch(/non-empty/);
+    expect(roleInstructionsProblem([42])).toMatch(/non-empty string/);
+    expect(roleInstructionsProblem(['a'.repeat(MAX_ROLE_INSTRUCTION_LENGTH + 1)])).toMatch(/longer than/);
+    expect(roleInstructionsProblem(Array.from({ length: MAX_ROLE_INSTRUCTIONS + 1 }, () => 'x'))).toMatch(/at most/);
+    for (const forged of ['two' + String.fromCodePoint(0x0a) + 'lines', 'bell' + String.fromCodePoint(0x07), 'ls' + String.fromCodePoint(0x2028) + 'hidden', 'del' + String.fromCodePoint(0x7f)]) expect(roleInstructionsProblem([forged])).toMatch(/line break or control character/);
+    const risks = { version: 1, risk_classes: { R0: {}, R1: {}, R2: { challenger_must_use_different_provider_from_builder: true }, R3: { human_approval: true }, R4: { human_approval: true, require_human_approval_before_side_effect: true, unattended_execution: false } } };
+    const issues = validatePolicyObjects({ version: 1, roles: { reviewer: { stance: 'critical', instructions: ['ok', 'bad\nline'] } } }, risks as Parameters<typeof validatePolicyObjects>[1]);
+    expect(issues.filter((issue) => issue.code === 'roles.instructions').map((issue) => issue.path)).toEqual(['roles.reviewer']);
   });
 
   it('accepts only plain sign-in commands, https documentation and stated instructions', () => {
