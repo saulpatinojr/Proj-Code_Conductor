@@ -64,7 +64,7 @@ Every PR must:
 - state the risk class when runtime behavior changes;
 - identify validation performed;
 - update documentation when behavior, policy, or setup changes;
-- keep generated APM projections consistent with canonical `.apm/` source;
+- keep generated APM projections consistent with `.apm/` source (Code Conductor's own skills; specialist agents live in Agent Packs, ADR 0015);
 - avoid secrets, tokens, state files, or credential material;
 - satisfy required GitHub Actions checks before merge.
 

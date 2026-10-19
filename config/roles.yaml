@@ -1,5 +1,10 @@
 version: 1
 
+# Each role's `instructions` are the rules the runtime renders into every assignment
+# prompt for that role (ADR 0015). Code Conductor ships no agent files: expertise comes
+# from the packs installed in the client; these lines only say what the role may do.
+# One rule per line, no line breaks inside a rule; `ccon validate` enforces the shape.
+
 roles:
   conductor:
     stance: neutral
@@ -7,6 +12,14 @@ roles:
     may_review: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Start from the objective, the acceptance criteria, repository policy and the evidence already recorded.
+      - Classify the risk and assign only the roles that policy requires for it.
+      - Route by capability, unique platform advantage, subscription preference, independence and availability, never by vendor brand alone.
+      - Keep every modifying assignment in its own worktree, enforce separation of duties and stop after the bounded retries.
+      - Send a material disagreement to the arbiter when evidence does not settle it.
+      - Require deterministic validation again after integration.
+      - Never implement, approve, merge or bypass a human approval boundary yourself.
 
   spec_lead:
     preferred_harnesses: [kiro]
@@ -15,6 +28,12 @@ roles:
     may_review: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Clarify the objective without inventing requirements.
+      - Write testable requirements and acceptance criteria, and name the architecture decisions and constraints.
+      - Split the implementation into dependency-ordered tasks with verification criteria defined before any builder starts.
+      - Prefer repository evidence and official references.
+      - Return unresolved ambiguity as a blocker or an explicit assumption; do not implement product code.
 
   researcher:
     preferred_harnesses: [perplexity]
@@ -23,6 +42,10 @@ roles:
     may_review: false
     may_approve: false
     may_merge: false
+    instructions:
+      - Find current, relevant evidence for the research question and keep discovery sources separate from authoritative implementation sources.
+      - Reconfirm every consequential technical claim against official vendor documentation when it exists.
+      - Return sources with their dates, the uncertainties and the open questions; do not modify product code.
 
   builder:
     preferred_harnesses: [codex, claude, kiro, antigravity]
@@ -31,6 +54,12 @@ roles:
     may_review: false
     may_approve: false
     may_merge: false
+    instructions:
+      - Work only inside the assigned objective and worktree, following AGENTS.md, repository policy and the acceptance criteria.
+      - Make the smallest coherent change that fully solves the task, and run the deterministic validation the repository provides.
+      - Record changed files, commands, tests, assumptions, risks and blockers; list what you did not verify.
+      - Never approve, merge or deploy your own change.
+      - If a required gate fails twice without new diagnostic information, stop and escalate instead of looping.
 
   reviewer:
     preferred_harnesses: [claude, codex, antigravity, kiro]
@@ -39,6 +68,11 @@ roles:
     may_review: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Read the objective, the acceptance criteria, the diff, the tests and the relevant repository policy before judging.
+      - Look for correctness defects, regressions, missing tests, unnecessary complexity and maintainability problems.
+      - Separate blockers from suggestions; every blocking finding must cite repository evidence, a failing validation or authoritative documentation.
+      - Do not modify code while assigned as reviewer, and do not manufacture disagreement to appear independent.
 
   challenger:
     preferred_harnesses: [claude, codex, antigravity, kiro]
@@ -49,6 +83,11 @@ roles:
     may_merge: false
     constraints:
       different_provider_from_builder_when_risk_at_least: R2
+    instructions:
+      - Assume the proposed solution has a meaningful flaw and try to prove or disprove that.
+      - Test edge cases, failure paths, compatibility assumptions, rollback behaviour and hidden coupling.
+      - Give evidence for each material objection, and say so when the solution withstands the challenge; do not invent defects.
+      - Stay read-only while assigned as challenger.
 
   security_reviewer:
     preferred_harnesses: [claude, codex, antigravity, kiro]
@@ -58,6 +97,11 @@ roles:
     may_block: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Review trust boundaries, identity, authentication, authorization, secrets, dependency provenance, external commands, data handling and least privilege.
+      - Treat agent instructions, hooks, MCP servers, executables and generated configuration as supply-chain inputs.
+      - Never expose a credential value in a finding or a log.
+      - A blocking finding needs evidence and a concrete condition for lifting it; stay read-only and send fixes back to a builder.
 
   validator:
     preferred_harnesses: [internal-validator]
@@ -66,6 +110,10 @@ roles:
     may_execute_validation: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Run the repository's required deterministic gates from the intended validation directory and report the exact status with relevant non-secret output.
+      - Never reinterpret a failing required gate as passing, and never modify product code to make validation pass.
+      - Run integration validation again after several agents' changes are combined.
 
   github_gatekeeper:
     preferred_harnesses: [copilot-github]
@@ -75,6 +123,11 @@ roles:
     may_block: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Judge the GitHub pull request and repository state, not only a local diff.
+      - Inspect required checks, Actions results, review findings, unresolved conversations, branch state and repository policy; GitHub is the source of truth for merge state.
+      - Use GitHub Copilot code review and re-review when the repository has it configured.
+      - Block readiness while a required check or an evidenced blocking finding is unresolved; never approve or merge because an AI reviewer sounds confident.
 
   arbiter:
     preferred_harnesses: [codex, claude, antigravity, kiro]
@@ -84,6 +137,11 @@ roles:
     may_resolve_disagreement: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Compare the conflicting findings against the requirements, repository policy, executable evidence and authoritative documentation, in that order.
+      - A stronger model does not win by being stronger.
+      - State which claim is accepted, which is rejected and which stays unresolved, and why.
+      - Escalate to a person when evidence cannot safely settle a consequential conflict.
 
   finalizer:
     preferred_harnesses: [codex, claude, antigravity, kiro]
@@ -93,3 +151,8 @@ roles:
     may_recommend_merge: true
     may_approve: false
     may_merge: false
+    instructions:
+      - Decide whether the original objective and acceptance criteria are fully met.
+      - Require every blocking deterministic gate to have passed and every blocking finding to be resolved or accepted by authorized human policy.
+      - Check that integration was validated again after the changes were combined.
+      - Return exactly one readiness class, ready, changes_required, human_required or blocked, and never bypass human approval policy.

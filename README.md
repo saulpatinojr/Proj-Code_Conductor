@@ -60,7 +60,7 @@ Important work can add independent constructive, critical/challenger, neutral va
 
 ## Agent and skill platform
 
-`.apm/` is the canonical source for reusable agent/skill content. Harness-specific Claude/Codex/Copilot/Kiro/Agent Skills projections are generated/materialized rather than manually maintained as divergent copies.
+Specialist agents, skills, instructions and prompts come from the Agent Packs repository ([`saulpatinojr/Proj-Agent_Packs`](https://github.com/saulpatinojr/Proj-Agent_Packs)), installed through APM at a pinned reference; the same packs serve the slim sibling, [Code Workflow](https://github.com/saulpatinojr/Proj-Code_Workflow). Code Conductor ships no agent files (ADR 0015). `.apm/` here holds only Code Conductor's own skills, and the roles in `config/roles.yaml` carry the rules the runtime renders into every assignment prompt. Harness-specific projections are generated/materialized rather than manually maintained as divergent copies.
 
 The user's larger legacy agent/skill library is tracked as a dedicated migration workstream in issue #13. The immutable inventory/lineage intake mechanism is implemented; the actual corpus review and migration are still pending. The migration rule is **100% source-lineage coverage**: every original file is preserved/inventoried and receives a canonical destination or explicit duplicate/superseded disposition before retirement. The goal is modular APM packages with lean personas, reusable deep skills/references, and provider overlays only for genuine harness differences.
 
@@ -70,7 +70,7 @@ To use Code Conductor in your own repositories, install the VS Code extension fr
 release `.vsix`; no clone or build is needed. Prerequisites, compatibility, updates and
 uninstalling are in [`docs/INSTALL.md`](docs/INSTALL.md).
 
-Prerequisites for repository development are Git, Node.js 22+ (Node 24 recommended), GitHub CLI, and APM 0.30.0. Subscription-backed execution additionally requires the official vendor clients/surfaces described in [`docs/WORKSTATION-VALIDATION.md`](docs/WORKSTATION-VALIDATION.md).
+Prerequisites for repository development are Git, Node.js 22+ (Node 24 recommended), GitHub CLI, and APM 0.33.0 (the version Agent Packs pins, D-077). Subscription-backed execution additionally requires the official vendor clients/surfaces described in [`docs/WORKSTATION-VALIDATION.md`](docs/WORKSTATION-VALIDATION.md).
 
 ```bash
 npm ci --ignore-scripts
@@ -124,7 +124,7 @@ Start with [`docs/README.md`](docs/README.md). Key documents include:
 ## Repository truth model
 
 - GitHub issue #7 / the linked GitHub Project is the durable product roadmap/backlog once the Project is created.
-- `.apm/` is canonical source for reusable agent/skill pack content in this repository.
+- `.apm/` holds Code Conductor's own skills only; specialist packs come from Agent Packs through APM (ADR 0015).
 - `apm.yml` declares package targets/dependencies.
 - `apm.lock.yaml` and harness-specific projections are generated/materialized state and are committed for reproducibility; do not hand-edit the lockfile.
 - `config/mcp-catalog.yaml` is Code Conductor's policy-driven MCP catalog. `.github/mcp.json` is a minimal Copilot CLI repository configuration, not a second catalog.

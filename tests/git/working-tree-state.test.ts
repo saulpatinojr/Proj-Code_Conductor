@@ -74,7 +74,9 @@ describe('workingTreeState', () => {
 describe('approved agent commits', () => {
   function agentWorktree() {
     const repo = repository();
-    const manager = new WorktreeManager(join(repo, '..', `${repo.split('/').at(-1)}-worktrees`));
+    // Split on either separator: on Windows the path has backslashes, and a whole absolute
+    // path here became a nested temp path that could not be created.
+    const manager = new WorktreeManager(join(repo, '..', `${repo.split(/[\\/]/).at(-1)}-worktrees`));
     temps.push(manager.root);
     return manager.create(repo, 'T-1', 'builder-test');
   }
@@ -225,13 +227,14 @@ describe('agent history and Git control state', () => {
 
   it('reads each worktree as Git sees it from there, and sees shared changes from every worktree', () => {
     const repo = realpathSync(repository());
-    const manager = new WorktreeManager(join(repo, '..', `${repo.split('/').at(-1)}-control-worktrees`));
+    const manager = new WorktreeManager(join(repo, '..', `${repo.split(/[\\/]/).at(-1)}-control-worktrees`));
     temps.push(manager.root);
     // Conditional includes legitimately differ by worktree: the primary checkout is on its
     // own branch and gitdir, the agent worktree on neither.
     git(repo, 'config', `includeIf.onbranch:${git(repo, 'branch', '--show-current')}.path`, 'branch.inc');
     writeFileSync(join(repo, '.git', 'branch.inc'), '[user]\n\temail = branch@example.invalid\n');
-    git(repo, 'config', `includeIf.gitdir:${join(repo, '.git')}.path`, 'gitdir.inc');
+    // Git matches a gitdir condition against the forward-slash form of the path on every platform.
+    git(repo, 'config', `includeIf.gitdir:${join(repo, '.git').replaceAll('\\', '/')}.path`, 'gitdir.inc');
     writeFileSync(join(repo, '.git', 'gitdir.inc'), '[user]\n\tname = primary\n');
     git(repo, 'config', 'extensions.worktreeConfig', 'true');
     git(repo, 'config', '--worktree', 'core.sparseCheckout', 'true');
@@ -248,6 +251,9 @@ describe('agent history and Git control state', () => {
     expect(controlStateChanges(agent, gitControlState(handle.path)!)).toEqual([`local config file:${join(repo, '.git', 'config')} changed`]);
     // A .git file pointed at the primary checkout's Git directory reads its HEAD and history.
     const before = gitControlState(handle.path)!;
+    // Git marks a linked worktree's .git file hidden on Windows, and Windows refuses to
+    // truncate a hidden file; replacing it is what an agent would do anyway.
+    rmSync(join(handle.path, '.git'));
     writeFileSync(join(handle.path, '.git'), `gitdir: ${join(repo, '.git')}\n`);
     expect(controlStateChanges(before, gitControlState(handle.path)!).filter((change) => change.startsWith('git directory '))).toEqual([
       `git directory ${join(repo, '.git')} appeared`,

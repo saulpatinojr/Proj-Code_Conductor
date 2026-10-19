@@ -23,7 +23,7 @@ The repository foundation is implemented rather than architecture-only:
 - TypeScript workspace and structured contracts exist;
 - task state/risk/policy planning and runtime execution foundations exist;
 - bounded retry, schema-validated structured result parsing, private run/evidence persistence, deterministic gates, and worktree handling exist;
-- APM 0.30.0 is pinned, the lockfile and materialized projections are committed, and APM audit passes;
+- APM 0.33.0 is pinned (the version Agent Packs pins, D-077), the lockfile and materialized projections are committed, and APM audit passes;
 - `package-lock.json` is committed and CI uses reproducible installs;
 - Vitest 5 is installed and the npm dependency graph is audit-clean;
 - initial Codex, Claude, Kiro, Antigravity, GitHub, APM, MCP, and workstation adapter boundaries exist;
@@ -105,7 +105,7 @@ For live clients, use the smoke-test sequence in `docs/WORKSTATION-VALIDATION.md
 - Do not work directly on `main` for normal feature changes.
 - Remove merged/superseded remote and local branches after confirming their commits are preserved on `main`.
 - Do not commit runtime state, credentials, local worktrees, build output, package caches, or local context-optimizer telemetry.
-- Canonical reusable agent/skill content lives under `.apm/`; generated target projections are committed only when they match the APM lock/materialization state.
+- Specialist agents and skills come from the Agent Packs repository through APM; `.apm/` holds only Code Conductor's own skills (ADR 0015), and generated target projections are committed only when they match the APM lock/materialization state.
 - Keep GitHub-specific review skills under `.github/skills/` scoped to GitHub behavior; do not duplicate cross-harness canonical pack content there.
 - Keep `README.md`, `STARTER.md`, `docs/STATUS.md`, `CHANGELOG.md`, and relevant ADR/runbooks synchronized with material behavior changes.
 
