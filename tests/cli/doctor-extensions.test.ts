@@ -66,7 +66,7 @@ describe('ccon doctor: VS Code extensions', () => {
     expect(big.length).toBeGreaterThan(1048576);
     for (const text of [JSON.stringify({ not: 'a list' }), '{ not json', big]) {
       const { run } = doctor({ '.vscode/extensions': text });
-      expect(run.stdout).toContain('WARN vscode-extension inventory: could not read ~/.vscode/extensions/extensions.json (over 1 MiB, a symlink, or not a JSON list).');
+      expect(run.stdout).toContain(`WARN vscode-extension inventory: could not read ${join('~', '.vscode', 'extensions', 'extensions.json')} (over 1 MiB, a symlink, or not a JSON list).`);
       expect(run.stdout).not.toMatch(/(OK|INFO) vscode-extension claude:/);
     }
     // Only a path inside the home folder is shortened to ~, not a sibling whose name starts the same.

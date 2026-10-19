@@ -43,7 +43,12 @@ describe('packaged zero-scaffolding defaults', () => {
     expect(detectGateProfiles(root)).toEqual(['node']);
     const commands: string[][] = [];
     await runGates(root, undefined, (_cwd, command, args) => { commands.push([command, ...args]); return { status: 0, stdout: '', stderr: '' }; });
-    expect(commands).toEqual([['npm', 'test']]);
+    // On Windows the npm gate runs as node.exe executing Node's bundled npm-cli.js (D-074).
+    if (process.platform === 'win32') {
+      expect(commands).toHaveLength(1);
+      expect([commands[0]![0], commands[0]!.at(-1)]).toEqual(['npm', 'test']);
+      expect(commands[0]![1]).toMatch(/npm-cli\.js$/);
+    } else expect(commands).toEqual([['npm', 'test']]);
   });
   it('prefers source-specific gates for this repository without duplicate npm tests', () => {
     const profiles = detectGateProfiles(resolve('.'));

@@ -107,15 +107,17 @@ describe('declarative gate profiles', () => {
     const trusted = join(workspace(), 'trusted');
     mkdirSync(trusted);
     mkdirSync(join(root, 'bin'));
+    // On Windows only .exe and .com files are runnable, so the fixtures carry that name there.
+    const tool = process.platform === 'win32' ? 'ansible-lint.exe' : 'ansible-lint';
     for (const [directory, label] of [[trusted, 'TRUSTED'], [join(root, 'bin'), 'PLANTED']] as const) {
-      writeFileSync(join(directory, 'ansible-lint'), `#!/bin/sh\necho ${label}\n`);
-      chmodSync(join(directory, 'ansible-lint'), 0o755);
+      writeFileSync(join(directory, tool), `#!/bin/sh\necho ${label}\n`);
+      chmodSync(join(directory, tool), 0o755);
     }
     // A relative entry that really reaches the planted binary from this process, and the
     // one a gate running in the repository would see.
     const planted = relative(process.cwd(), join(root, 'bin'));
     for (const path of [`${planted}${delimiter}${trusted}`, `bin${delimiter}${trusted}`, `${delimiter}${trusted}`, `.${delimiter}${trusted}`]) {
-      expect(resolveExecutable('ansible-lint', { PATH: path }).path, path).toBe(join(trusted, 'ansible-lint'));
+      expect(resolveExecutable('ansible-lint', { PATH: path }).path, path).toBe(join(trusted, tool));
     }
     expect(resolveExecutable('ansible-lint', { PATH: `${planted}${delimiter}bin` }).path).toBeUndefined();
     if (process.platform !== 'win32') {

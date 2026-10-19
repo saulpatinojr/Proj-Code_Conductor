@@ -25,9 +25,31 @@ type RoleConfig = {
   may_execute_validation?: boolean;
   may_resolve_disagreement?: boolean;
   may_recommend_merge?: boolean;
+  instructions?: unknown;
 };
 
 type RolesConfig = { version: number; roles: Record<string, RoleConfig> };
+
+/** Bounds for a role's rendered rules: enough for a short list, never a document. */
+export const MAX_ROLE_INSTRUCTIONS = 12;
+export const MAX_ROLE_INSTRUCTION_LENGTH = 300;
+
+/**
+ * Why a role's `instructions` cannot be rendered into a prompt, or undefined when they can.
+ * Each rule is one line of printable text: a line break or control character could forge
+ * prompt structure (the handoff block, the result marker) in every assignment.
+ */
+export function roleInstructionsProblem(instructions: unknown): string | undefined {
+  if (instructions === undefined) return undefined;
+  if (!Array.isArray(instructions)) return 'instructions must be a list of strings';
+  if (instructions.length > MAX_ROLE_INSTRUCTIONS) return `instructions may hold at most ${MAX_ROLE_INSTRUCTIONS} rules`;
+  for (const [index, rule] of instructions.entries()) {
+    if (typeof rule !== 'string' || !rule.trim()) return `instructions[${index}] must be a non-empty string`;
+    if (rule.length > MAX_ROLE_INSTRUCTION_LENGTH) return `instructions[${index}] is longer than ${MAX_ROLE_INSTRUCTION_LENGTH} characters`;
+    if ([...rule].some((char) => { const code = char.codePointAt(0) ?? 0; return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029; })) return `instructions[${index}] contains a line break or control character`;
+  }
+  return undefined;
+}
 type RiskConfig = {
   version: number;
   risk_classes: Record<RiskClass, {
@@ -101,6 +123,8 @@ export function validatePolicyObjects(roles: RolesConfig, risks: RiskConfig): Va
     if (role.may_modify_code && role.may_review) {
       issues.push({ level: 'warning', code: 'authority.self_review_risk', path: `roles.${name}`, message: `Role ${name} can modify and review; assignments must enforce independence.` });
     }
+    const problem = roleInstructionsProblem(role.instructions);
+    if (problem) issues.push({ level: 'error', code: 'roles.instructions', path: `roles.${name}`, message: `Role ${name}: ${problem}.` });
   }
 
   for (const [riskName, risk] of Object.entries(risks.risk_classes ?? {})) {

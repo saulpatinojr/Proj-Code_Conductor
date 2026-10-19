@@ -85,7 +85,7 @@ Microsoft APM is authoritative for reusable agent-pack dependency/distribution/i
 - `apm.yml` is the project manifest.
 - `apm.lock.yaml` is generated and must never be hand-edited.
 - `apm-policy.yml` controls allowed package/MCP policy.
-- `.apm/` is canonical package source for reusable agents/skills.
+- Specialist agents and skills are installed from the Agent Packs repository through APM at a pinned reference; `.apm/` here holds only Code Conductor's own skills, and role rules are rendered by the runtime from `config/roles.yaml` (ADR 0015).
 - Copilot/Claude/Codex/Kiro/Antigravity/Agent Skills target directories are materialized projections.
 
 Pinned targets for the foundation are Copilot, Claude, Codex, Kiro, Antigravity, and converged Agent Skills.
@@ -263,10 +263,9 @@ Proj-Code_Conductor/
 │   ├── references.yaml
 │   ├── gates.yaml
 │   └── mcp-catalog.yaml
-├── .apm/
+├── .apm/                      (skills only; agents come from Agent Packs, ADR 0015)
 ├── .agents/
 ├── .github/
-│   ├── agents/
 │   ├── skills/
 │   ├── workflows/
 │   └── mcp.json
