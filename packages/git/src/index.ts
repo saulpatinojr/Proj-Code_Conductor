@@ -2,7 +2,7 @@ import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash, type Hash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { absolutePathEnvironment, resolveExecutable } from '@code-conductor/core/processes';
 
 export interface WorktreeHandle {
@@ -691,7 +691,10 @@ export function redactUrl(url: string): string {
     // A line break would hide a query from the `$` below, or an earlier line's credential
     // from the `@` strip, and makes that replace quadratic: show nothing.
     if (/[\n\r\u2028\u2029]/.test(url)) return '[redacted]';
-    text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`).replace(/[?#].*$/, '');
+    text = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)?.*@/i, (_, scheme: string | undefined) => `${scheme ?? ''}[redacted]@`);
+    // Cut the query and fragment at the first marker, by index: linear whatever the input.
+    const cut = [text.indexOf('?'), text.indexOf('#')].filter((index) => index >= 0);
+    if (cut.length) text = text.slice(0, Math.min(...cut));
   }
   return redactSecrets(text).text;
 }

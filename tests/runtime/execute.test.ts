@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -46,6 +46,52 @@ describe('run execution', () => {
       expect(outcome.manifest.results[0]?.surface).toBe('cli');
       expect(outcome.manifest.gates.length).toBeGreaterThan(0);
       expect(outcome.manifest.mergeDecision?.decision).toBe('ready');
+    } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
+
+  it('stores every gate output with the run and, in summary mode, shows a verbatim-line summary with a recovery pointer (#94)', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'cc-run-test-'));
+    try {
+      const report = `${Array.from({ length: 1500 }, (_, index) => ` ✓ tests/case-${index}.test.ts`).join('\n')}\n ✗ tests/gates/profiles.test.ts > refuses -out\n   AssertionError: expected "allowed" to be "refused"\n     at tests/gates/profiles.test.ts:88:21\n\n Tests  1 failed | 1500 passed (1501)\n`;
+      const run = async (toolOutput?: 'bounded' | 'summary') => {
+        const adapters = new Map<string, HarnessAdapter>([['codex', new FakeAdapter('codex', 'openai')], ['claude', new FakeAdapter('claude', 'anthropic')]]);
+        const store = new RunStore(join(temp, toolOutput ?? 'default'));
+        const outcome = await executeTask(resolve('.'), createTask(`gate output ${toolOutput ?? 'default'}`, 'R1', resolve('.')), {
+          execute: true, adapters, store, worktrees: new SandboxWorktrees(join(temp, `${toolOutput ?? 'default'}-wt`)),
+          gateExecutor: () => ({ status: 1, stdout: report, stderr: '' }), isHarnessTrusted: () => true, approver: approveAll, ...(toolOutput ? { toolOutput } : {}),
+        });
+        return { store, outcome };
+      };
+      const bounded = await run();
+      const summary = await run('summary');
+      // The verdict is the same in both modes: it comes from the exit status.
+      expect(bounded.outcome.manifest.gates.map((gate) => gate.status)).toEqual(summary.outcome.manifest.gates.map((gate) => gate.status));
+      expect(summary.outcome.manifest.mergeDecision?.decision).toBe('changes_required');
+      for (const { store, outcome } of [bounded, summary]) {
+        const validator = outcome.manifest.results.find((result) => result.role === 'validator')!;
+        for (const evidence of validator.evidence) {
+          // The pointer names the stored record, which reads back intact and matching the evidence digest.
+          expect(evidence.uri).toBe(join(store.root, outcome.manifest.runId, 'tool-output', `${evidence.id}.json`));
+          expect(evidence.summary).toContain(`Full output: ${evidence.uri} (sha256 ${evidence.sha256})`);
+          const stored = store.readToolOutput(outcome.manifest.runId, evidence.id);
+          expect(stored.verification).toEqual({ storedIntact: true, matchesEvidence: true });
+          expect(stored.record.stdout).toBe(report);
+        }
+      }
+      const boundedEvidence = bounded.outcome.manifest.results.find((result) => result.role === 'validator')!.evidence[0]!;
+      const summaryEvidence = summary.outcome.manifest.results.find((result) => result.role === 'validator')!.evidence[0]!;
+      expect(boundedEvidence.summary).toContain(' ✓ tests/case-100.test.ts');
+      expect(boundedEvidence.summary).not.toContain('AssertionError');
+      expect(summaryEvidence.summary).toContain('Every line below is verbatim.');
+      expect(summaryEvidence.summary).toContain('   AssertionError: expected "allowed" to be "refused"');
+      expect(summaryEvidence.summary).toContain('     at tests/gates/profiles.test.ts:88:21');
+      expect(summaryEvidence.summary).toContain(' Tests  1 failed | 1500 passed (1501)');
+      expect(summaryEvidence.summary.length).toBeLessThan(boundedEvidence.summary.length / 2);
+      const events = readFileSync(join(summary.store.root, summary.outcome.manifest.runId, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as { type: string; data?: { mode?: string; estimatedTokens?: { original: number; shown: number; exact: boolean } } });
+      const recorded = events.filter((event) => event.type === 'gate.output.recorded');
+      expect(recorded.length).toBe(summary.outcome.manifest.gates.length);
+      expect(recorded[0]!.data).toMatchObject({ mode: 'summary', estimatedTokens: { exact: false } });
+      expect(recorded[0]!.data!.estimatedTokens!.shown).toBeLessThan(recorded[0]!.data!.estimatedTokens!.original);
     } finally { rmSync(temp, { recursive: true, force: true }); }
   });
 

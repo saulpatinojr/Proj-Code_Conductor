@@ -1,6 +1,6 @@
 # ADR 0007: Context optimization boundary
 
-- **Status:** Accepted (decision 4 amended 2026-10-16, #42; platform decision 2026-10-17, D-070)
+- **Status:** Accepted (decision 4 amended 2026-10-16, #42; platform decision 2026-10-17, D-070; decision 10 added 2026-10-19, #94/D-071)
 - **Date:** 2026-09-12
 
 ## Context
@@ -24,6 +24,7 @@ Those behaviors conflict with the existing principles that Code Conductor owns p
 7. The handwritten MCP compatibility adapter may remain for v0.1 experimentation, but migration to the official MCP TypeScript SDK and validation against the then-current MCP protocol is required before the adapter can be promoted to GA.
 8. Core/MCP responses do not inject provider-specific cache-control XML or other provider-specific prompt syntax. Provider-specific optimization belongs in a harness adapter only when officially supported and explicitly selected.
 9. GitHub Copilot MCP configuration remains separate from the Code Conductor catalog: `.github/mcp.json` is a minimal repository-scoped Copilot CLI configuration, while GitHub.com Copilot code-review/cloud MCP servers are configured through GitHub's repository settings and built-in GitHub MCP capability.
+10. *Added 2026-10-19 (#94, D-071).* The optimizer may **summarise deterministic tool output** (gate test logs, lint output, JSON reports) as an explicit per-run opt-in, and only on these terms: the full output is stored owner-private with the run first and every record ends with a recovery pointer (stored path and the evidence SHA-256); the summary is deterministic and made only of the output's own lines (head, tail, counts, failure blocks, error-looking lines), with runs of identical lines collapsed to a count and everything left out counted; nothing kept is rewritten; gate verdicts come from the exit status and the full output, never from a summary; and instructions, policy, acceptance criteria and security rationale are never summarised (decision 3 stands). Third-party compression proxies, installers or cloud routers are not adopted for this (issue #94's assessment).
 
 ## Consequences
 
@@ -32,6 +33,7 @@ Those behaviors conflict with the existing principles that Code Conductor owns p
 - Aggressive optimization remains available for content known to tolerate it and can be evaluated empirically during R1/R2 dogfooding.
 - A future runtime integration can invoke the package directly and use MCP only for external/interoperability clients, preventing MCP from becoming a hidden scheduler.
 - Promotion of the MCP adapter requires an explicit SDK/protocol validation checkpoint rather than being implied by package availability.
+- Gate output can be read back verbatim with `ccon gate-output`, so a bounded or summarised evidence record is never the only copy; the summary mode changes what is shown, not what is kept or how the gate is judged.
 - `cc compress <file>` and the MCP `read_compressed_file` tool work only on Linux (including WSL and remote Linux hosts) until macOS and Windows have a descriptor-bound check. Hard-linked files, such as pnpm's linked `node_modules` or `cp -al` copies, are refused.
 
 ## Validation

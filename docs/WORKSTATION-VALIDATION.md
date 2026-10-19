@@ -264,6 +264,8 @@ The run asks in the terminal before each consequential action: starting a provid
 
 A modifying agent receives an isolated worktree. Review/validation remains independent, and GitHub PR/merge remains a separate gate.
 
+For the #94 token baseline, run the same scenario once more with `--tool-output summary` and compare the `gate.output.recorded` events in the two runs' `events.jsonl` (estimated original and shown tokens per gate). Check that the gate statuses and the merge decision are identical in both runs, and that `ccon gate-output --evidence <E-id>` prints the full output back for a summarised gate ([`GATE-PROFILES.md`](GATE-PROFILES.md#stored-output-and-the-summary-mode-94)).
+
 Then repeat the scenario at R2, with a different-provider challenger, and take it through GitHub:
 
 ```bash

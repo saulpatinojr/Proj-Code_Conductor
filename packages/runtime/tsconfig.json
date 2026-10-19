@@ -23,6 +23,9 @@
     },
     {
       "path": "../policy"
+    },
+    {
+      "path": "../context-optimizer"
     }
   ],
   "include": [

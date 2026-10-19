@@ -29,7 +29,7 @@ The repository foundation is implemented rather than architecture-only:
 - initial Codex, Claude, Kiro, Antigravity, GitHub, APM, MCP, and workstation adapter boundaries exist;
 - the first-party context optimizer exists as a bounded context-preparation component with lossless default behavior, explicit aggressive mode, workspace/sensitive-path protection, and estimated-token telemetry;
 - the context optimizer's MCP transport is intentionally experimental pending official MCP TypeScript SDK/current-protocol validation;
-- `ccon validate`, `doctor`, `plan`, `run`, `harness-smoke`, MCP/APM, GitHub-gate, `context-stats`, and `compress` command paths exist;
+- `ccon validate`, `doctor`, `plan`, `run`, `harness-smoke`, MCP/APM, GitHub-gate, `context-stats`, `compress` and `gate-output` command paths exist; gate output is stored with each run and may be shown as an opt-in verbatim-line summary (`run --tool-output summary`, D-071);
 - the VS Code extension exposes Team, Runs, Gates, Connections, Packs, and Usage and now bundles the compiled Code Conductor runtime for packaged use;
 - CodeQL, dependency-review configuration, repository CI, APM audit, npm lockfile validation, and secret scanning are part of the GitHub governance baseline;
 - repository-scoped Copilot CLI MCP configuration is minimal under `.github/mcp.json`; GitHub.com Copilot MCP configuration remains a repository-settings/platform concern rather than a custom token-minting workflow;

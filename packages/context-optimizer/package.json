@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./tool-output": {
+      "types": "./dist/tool-output.d.ts",
+      "default": "./dist/tool-output.js"
     }
   },
   "dependencies": {

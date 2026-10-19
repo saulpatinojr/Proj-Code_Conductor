@@ -74,9 +74,11 @@ Both refuse a packet in any of these cases:
 
 ## Local evidence and retention
 
-All run evidence is local and owner-private: manifests, events, approval records and
-handoff packets live under `~/.code-conductor/runs` (or `$CODE_CONDUCTOR_HOME/runs`). There
-is no central session database or service.
+All run evidence is local and owner-private: manifests, events, approval records,
+handoff packets and the full output of every gate command
+([`GATE-PROFILES.md`](GATE-PROFILES.md#stored-output-and-the-summary-mode-94)) live under
+`~/.code-conductor/runs` (or `$CODE_CONDUCTOR_HOME/runs`). There is no central session
+database or service.
 
 - `ccon runs` lists stored runs with their decision, age and any live worktrees.
 - `ccon runs --older-than <days>` previews which runs' evidence would be deleted, and

@@ -1,6 +1,6 @@
 # Code Conductor status
 
-**Checkpoint:** 2026-10-16  
+**Checkpoint:** 2026-10-19  
 **Target:** v0.1 workstation/VS Code release
 
 ## Current state
@@ -60,6 +60,9 @@ Parallel work continues under #13 for the actual legacy corpus migration and #14
   - the optimizer stays lossless by default, and the MCP transport remains experimental.
 - I06 gate profiles (#38, D-061, 2026-10-16): prerequisite-checked, isolated and bounded deterministic gates for Node (npm/pnpm/yarn), Terraform (validate, explicit advisory plan) and Ansible. No installer runs. Terraform gates are limited to fmt/validate/plan/version, and shells and wrappers are rejected. A plan still runs provider code with your credentials and is approval-gated with that disclosure. Real Terraform, pnpm and yarn projects remain owner validation (#4).
 - C02 pre-action approvals (#44, ADR 0013/D-059, 2026-10-16): provider start, context disclosure, gate commands and commits each require a single-use human decision bound to the exact recipient/revision/content/diff; non-interactive runs fail closed; approval evidence is recorded in `RunManifest.approvals`. VS Code task-terminal prompt behavior remains owner validation (#4).
+- Recoverable gate output (#94, D-071, 2026-10-19): full gate output stored with the run and read back verified by `ccon gate-output`; evidence ends with a recovery pointer; `ccon run --tool-output summary` is an opt-in verbatim-line summary. The token baseline on real runs is owner dogfood under #4 (`gate.output.recorded` events).
+- Deferred scope recorded (D-072, 2026-10-19): #46's deferred infrastructure list and the deferred optional backlog (#16, #53, #54, #55) are closed as deferred; activation needs a new ADR.
+- Local CodeQL run (2026-10-19, `security-and-quality`, JavaScript/TypeScript and Actions): the six findings were fixed (one polynomial regular expression, three check-then-read file races, two unused imports); Actions had none.
 - ADR 0011 (2026-10-08): the Code Workflow sibling boundary is locked (D-057). `ccon agents` / `ccon doctor` provide a read-only provider-native inventory. `AgentResult.notVerified` is available. `ccon import` ingests Code Workflow exports without granting readiness. Gate evidence carries `sha256`. APM projections were re-materialized and `apm audit` passes (D-058).
 - ADR 0012 (Proposed): provider-local subagent evidence hooks, pending W-003/W-005 workstation validation of per-client hook trust flows.
 
