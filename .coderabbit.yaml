@@ -1,3 +1,4 @@
+---
 # CodeRabbit configuration for Code Conductor.
 # Reference: https://docs.coderabbit.ai/reference/configuration
 # Repository policy that CodeRabbit must apply lives in AGENTS.md and REVIEW.md;
@@ -7,7 +8,8 @@ language: en-US
 
 reviews:
   # "chill" is the default; "assertive" surfaces more findings, which this
-  # repo wants because every PR is agent-authored and merges within minutes.
+  # repo wants because every PR is agent-authored and merges within
+  # minutes.
   profile: assertive
 
   # Keep the PR description as the human-authored contract (see PR template).
@@ -24,7 +26,11 @@ reviews:
 
   auto_review:
     enabled: true
+    # Review the opening push and pause after two reviewed commits; every
+    # push on an open PR otherwise spends one review from the hourly
+    # allowance (docs.coderabbit.ai/management/rate-limits).
     auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 2
     drafts: false
     ignore_usernames:
       - dependabot[bot]
@@ -46,33 +52,36 @@ reviews:
   path_instructions:
     - path: "**/*.ts"
       instructions: |
-        Apply REVIEW.md in order: security and destructive behavior, correctness
-        and fail-closed behavior, separation of duties, authentication and billing,
-        evidence, worktree/Git safety, provider neutrality, APM/MCP boundaries.
-        Flag any adapter that stores consumer OAuth or session tokens, any path
-        that enables separately billed API usage silently, any unbounded retry,
-        and any worktree cleanup that could discard unmerged work.
+        Apply REVIEW.md in order: security and destructive behavior,
+        correctness and fail-closed behavior, separation of duties,
+        authentication and billing, evidence, worktree/Git safety, provider
+        neutrality, APM/MCP boundaries. Flag any adapter that stores consumer
+        OAuth or session tokens, any path that enables separately billed API
+        usage silently, any unbounded retry, and any worktree cleanup that
+        could discard unmerged work.
     - path: "packages/{policy,github-gate,workstation,gates}/**"
       instructions: |
-        These packages are governance boundaries (CODEOWNERS). Treat any change to
-        approval, authority, risk-class, or gate semantics as blocking unless the
-        PR links an ADR and a docs/DECISIONS.md update.
+        These packages are governance boundaries (CODEOWNERS). Treat any
+        change to approval, authority, risk-class, or gate semantics as
+        blocking unless the PR links an ADR and a docs/DECISIONS.md update.
     - path: ".github/workflows/**"
       instructions: |
         Require pinned action SHAs, least-privilege permissions blocks, and
         persist-credentials: false on checkout. Flag any new secret usage.
     - path: "tests/**"
       instructions: |
-        Confirm the test exercises the behavior the PR claims, not only that it
-        passes. Flag tests that assert on generated narrative instead of outcomes.
+        Confirm the test exercises the behavior the PR claims, not only that
+        it passes. Flag tests that assert on generated narrative instead of
+        outcomes.
     - path: "docs/adr/**"
       instructions: |
         Check Status, Context, Decision, Consequences are present and that the
         decision is reflected in docs/DECISIONS.md.
 
   tools:
-    # No ESLint/Biome config exists in this repo yet; keep the linters that work
-    # without project config and the ones that match the repo's security posture.
+    # No ESLint/Biome config exists in this repo yet; keep the linters that
+    # work without project config and the ones that match the repo's
+    # security posture.
     eslint:
       enabled: false
     biome:
