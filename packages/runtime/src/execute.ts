@@ -51,7 +51,7 @@ export interface ExecuteOutcome { plan: TaskPlan; manifest: RunManifest; manifes
  * `rules` are the role's configured instructions (`roleInstructions`), rendered after the
  * role line so every client gets the same role text whatever agents it has installed.
  */
-export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment, handoff?: { packet: HandoffPacket; sha256?: string }, rules: readonly string[] = []): string {
+export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment, handoff?: { packet: HandoffPacket; sha256?: string }, rules: readonly string[] = [], retry?: { attempt: number; rejection: string }): string {
   return [
     `Code Conductor task ${task.id}.`, `Objective: ${task.objective}`, `Role: ${assignment.role}. Stance: ${assignment.stance}.`,
     ...(rules.length ? ['Role rules:', ...rules.map((rule) => `- ${rule}`)] : []),
@@ -62,9 +62,20 @@ export function assignmentPrompt(task: TaskEnvelope, assignment: AgentAssignment
     'Read AGENTS.md and applicable repository instructions before acting.',
     'Do not reveal private chain-of-thought. Return conclusions, evidence, changes, tests, findings, risks, blockers, and recommendation only.',
     ...(handoff ? [renderHandoff(handoff.packet, handoff.sha256)] : []),
-    'Your FINAL line MUST be CC_RESULT_JSON:<single-line JSON object> matching AgentResult fields that you control: status, changes, tests, evidence, findings, risks, blockers, recommendation, and optionally notVerified (a list of checks you did not perform or could not verify).',
+    // The contract's enumerations and shapes, so a client that cannot read the schema still
+    // reports in it: the first R1 dogfood's reviewer did a full review and was rejected twice
+    // for "success", "approve" and "suggestion" (#4).
+    ...(retry ? [`Attempt ${retry.attempt}: your previous reply was rejected because ${retry.rejection} Do the same work again and end with a result line that follows the contract below exactly.`] : []),
+    ...RESULT_CONTRACT,
+    'Your FINAL line MUST be CC_RESULT_JSON:<single-line JSON object> with exactly the keys status, changes, tests, evidence, findings, risks, blockers, recommendation, and optionally notVerified (a list of checks you did not perform or could not verify).',
   ].join('\n');
 }
+
+/** The AgentResult fields an agent controls, with their allowed values, and one valid example. */
+const RESULT_CONTRACT = [
+  'Result contract: status is one of completed, awaiting_external, blocked, failed, cancelled. recommendation is one of continue, review, changes_required, ready, human_required (a reviewer that approves says ready; a builder says review). changes, risks, blockers and notVerified are lists of strings. tests is a list of {"gate": string, "status": "passed"|"failed"|"skipped", "evidenceIds": [string], "summary"?: string}. evidence is a list of {"id": string, "kind": "repository"|"test"|"documentation"|"tool"|"human"|"agent_output"|"other", "source": string, "summary": string}. findings is a list of {"id": string, "severity": "info"|"low"|"medium"|"high"|"critical", "summary": string, "evidenceIds": [string], "blocking": boolean}. No other keys anywhere; ids are strings you choose (E-1, F-1).',
+  'Valid example: {"status":"completed","changes":[],"tests":[{"gate":"unit-tests","status":"passed","evidenceIds":["E-1"],"summary":"3 passed"}],"evidence":[{"id":"E-1","kind":"test","source":"vitest","summary":"tests/runtime/change-summary.test.ts: 3 passed"}],"findings":[{"id":"F-1","severity":"low","summary":"No empty-list case","evidenceIds":["E-1"],"blocking":false}],"risks":[],"blockers":[],"recommendation":"ready","notVerified":["npm run typecheck"]}',
+];
 
 function sha256(text: string): string { return createHash('sha256').update(text).digest('hex'); }
 
@@ -394,15 +405,25 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
       stopped = controlChange(cwd, `before starting ${recipient}`);
       const prepared = stopped ? {} : prepareHandoff(assignment, cwd);
       const handoff = prepared.handoff;
-      const request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment, handoff, roleInstructions(root, assignment.role)) };
+      const rules = roleInstructions(root, assignment.role);
+      let request: HarnessExecutionRequest = { task, assignment, cwd, timeoutMs: options.timeoutMs ?? 1800000, prompt: assignmentPrompt(task, assignment, handoff, rules) };
       // Starting the client and disclosing the prompt plus repository access are
       // approved together but recorded separately, each bound to this recipient.
       // Every start, including a retry, is a new process and a new disclosure, so
       // each attempt needs its own approval of the then-current working tree.
-      const promptBytes = Buffer.byteLength(request.prompt, 'utf8');
-      const invocation = adapter.invocation?.(request) ?? { command: adapter.command ?? 'platform', args: [] };
+      let promptBytes = Buffer.byteLength(request.prompt, 'utf8');
+      let invocation = adapter.invocation?.(request) ?? { command: adapter.command ?? 'platform', args: [] };
       // The prompt is bound by digest; redact it wherever an adapter embeds it.
-      const argv = [invocation.command, ...invocation.args.map((arg) => (request.prompt && arg.includes(request.prompt) ? arg.replaceAll(request.prompt, '<prompt>') : arg))];
+      let argv = [invocation.command, ...invocation.args.map((arg) => (request.prompt && arg.includes(request.prompt) ? arg.replaceAll(request.prompt, '<prompt>') : arg))];
+      // A retry after a rejected result line carries the rejection, so the second attempt can
+      // correct its report instead of repeating the same mistake; the new prompt is what the
+      // retry's disclosure approval binds.
+      const setPrompt = (prompt: string): void => {
+        request = { ...request, prompt };
+        promptBytes = Buffer.byteLength(prompt, 'utf8');
+        invocation = adapter.invocation?.(request) ?? { command: adapter.command ?? 'platform', args: [] };
+        argv = [invocation.command, ...invocation.args.map((arg) => (prompt && arg.includes(prompt) ? arg.replaceAll(prompt, '<prompt>') : arg))];
+      };
       const authorizeStart = (attempt: number) => authorize((): ApprovalRequest[] => {
         // Also checked when the request is rebuilt after the decision: a packet that expired
         // while the person was deciding is never disclosed.
@@ -453,6 +474,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         if (attempt > 0) {
           stopped = controlChanged();
           if (stopped) { result = lastFailure; break; }
+          const rejection = lastFailure?.blockers.find((blocker) => blocker.includes('CC_RESULT_JSON'));
+          if (rejection) setPrompt(assignmentPrompt(task, assignment, handoff, rules, { attempt: attempt + 1, rejection: rejection.endsWith('.') ? rejection : `${rejection}.` }));
           const retry = await authorizeStart(attempt);
           if (!retry.approved) {
             result = lastFailure ?? { taskId: task.id, assignmentId: assignment.id, agentId: assignment.agentId, role: assignment.role, stance: assignment.stance, provider: assignment.provider, harness: assignment.harness, ...(assignment.surface ? { surface: assignment.surface } : {}), billingChannel: assignment.billingChannel, status: 'failed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [lastError instanceof Error ? lastError.message : 'Harness execution failed.'], recommendation: 'changes_required' };

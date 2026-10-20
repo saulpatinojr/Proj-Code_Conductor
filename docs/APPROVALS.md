@@ -35,7 +35,7 @@ requests and requires identical digests before acting. The action does not run w
 
 - no approver is available, for example a non-interactive process (`missing`);
 - the person declines (`denied`);
-- the decision arrives more than 15 minutes after the request was built (`expired`);
+- the decision arrives more than 15 minutes after the request was built (`expired`; `ccon run --approval-ttl <minutes>` lengthens the wait, up to a day, for a person who steps away, and binds nothing differently);
 - anything bound changed while the request waited, such as a new commit, an edited
   file, a different prompt or recipient (`changed`).
 

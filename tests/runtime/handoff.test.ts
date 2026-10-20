@@ -69,7 +69,9 @@ describe('handoff packets', () => {
     expect(begin).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(begin);
     expect(lines.filter((line) => line.startsWith('Your FINAL line'))).toHaveLength(1);
-    expect(lines.findIndex((line) => line.startsWith('Your FINAL line'))).toBe(end + 1);
+    // After the closed block come only Code Conductor's own contract lines and the final-line rule.
+    expect(lines.findIndex((line) => line.startsWith('Your FINAL line'))).toBe(lines.length - 1);
+    expect(lines.slice(end + 1, -1).every((line) => line.startsWith('Result contract: ') || line.startsWith('Valid example: '))).toBe(true);
     expect(lines.filter((line) => line.startsWith('Prior finding'))).toHaveLength(1);
     expect(lines.slice(begin, end + 1).join('\n')).not.toContain('CC_RESULT_JSON');
     expect(prompt).not.toMatch(/[\u001b\u202e\u2028]/u);
