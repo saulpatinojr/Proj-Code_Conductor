@@ -1,8 +1,8 @@
 lockfile_version: '1'
 apm_version: 0.33.0
 dependencies:
-- repo_url: saulpatinojr/proj-agent_packs
-  materialization_repo_url: saulpatinojr/Proj-Agent_Packs
+- repo_url: hybridcloudworks/agentpacks
+  materialization_repo_url: hybridcloudworks/AgentPacks
   name: github-expert-engineer
   host: github.com
   resolved_commit: 16f41836d65cbf79070ecdb2ef835c78c57b6ae6
@@ -231,8 +231,8 @@ dependencies:
     .kiro/steering/github-expert-engineer-contract.md: sha256:06c76487b21ab69245d108a8180455549315b853f1ad1166708efe586345c1f7
   content_hash: sha256:885d0d25253be8eb8903a1906c4fd4979e15bc0f8282d4419e0f272248adff0d
   declared_license: MIT
-- repo_url: saulpatinojr/proj-agent_packs
-  materialization_repo_url: saulpatinojr/Proj-Agent_Packs
+- repo_url: hybridcloudworks/agentpacks
+  materialization_repo_url: hybridcloudworks/AgentPacks
   name: typescript-distinguished-engineer
   host: github.com
   resolved_commit: 16f41836d65cbf79070ecdb2ef835c78c57b6ae6
@@ -602,8 +602,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -611,8 +611,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:ffaa6c32ac6b126f6599c843e27be06e04faaf4f33818ff31b349e56ad775288
 - kind: project-relative
   target: agent-skills
@@ -620,8 +620,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f042cdbd0ec2de724567363636c4a39b5f6456c0577e898e7478f540458f2434
 - kind: project-relative
   target: agent-skills
@@ -629,8 +629,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:3b12ad4680a58fc578330db49338b2d9150eb304dbb84a2ceb14a69393d86743
 - kind: project-relative
   target: agent-skills
@@ -638,8 +638,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -647,8 +647,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f7fa1dc79669994b326a2ec9a605b116ec59d44913a87b6cdd0f6da0b592612c
 - kind: project-relative
   target: agent-skills
@@ -656,8 +656,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -665,8 +665,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:92c1197f24684807c40e3d49c69a9b129679733557e32d2754a46c8e09746ad8
 - kind: project-relative
   target: agent-skills
@@ -674,8 +674,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -683,8 +683,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8612c32f0d62efa9a82d45804c8dca0dc54e540bc954921a6c4499238da99321
 - kind: project-relative
   target: agent-skills
@@ -692,8 +692,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -701,8 +701,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f1e386862bd7a7d6aa5d531cc5f1f8778924b7ea9a4a08805c1f5078f5fd6235
 - kind: project-relative
   target: agent-skills
@@ -710,8 +710,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c9e2a78a944946246810a5acc8b9820773792585f1546765dcff3479e6720619
 - kind: project-relative
   target: agent-skills
@@ -719,8 +719,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c5e1dfc52317def1c4c0a701e6d2c0f6a7f773d6e00a5bd0c3a12201e10b7f30
 - kind: project-relative
   target: agent-skills
@@ -728,8 +728,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -737,8 +737,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f72c3a4f0d69bc0d36c155ec5ffd32de1b524f48d214aa033fad72400c65fece
 - kind: project-relative
   target: agent-skills
@@ -746,8 +746,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -755,8 +755,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:1a09b9c6ce2f02582e713baa08f808ca0100dfd5b4fd201566688b3950b6cfc6
 - kind: project-relative
   target: agent-skills
@@ -764,8 +764,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -773,8 +773,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:98a6a0fcad7ec6f3e01b6ea5a9b15a2fc9b6a5f7b069648e5be6924cdbc49468
 - kind: project-relative
   target: agent-skills
@@ -782,8 +782,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -791,8 +791,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d8c12bf7fd59eb8296c7ea3d210113958e2b60af6ffdab427f9ecd542602196b
 - kind: project-relative
   target: agent-skills
@@ -800,8 +800,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:95c72d1a70d1563f8217357429dae16ae70a3baa0643b07fd87bcc829d030643
 - kind: project-relative
   target: agent-skills
@@ -809,8 +809,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -818,8 +818,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4ed4a99ae3d24faa4f6c46a3f6adb6515246970f9330db3b1d3832b7ef467b08
 - kind: project-relative
   target: agent-skills
@@ -827,8 +827,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -836,8 +836,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:30264c9c5f428ff70818bfe142c408211cbaaa97ea95d773e5c04d1766b3a53a
 - kind: project-relative
   target: agent-skills
@@ -845,8 +845,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -854,8 +854,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:0dd836178e86d4acf28a1d69ed95ee5bc63d8b3aece59d80ecc35e7772712c4f
 - kind: project-relative
   target: agent-skills
@@ -863,8 +863,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -872,8 +872,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:8f1767fafd69edb591f7758b60b0f6fe5685f77a4698c1575b13ffa0bd40b6ef
 - kind: project-relative
   target: agent-skills
@@ -881,8 +881,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -890,8 +890,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:caab2c38bb0bb937c7238859c305a3dc11fda8eb9f071ded042a876ef889c971
 - kind: project-relative
   target: agent-skills
@@ -899,8 +899,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -908,8 +908,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:a9a79179041e56897f1583240e2b50cc514f191c2b4fa7cf2e01d093365facbf
 - kind: project-relative
   target: agent-skills
@@ -917,8 +917,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -926,8 +926,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:93c8e3843382363b42675eee5d2c3cdc5955e8238e4a619b98f149c75de232e1
 - kind: project-relative
   target: agent-skills
@@ -935,8 +935,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -944,8 +944,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cf65152607f03031721e58fdaec3ed9e1488788e90fcea5ae525a6c7b1500d8b
 - kind: project-relative
   target: agent-skills
@@ -953,8 +953,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -962,8 +962,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cc433bf2cc77bb10ed0880e3099b05586eb029d93ccbdc24cf1c475c74ec760c
 - kind: project-relative
   target: agent-skills
@@ -971,8 +971,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -980,8 +980,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:d4f247187c32c52493455561eedd5ff13c34b807629c7cb9af169bf223facf4e
 - kind: project-relative
   target: agent-skills
@@ -989,8 +989,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -998,8 +998,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:21a32933afab873af79f8cf63f55293adcb472a1e37eadd4692920b823ed2209
 - kind: project-relative
   target: agent-skills
@@ -1007,8 +1007,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1016,8 +1016,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:16cf5ba01ccf0d103f98fb8f191dc113d5c8af3629d61ec1a211aae367e65708
 - kind: project-relative
   target: agent-skills
@@ -1025,8 +1025,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1034,8 +1034,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:64c4116be3d552937310e9d4462780fc554791272f43c9f3f1bab9ae33c9a197
 - kind: project-relative
   target: agent-skills
@@ -1043,8 +1043,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1052,8 +1052,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:9901ae343a8aa054cbae05a7a592e83a9e19b6fd8c7080e9b54d96fb64d2d077
 - kind: project-relative
   target: agent-skills
@@ -1061,8 +1061,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1070,8 +1070,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:9892007bec42e1bd6e4295d2aa8c315491f15aafcbc2e41f6e6e63410549c859
 - kind: project-relative
   target: agent-skills
@@ -1079,8 +1079,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1088,8 +1088,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:b907ba6a1a4868b453b8bd3e9c41ce5e12bc097585ae1b5af157a8834a0c5647
 - kind: project-relative
   target: agent-skills
@@ -1097,8 +1097,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1106,8 +1106,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:023e9b921826133ddbb2f4ed0002ee24f57d03e6c5226ac18247045b5dd6ca82
 - kind: project-relative
   target: agent-skills
@@ -1115,8 +1115,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1124,8 +1124,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:bed51c2c7efa08c4578cef4abf430fcaa9e980c213d2946d545a3e68c2638369
 - kind: project-relative
   target: agent-skills
@@ -1133,8 +1133,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1142,8 +1142,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:4419ae1e65f2e4fbb1668b54aa22f50f266a8974accbf9de0a7211fee1432ab7
 - kind: project-relative
   target: agent-skills
@@ -1151,8 +1151,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1160,8 +1160,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:978819864604107a4e23c5f3bed0fcf98f5c7e3bb2df650e720204c4d35c4184
 - kind: project-relative
   target: agent-skills
@@ -1169,8 +1169,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1178,8 +1178,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d5e86afb58934a10317090a17def6245e0d858760c4887f8f894950e8362456a
 - kind: project-relative
   target: agent-skills
@@ -1187,8 +1187,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1196,8 +1196,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8cae6e9665bc3a0fc9477ecfa1122e59dcd4522565e8cf26b532526a0b7a4231
 - kind: project-relative
   target: agent-skills
@@ -1205,8 +1205,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1214,8 +1214,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:59985aba90c257f8495fb214a3ce16853c4c770cf55c5831963050c9608a6567
 - kind: project-relative
   target: agent-skills
@@ -1223,8 +1223,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1232,8 +1232,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:df6e8f2695d9f9952039319a1b5a15df0d31bcec330f55599ce35cca4133924d
 - kind: project-relative
   target: agent-skills
@@ -1241,8 +1241,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5a6b807e6588f2bf871c7435f32e93d3af33d5835951a0ef428db6b0d8f08be1
 - kind: project-relative
   target: agent-skills
@@ -1250,8 +1250,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:6867c99c070338aa0a6bda81a3c91d2bf49a6d2d0a7a4676809e881e864df909
 - kind: project-relative
   target: agent-skills
@@ -1259,8 +1259,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1268,8 +1268,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:567586b069a9a14dd828e57e8464f4593fe314a3dde0e4dca6bafd47dc363c0e
 - kind: project-relative
   target: agent-skills
@@ -1277,8 +1277,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1286,8 +1286,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4529897f06907e4045da384e96a58ce1482b23b4d431be8bb03cb9e75f5dc7ab
 - kind: project-relative
   target: agent-skills
@@ -1295,8 +1295,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:95c72d1a70d1563f8217357429dae16ae70a3baa0643b07fd87bcc829d030643
 - kind: project-relative
   target: agent-skills
@@ -1304,8 +1304,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5eb758c039f3b310b0e286ce679deff913043f567a7b697e082aa496fba87c9a
 - kind: project-relative
   target: agent-skills
@@ -1313,8 +1313,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1322,8 +1322,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:09aeabfe66944c3d5604f8f46b5564ace8d2af52d1b4d09f1d66add65564382e
 - kind: project-relative
   target: agent-skills
@@ -1331,8 +1331,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:59b1e2e4344da4a3cbde0ef60363c0c27496f7ad8c1ecbb1658795604681cfd7
 - kind: project-relative
   target: agent-skills
@@ -1340,8 +1340,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8903a48a36be2ce7c63fd9874ffc03dfb2ed4ba3604eb2ddc2c8ea30a80a8088
 - kind: project-relative
   target: agent-skills
@@ -1349,8 +1349,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1358,8 +1358,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:31ac8b30f1fb9219504ca592d7a8a71bef38eb98ed52996fa491f58e153877ae
 - kind: project-relative
   target: agent-skills
@@ -1367,8 +1367,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: agent-skills
@@ -1376,8 +1376,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:51a8d2665fb2d463d3bfe33ff6ec68717e93ee4281f301a01d1a987d1d2cf27a
 - kind: project-relative
   target: claude
@@ -1385,8 +1385,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f200f36e7caf41d494e89d89e0192c8d6d525f50181798a250f416777d93224e
 - kind: project-relative
   target: claude
@@ -1394,8 +1394,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:7ea0c4ca22316b70df1625874789dea517251d8593de3ee237b7301217b8da6b
 - kind: project-relative
   target: claude
@@ -1403,8 +1403,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:10a36ccacb65f26a5633df3c1a36f4c699b3db6741031217f5dfe2d26c924294
 - kind: project-relative
   target: claude
@@ -1412,8 +1412,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:936ff3d64e586ea0a0dc2adc8857e1dccbf2fc34bed07daa8af34299b972f402
 - kind: project-relative
   target: claude
@@ -1421,8 +1421,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c3f1716eb49d4f1cec28094e46d3e255d20ce493735aaf77f689a6b36028fafd
 - kind: project-relative
   target: claude
@@ -1430,8 +1430,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:1ec87a57f6096d828c9bb6697b421835f419e844800cc528fd3a950195af95a3
 - kind: project-relative
   target: claude
@@ -1439,8 +1439,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:ef810cd0f5f045049812aa06122de5f4b8eb3ff1bc5db12a18c6000858e913e4
 - kind: project-relative
   target: claude
@@ -1448,8 +1448,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:883c829d9b5df8dfe77bf1f05ee49ffa2a20840a4f4b9a0ba2438db3a229d370
 - kind: project-relative
   target: claude
@@ -1457,8 +1457,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:a86cd236959cd80cfa65ed1fbd2e79ae00406384ed760edb94ed09210496ffc8
 - kind: project-relative
   target: claude
@@ -1466,8 +1466,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cbdc6bb230f2df9b077bf2f6e04636149db1272ef8da639e4ad4110be9d8d441
 - kind: project-relative
   target: claude
@@ -1475,8 +1475,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:97e845545cfb926017a054d3bdbb12f87f54d1d383319d758a4609faeb02684f
 - kind: project-relative
   target: claude
@@ -1484,8 +1484,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:2e6e2baaaca00f0094e0c84376c3c006bb5a1c4c51eec14a7251e22aa9c937e4
 - kind: project-relative
   target: claude
@@ -1493,8 +1493,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:35e8872be59422c29fc2083bda8d3545e504d93c66b224084682d32bf417d6e2
 - kind: project-relative
   target: claude
@@ -1502,8 +1502,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:3add57814ab73698961f89e9265490f986ee970442a75a4a286bdba71ce6c042
 - kind: project-relative
   target: claude
@@ -1511,8 +1511,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:0e3b261bc5b024fc36ae61226852a19372b02227e2f0af1ac4ff0901c2338bc6
 - kind: project-relative
   target: claude
@@ -1520,8 +1520,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:cdb938823a4ec9c8b0fbb5597742bee08c3bfb5284877aeef3f5dcbe700d6d19
 - kind: project-relative
   target: claude
@@ -1529,8 +1529,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:6c313b5984f6d777f1f1317819194a9b06fa7998a9d13b2b6fa994bebd52cf4f
 - kind: project-relative
   target: claude
@@ -1538,8 +1538,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:0c933e12708f8965afd37459ae35483584aaabf41c8bcc478029f0d431d79438
 - kind: project-relative
   target: claude
@@ -1547,8 +1547,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4d6bb6e79b87d9eea6a90e92a584c0c1f5d83edab24a3770656a6b69ded1f80f
 - kind: project-relative
   target: claude
@@ -1556,8 +1556,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:7dac2218d6a75d49b00c52f79fecb113a522a7788847d0b64ae01ef6e8930fc8
 - kind: project-relative
   target: claude
@@ -1565,8 +1565,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:b5fd7e5a4e6d581918599363eb2cc898e4ddd67a8d5fadf19dacf785dd31b3a2
 - kind: project-relative
   target: claude
@@ -1574,8 +1574,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:5f2cecba91c96b24524b5fd9dfc519233f22824c6f4dbde440ad60464fbef132
 - kind: project-relative
   target: claude
@@ -1583,8 +1583,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:36db5a2cb9baf3625773e71ef170a936b202064018ced324ff23e9aa7d929edc
 - kind: project-relative
   target: claude
@@ -1592,8 +1592,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8624d3b14b89796a1ffdd89a003a6fed632ab8a0ea628f5f6e3570c4c3dc65e0
 - kind: project-relative
   target: claude
@@ -1601,8 +1601,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d5f8b5ad4e28057f4fc97fd3049b5272fb0af740af939581ba7eafdb996bbbaa
 - kind: project-relative
   target: claude
@@ -1610,8 +1610,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5ae430f5485c5e5e292d459ecbcef9ab581b108ec7d4d341d6558a9c4068a60c
 - kind: project-relative
   target: claude
@@ -1619,8 +1619,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:d1989713014d45f6686380edd94d9a23061402bd8378870e9859476ca0cc055d
 - kind: project-relative
   target: claude
@@ -1628,8 +1628,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:a9614a4b5e6ef28b3bb7d2ffb212ac324e6cca1d026d41e58e7881584cc2a28e
 - kind: project-relative
   target: claude
@@ -1637,8 +1637,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:3712324b2a54c5f9fb956fd70e2787adc278e010dab803ebee1dc4e86230b419
 - kind: project-relative
   target: claude
@@ -1646,8 +1646,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4dc1e2c214ac81cc6abd89a16dbdbd617147388d801bdb3ee67c21876272c0ff
 - kind: project-relative
   target: claude
@@ -1655,8 +1655,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5bbe0e91b8bd5ea89ca7c5525a10e76dec785099e79d9d4011329b26e68cca3f
 - kind: project-relative
   target: claude
@@ -1664,8 +1664,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1673,8 +1673,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:ffaa6c32ac6b126f6599c843e27be06e04faaf4f33818ff31b349e56ad775288
 - kind: project-relative
   target: claude
@@ -1682,8 +1682,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f042cdbd0ec2de724567363636c4a39b5f6456c0577e898e7478f540458f2434
 - kind: project-relative
   target: claude
@@ -1691,8 +1691,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:3b12ad4680a58fc578330db49338b2d9150eb304dbb84a2ceb14a69393d86743
 - kind: project-relative
   target: claude
@@ -1700,8 +1700,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1709,8 +1709,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f7fa1dc79669994b326a2ec9a605b116ec59d44913a87b6cdd0f6da0b592612c
 - kind: project-relative
   target: claude
@@ -1718,8 +1718,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1727,8 +1727,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:92c1197f24684807c40e3d49c69a9b129679733557e32d2754a46c8e09746ad8
 - kind: project-relative
   target: claude
@@ -1736,8 +1736,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1745,8 +1745,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8612c32f0d62efa9a82d45804c8dca0dc54e540bc954921a6c4499238da99321
 - kind: project-relative
   target: claude
@@ -1754,8 +1754,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1763,8 +1763,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f1e386862bd7a7d6aa5d531cc5f1f8778924b7ea9a4a08805c1f5078f5fd6235
 - kind: project-relative
   target: claude
@@ -1772,8 +1772,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c9e2a78a944946246810a5acc8b9820773792585f1546765dcff3479e6720619
 - kind: project-relative
   target: claude
@@ -1781,8 +1781,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c5e1dfc52317def1c4c0a701e6d2c0f6a7f773d6e00a5bd0c3a12201e10b7f30
 - kind: project-relative
   target: claude
@@ -1790,8 +1790,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1799,8 +1799,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f72c3a4f0d69bc0d36c155ec5ffd32de1b524f48d214aa033fad72400c65fece
 - kind: project-relative
   target: claude
@@ -1808,8 +1808,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1817,8 +1817,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:1a09b9c6ce2f02582e713baa08f808ca0100dfd5b4fd201566688b3950b6cfc6
 - kind: project-relative
   target: claude
@@ -1844,8 +1844,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1853,8 +1853,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:98a6a0fcad7ec6f3e01b6ea5a9b15a2fc9b6a5f7b069648e5be6924cdbc49468
 - kind: project-relative
   target: claude
@@ -1862,8 +1862,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1871,8 +1871,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d8c12bf7fd59eb8296c7ea3d210113958e2b60af6ffdab427f9ecd542602196b
 - kind: project-relative
   target: claude
@@ -1880,8 +1880,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:95c72d1a70d1563f8217357429dae16ae70a3baa0643b07fd87bcc829d030643
 - kind: project-relative
   target: claude
@@ -1907,8 +1907,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1916,8 +1916,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4ed4a99ae3d24faa4f6c46a3f6adb6515246970f9330db3b1d3832b7ef467b08
 - kind: project-relative
   target: claude
@@ -1925,8 +1925,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1934,8 +1934,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:30264c9c5f428ff70818bfe142c408211cbaaa97ea95d773e5c04d1766b3a53a
 - kind: project-relative
   target: claude
@@ -1943,8 +1943,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1952,8 +1952,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:0dd836178e86d4acf28a1d69ed95ee5bc63d8b3aece59d80ecc35e7772712c4f
 - kind: project-relative
   target: claude
@@ -1961,8 +1961,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1970,8 +1970,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:8f1767fafd69edb591f7758b60b0f6fe5685f77a4698c1575b13ffa0bd40b6ef
 - kind: project-relative
   target: claude
@@ -1979,8 +1979,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -1988,8 +1988,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:caab2c38bb0bb937c7238859c305a3dc11fda8eb9f071ded042a876ef889c971
 - kind: project-relative
   target: claude
@@ -1997,8 +1997,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2006,8 +2006,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:a9a79179041e56897f1583240e2b50cc514f191c2b4fa7cf2e01d093365facbf
 - kind: project-relative
   target: claude
@@ -2015,8 +2015,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2024,8 +2024,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:93c8e3843382363b42675eee5d2c3cdc5955e8238e4a619b98f149c75de232e1
 - kind: project-relative
   target: claude
@@ -2033,8 +2033,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2042,8 +2042,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cf65152607f03031721e58fdaec3ed9e1488788e90fcea5ae525a6c7b1500d8b
 - kind: project-relative
   target: claude
@@ -2051,8 +2051,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2060,8 +2060,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cc433bf2cc77bb10ed0880e3099b05586eb029d93ccbdc24cf1c475c74ec760c
 - kind: project-relative
   target: claude
@@ -2069,8 +2069,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2078,8 +2078,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:d4f247187c32c52493455561eedd5ff13c34b807629c7cb9af169bf223facf4e
 - kind: project-relative
   target: claude
@@ -2087,8 +2087,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2096,8 +2096,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:21a32933afab873af79f8cf63f55293adcb472a1e37eadd4692920b823ed2209
 - kind: project-relative
   target: claude
@@ -2123,8 +2123,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2132,8 +2132,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:16cf5ba01ccf0d103f98fb8f191dc113d5c8af3629d61ec1a211aae367e65708
 - kind: project-relative
   target: claude
@@ -2141,8 +2141,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2150,8 +2150,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:64c4116be3d552937310e9d4462780fc554791272f43c9f3f1bab9ae33c9a197
 - kind: project-relative
   target: claude
@@ -2159,8 +2159,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2168,8 +2168,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:9901ae343a8aa054cbae05a7a592e83a9e19b6fd8c7080e9b54d96fb64d2d077
 - kind: project-relative
   target: claude
@@ -2177,8 +2177,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2186,8 +2186,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:9892007bec42e1bd6e4295d2aa8c315491f15aafcbc2e41f6e6e63410549c859
 - kind: project-relative
   target: claude
@@ -2195,8 +2195,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2204,8 +2204,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:b907ba6a1a4868b453b8bd3e9c41ce5e12bc097585ae1b5af157a8834a0c5647
 - kind: project-relative
   target: claude
@@ -2213,8 +2213,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2222,8 +2222,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:023e9b921826133ddbb2f4ed0002ee24f57d03e6c5226ac18247045b5dd6ca82
 - kind: project-relative
   target: claude
@@ -2231,8 +2231,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2240,8 +2240,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:bed51c2c7efa08c4578cef4abf430fcaa9e980c213d2946d545a3e68c2638369
 - kind: project-relative
   target: claude
@@ -2249,8 +2249,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2258,8 +2258,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:4419ae1e65f2e4fbb1668b54aa22f50f266a8974accbf9de0a7211fee1432ab7
 - kind: project-relative
   target: claude
@@ -2267,8 +2267,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2276,8 +2276,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:978819864604107a4e23c5f3bed0fcf98f5c7e3bb2df650e720204c4d35c4184
 - kind: project-relative
   target: claude
@@ -2285,8 +2285,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2294,8 +2294,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d5e86afb58934a10317090a17def6245e0d858760c4887f8f894950e8362456a
 - kind: project-relative
   target: claude
@@ -2303,8 +2303,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2312,8 +2312,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8cae6e9665bc3a0fc9477ecfa1122e59dcd4522565e8cf26b532526a0b7a4231
 - kind: project-relative
   target: claude
@@ -2321,8 +2321,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2330,8 +2330,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:59985aba90c257f8495fb214a3ce16853c4c770cf55c5831963050c9608a6567
 - kind: project-relative
   target: claude
@@ -2339,8 +2339,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2348,8 +2348,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:df6e8f2695d9f9952039319a1b5a15df0d31bcec330f55599ce35cca4133924d
 - kind: project-relative
   target: claude
@@ -2357,8 +2357,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5a6b807e6588f2bf871c7435f32e93d3af33d5835951a0ef428db6b0d8f08be1
 - kind: project-relative
   target: claude
@@ -2366,8 +2366,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:6867c99c070338aa0a6bda81a3c91d2bf49a6d2d0a7a4676809e881e864df909
 - kind: project-relative
   target: claude
@@ -2375,8 +2375,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2384,8 +2384,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:567586b069a9a14dd828e57e8464f4593fe314a3dde0e4dca6bafd47dc363c0e
 - kind: project-relative
   target: claude
@@ -2393,8 +2393,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2402,8 +2402,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4529897f06907e4045da384e96a58ce1482b23b4d431be8bb03cb9e75f5dc7ab
 - kind: project-relative
   target: claude
@@ -2411,8 +2411,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:95c72d1a70d1563f8217357429dae16ae70a3baa0643b07fd87bcc829d030643
 - kind: project-relative
   target: claude
@@ -2420,8 +2420,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5eb758c039f3b310b0e286ce679deff913043f567a7b697e082aa496fba87c9a
 - kind: project-relative
   target: claude
@@ -2429,8 +2429,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2438,8 +2438,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:09aeabfe66944c3d5604f8f46b5564ace8d2af52d1b4d09f1d66add65564382e
 - kind: project-relative
   target: claude
@@ -2447,8 +2447,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:59b1e2e4344da4a3cbde0ef60363c0c27496f7ad8c1ecbb1658795604681cfd7
 - kind: project-relative
   target: claude
@@ -2456,8 +2456,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8903a48a36be2ce7c63fd9874ffc03dfb2ed4ba3604eb2ddc2c8ea30a80a8088
 - kind: project-relative
   target: claude
@@ -2465,8 +2465,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2474,8 +2474,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:31ac8b30f1fb9219504ca592d7a8a71bef38eb98ed52996fa491f58e153877ae
 - kind: project-relative
   target: claude
@@ -2483,8 +2483,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: claude
@@ -2492,8 +2492,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:51a8d2665fb2d463d3bfe33ff6ec68717e93ee4281f301a01d1a987d1d2cf27a
 - kind: project-relative
   target: codex
@@ -2501,8 +2501,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:2257ec0897e52ebdde9dced1e7317e3d0930603f4feb822db993553fb454ad15
 - kind: project-relative
   target: codex
@@ -2510,8 +2510,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:7d3fb6a16101cec71e3b4d781de37252f1bf30a27eb6108600a38ff9939a6dff
 - kind: project-relative
   target: codex
@@ -2519,8 +2519,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d02c8fbca1ea265f40c00a7ef0cdad28add28b43209d01148c6c88a334631d44
 - kind: project-relative
   target: codex
@@ -2528,8 +2528,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f5345e28c54bec7906c05e2c8d7694ecd87ceebe71ddc817a483026c6f905613
 - kind: project-relative
   target: codex
@@ -2537,8 +2537,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:eb9a3c5069b3aae428a127d059a46320a6dcb36ffe21e0231ca68801ab529a04
 - kind: project-relative
   target: copilot
@@ -2546,8 +2546,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f200f36e7caf41d494e89d89e0192c8d6d525f50181798a250f416777d93224e
 - kind: project-relative
   target: copilot
@@ -2555,8 +2555,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:7ea0c4ca22316b70df1625874789dea517251d8593de3ee237b7301217b8da6b
 - kind: project-relative
   target: copilot
@@ -2564,8 +2564,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:10a36ccacb65f26a5633df3c1a36f4c699b3db6741031217f5dfe2d26c924294
 - kind: project-relative
   target: copilot
@@ -2573,8 +2573,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:936ff3d64e586ea0a0dc2adc8857e1dccbf2fc34bed07daa8af34299b972f402
 - kind: project-relative
   target: copilot
@@ -2582,8 +2582,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c3f1716eb49d4f1cec28094e46d3e255d20ce493735aaf77f689a6b36028fafd
 - kind: project-relative
   target: copilot
@@ -2591,8 +2591,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:56e968a862cbf00e9d6b909388df2121ba8a529f22837c41d4f9ac67c5358b50
 - kind: project-relative
   target: copilot
@@ -2600,8 +2600,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:12255e1921ca92a74ffa09fb89cae23a225e4225a75d9e1dfc5097da08e9b281
 - kind: project-relative
   target: copilot
@@ -2609,8 +2609,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:0e4d559b02f8b4a2c33244473a38ac64985da43742775bba701b3f99fb279589
 - kind: project-relative
   target: copilot
@@ -2618,8 +2618,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:64afcc745be523634d5549030c9981576d751ed2114707b1303a87eb055d7e10
 - kind: project-relative
   target: copilot
@@ -2627,8 +2627,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:a9e07eba4bc4857ffcf2bd760b91ce2bab7ca11dd389179c35e6a00d60d9d1c2
 - kind: project-relative
   target: copilot
@@ -2636,8 +2636,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4ac843a4886f46cbb1d0521a039106bfe5775e33d41d3c3d88fd1dfc3d8cfc02
 - kind: project-relative
   target: copilot
@@ -2645,8 +2645,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8c0a6237cf11996b5ff3ae1a3b06d8a908d73f562e288a4fbe1cac0334a03493
 - kind: project-relative
   target: copilot
@@ -2654,8 +2654,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:61fa01071063653b906d5dba2a7b3c645d5f04d3ebff9f54f0c536b29d0e17f8
 - kind: project-relative
   target: copilot
@@ -2663,8 +2663,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:f8d037127421b15c1b82743d812c1a719b501d091038583507605f80d42db6df
 - kind: project-relative
   target: copilot
@@ -2672,8 +2672,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:a2a6d564dbbe226eb51928602e03a5fa9e0bd23cc2dd5bb5f3c98decfc49f983
 - kind: project-relative
   target: copilot
@@ -2681,8 +2681,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:b2967bc590ee7f412d02720e1c1b90533f056c3f226bbe7c8dd15eeb5da46b7a
 - kind: project-relative
   target: copilot
@@ -2690,8 +2690,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:0ce89f35f6e4434b70109ddd08f1c5855f2643676728c4bf1c1d14e72a347f06
 - kind: project-relative
   target: copilot
@@ -2699,8 +2699,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c319b9c4fefba679b05f1d9581979152fbb3681eef72a19c1058620009f8e0cf
 - kind: project-relative
   target: copilot
@@ -2708,8 +2708,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:7b4f91bd55113195e41cc4cefc526efd67af40d7424dfc187438b473713f80e7
 - kind: project-relative
   target: copilot
@@ -2717,8 +2717,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c0664bcfc175231c67e861b147ee18390c981cb2fada26123585bec1026e4e51
 - kind: project-relative
   target: copilot
@@ -2726,8 +2726,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:ba3e0be3c0a286d933cd0bcf8ca34822adf55a7ce2b39f30593fce98e4be6b3f
 - kind: project-relative
   target: copilot
@@ -2735,8 +2735,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:148dab52bea36cb475ea93dabe8660250f85e9c07e2fb868f1588a975420077a
 - kind: project-relative
   target: copilot
@@ -2744,8 +2744,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:97dc47976d0cb710915007a7893735d61ccf4c8d545dddbcc29ed2268c0cdf33
 - kind: project-relative
   target: copilot
@@ -2753,8 +2753,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:b9cfd372ed64100ea4addd2491f7b3b6be78058d79da93b02d20c8100879a7ce
 - kind: project-relative
   target: copilot
@@ -2762,8 +2762,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:adaa96f3a3c232e9aedfaaebef9fc61d94a84ae8cf57d18c202c51fe0a080a77
 - kind: project-relative
   target: copilot
@@ -2771,8 +2771,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d30642fa5f10e4b8bf30dae73729e7941986aff0f4a3c2681d969be3fd94833a
 - kind: project-relative
   target: copilot
@@ -2780,8 +2780,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:c6318974879a7306ff18c1628c3379dc9038cb72368242662cfbb7a19e07fd5f
 - kind: project-relative
   target: copilot
@@ -2789,8 +2789,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:2e3efab6057b5bc7e437b7899382a789eb5567189feadbba329e3c353c35c1ad
 - kind: project-relative
   target: copilot
@@ -2798,8 +2798,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:91dd9e448f3cf746b03c1f62dc2fc0e89274b88028b418a13e9cd09e7c2ae61d
 - kind: project-relative
   target: copilot
@@ -2807,8 +2807,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:9b3abd8b35fee24169c3b91a47b0f381638d2ba8c7177f331498589b46eddaac
 - kind: project-relative
   target: copilot
@@ -2816,8 +2816,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:10082a58a90970104e615d4eb26fac5ed69252e9ac7f0b1f3d212a41bad79923
 - kind: project-relative
   target: kiro
@@ -2825,8 +2825,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:602c84093550f66b217862960af6b0487cfc1d28f4a44f268c2919032883165f
 - kind: project-relative
   target: kiro
@@ -2834,8 +2834,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cd4fd9a8a5a395afa7f214f3efd9e2f7b9cbf48057354f90b30b6bb99146641d
 - kind: project-relative
   target: kiro
@@ -2843,8 +2843,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:e05800414940c7283b668ac216db8629fb2e3b6358a17f6e6a573d25ee33d84a
 - kind: project-relative
   target: kiro
@@ -2852,8 +2852,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:fd1fd0dc1632bd569637efca7be8caf834119c90ef5afed45d9bb8c094ba89e0
 - kind: project-relative
   target: kiro
@@ -2861,8 +2861,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:543b7a0d153d93ea6e79a4735ea1d39a57cdc2e395f52dd155e6b6c037ceca01
 - kind: project-relative
   target: kiro
@@ -2870,8 +2870,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -2879,8 +2879,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:ffaa6c32ac6b126f6599c843e27be06e04faaf4f33818ff31b349e56ad775288
 - kind: project-relative
   target: kiro
@@ -2888,8 +2888,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f042cdbd0ec2de724567363636c4a39b5f6456c0577e898e7478f540458f2434
 - kind: project-relative
   target: kiro
@@ -2897,8 +2897,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:3b12ad4680a58fc578330db49338b2d9150eb304dbb84a2ceb14a69393d86743
 - kind: project-relative
   target: kiro
@@ -2906,8 +2906,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -2915,8 +2915,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f7fa1dc79669994b326a2ec9a605b116ec59d44913a87b6cdd0f6da0b592612c
 - kind: project-relative
   target: kiro
@@ -2924,8 +2924,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -2933,8 +2933,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:92c1197f24684807c40e3d49c69a9b129679733557e32d2754a46c8e09746ad8
 - kind: project-relative
   target: kiro
@@ -2942,8 +2942,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -2951,8 +2951,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8612c32f0d62efa9a82d45804c8dca0dc54e540bc954921a6c4499238da99321
 - kind: project-relative
   target: kiro
@@ -2960,8 +2960,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -2969,8 +2969,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f1e386862bd7a7d6aa5d531cc5f1f8778924b7ea9a4a08805c1f5078f5fd6235
 - kind: project-relative
   target: kiro
@@ -2978,8 +2978,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c9e2a78a944946246810a5acc8b9820773792585f1546765dcff3479e6720619
 - kind: project-relative
   target: kiro
@@ -2987,8 +2987,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:c5e1dfc52317def1c4c0a701e6d2c0f6a7f773d6e00a5bd0c3a12201e10b7f30
 - kind: project-relative
   target: kiro
@@ -2996,8 +2996,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3005,8 +3005,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f72c3a4f0d69bc0d36c155ec5ffd32de1b524f48d214aa033fad72400c65fece
 - kind: project-relative
   target: kiro
@@ -3014,8 +3014,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3023,8 +3023,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:1a09b9c6ce2f02582e713baa08f808ca0100dfd5b4fd201566688b3950b6cfc6
 - kind: project-relative
   target: kiro
@@ -3050,8 +3050,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3059,8 +3059,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:98a6a0fcad7ec6f3e01b6ea5a9b15a2fc9b6a5f7b069648e5be6924cdbc49468
 - kind: project-relative
   target: kiro
@@ -3068,8 +3068,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3077,8 +3077,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d8c12bf7fd59eb8296c7ea3d210113958e2b60af6ffdab427f9ecd542602196b
 - kind: project-relative
   target: kiro
@@ -3086,8 +3086,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:95c72d1a70d1563f8217357429dae16ae70a3baa0643b07fd87bcc829d030643
 - kind: project-relative
   target: kiro
@@ -3113,8 +3113,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3122,8 +3122,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4ed4a99ae3d24faa4f6c46a3f6adb6515246970f9330db3b1d3832b7ef467b08
 - kind: project-relative
   target: kiro
@@ -3131,8 +3131,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3140,8 +3140,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:30264c9c5f428ff70818bfe142c408211cbaaa97ea95d773e5c04d1766b3a53a
 - kind: project-relative
   target: kiro
@@ -3149,8 +3149,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3158,8 +3158,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:0dd836178e86d4acf28a1d69ed95ee5bc63d8b3aece59d80ecc35e7772712c4f
 - kind: project-relative
   target: kiro
@@ -3167,8 +3167,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3176,8 +3176,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:8f1767fafd69edb591f7758b60b0f6fe5685f77a4698c1575b13ffa0bd40b6ef
 - kind: project-relative
   target: kiro
@@ -3185,8 +3185,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3194,8 +3194,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:caab2c38bb0bb937c7238859c305a3dc11fda8eb9f071ded042a876ef889c971
 - kind: project-relative
   target: kiro
@@ -3203,8 +3203,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3212,8 +3212,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:a9a79179041e56897f1583240e2b50cc514f191c2b4fa7cf2e01d093365facbf
 - kind: project-relative
   target: kiro
@@ -3221,8 +3221,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3230,8 +3230,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:93c8e3843382363b42675eee5d2c3cdc5955e8238e4a619b98f149c75de232e1
 - kind: project-relative
   target: kiro
@@ -3239,8 +3239,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3248,8 +3248,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cf65152607f03031721e58fdaec3ed9e1488788e90fcea5ae525a6c7b1500d8b
 - kind: project-relative
   target: kiro
@@ -3257,8 +3257,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3266,8 +3266,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:cc433bf2cc77bb10ed0880e3099b05586eb029d93ccbdc24cf1c475c74ec760c
 - kind: project-relative
   target: kiro
@@ -3275,8 +3275,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3284,8 +3284,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:d4f247187c32c52493455561eedd5ff13c34b807629c7cb9af169bf223facf4e
 - kind: project-relative
   target: kiro
@@ -3293,8 +3293,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3302,8 +3302,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:21a32933afab873af79f8cf63f55293adcb472a1e37eadd4692920b823ed2209
 - kind: project-relative
   target: kiro
@@ -3329,8 +3329,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3338,8 +3338,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:16cf5ba01ccf0d103f98fb8f191dc113d5c8af3629d61ec1a211aae367e65708
 - kind: project-relative
   target: kiro
@@ -3347,8 +3347,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3356,8 +3356,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:64c4116be3d552937310e9d4462780fc554791272f43c9f3f1bab9ae33c9a197
 - kind: project-relative
   target: kiro
@@ -3365,8 +3365,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3374,8 +3374,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:9901ae343a8aa054cbae05a7a592e83a9e19b6fd8c7080e9b54d96fb64d2d077
 - kind: project-relative
   target: kiro
@@ -3383,8 +3383,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3392,8 +3392,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:9892007bec42e1bd6e4295d2aa8c315491f15aafcbc2e41f6e6e63410549c859
 - kind: project-relative
   target: kiro
@@ -3401,8 +3401,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3410,8 +3410,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:b907ba6a1a4868b453b8bd3e9c41ce5e12bc097585ae1b5af157a8834a0c5647
 - kind: project-relative
   target: kiro
@@ -3419,8 +3419,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3428,8 +3428,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:023e9b921826133ddbb2f4ed0002ee24f57d03e6c5226ac18247045b5dd6ca82
 - kind: project-relative
   target: kiro
@@ -3437,8 +3437,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3446,8 +3446,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:bed51c2c7efa08c4578cef4abf430fcaa9e980c213d2946d545a3e68c2638369
 - kind: project-relative
   target: kiro
@@ -3455,8 +3455,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3464,8 +3464,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:4419ae1e65f2e4fbb1668b54aa22f50f266a8974accbf9de0a7211fee1432ab7
 - kind: project-relative
   target: kiro
@@ -3473,8 +3473,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3482,8 +3482,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:978819864604107a4e23c5f3bed0fcf98f5c7e3bb2df650e720204c4d35c4184
 - kind: project-relative
   target: kiro
@@ -3491,8 +3491,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3500,8 +3500,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d5e86afb58934a10317090a17def6245e0d858760c4887f8f894950e8362456a
 - kind: project-relative
   target: kiro
@@ -3509,8 +3509,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3518,8 +3518,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8cae6e9665bc3a0fc9477ecfa1122e59dcd4522565e8cf26b532526a0b7a4231
 - kind: project-relative
   target: kiro
@@ -3527,8 +3527,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3536,8 +3536,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:59985aba90c257f8495fb214a3ce16853c4c770cf55c5831963050c9608a6567
 - kind: project-relative
   target: kiro
@@ -3545,8 +3545,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3554,8 +3554,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:df6e8f2695d9f9952039319a1b5a15df0d31bcec330f55599ce35cca4133924d
 - kind: project-relative
   target: kiro
@@ -3563,8 +3563,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5a6b807e6588f2bf871c7435f32e93d3af33d5835951a0ef428db6b0d8f08be1
 - kind: project-relative
   target: kiro
@@ -3572,8 +3572,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:6867c99c070338aa0a6bda81a3c91d2bf49a6d2d0a7a4676809e881e864df909
 - kind: project-relative
   target: kiro
@@ -3581,8 +3581,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3590,8 +3590,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:567586b069a9a14dd828e57e8464f4593fe314a3dde0e4dca6bafd47dc363c0e
 - kind: project-relative
   target: kiro
@@ -3599,8 +3599,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3608,8 +3608,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:4529897f06907e4045da384e96a58ce1482b23b4d431be8bb03cb9e75f5dc7ab
 - kind: project-relative
   target: kiro
@@ -3617,8 +3617,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:95c72d1a70d1563f8217357429dae16ae70a3baa0643b07fd87bcc829d030643
 - kind: project-relative
   target: kiro
@@ -3626,8 +3626,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5eb758c039f3b310b0e286ce679deff913043f567a7b697e082aa496fba87c9a
 - kind: project-relative
   target: kiro
@@ -3635,8 +3635,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3644,8 +3644,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:09aeabfe66944c3d5604f8f46b5564ace8d2af52d1b4d09f1d66add65564382e
 - kind: project-relative
   target: kiro
@@ -3653,8 +3653,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:59b1e2e4344da4a3cbde0ef60363c0c27496f7ad8c1ecbb1658795604681cfd7
 - kind: project-relative
   target: kiro
@@ -3662,8 +3662,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:8903a48a36be2ce7c63fd9874ffc03dfb2ed4ba3604eb2ddc2c8ea30a80a8088
 - kind: project-relative
   target: kiro
@@ -3671,8 +3671,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3680,8 +3680,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:31ac8b30f1fb9219504ca592d7a8a71bef38eb98ed52996fa491f58e153877ae
 - kind: project-relative
   target: kiro
@@ -3689,8 +3689,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: null
 - kind: project-relative
   target: kiro
@@ -3698,8 +3698,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:51a8d2665fb2d463d3bfe33ff6ec68717e93ee4281f301a01d1a987d1d2cf27a
 - kind: project-relative
   target: kiro
@@ -3707,8 +3707,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:d0e3247bbfc2ad8e69bc3e57ef75f0075e8ca5c1be14e69728960f53210e7184
 - kind: project-relative
   target: kiro
@@ -3716,8 +3716,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:2e783572c8bf754674add200db39f47bc9b965d5ffd48c00bdc0d0aff0b42526
 - kind: project-relative
   target: kiro
@@ -3725,8 +3725,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/github-expert-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/github-expert-engineer-pack
+  - hybridcloudworks/agentpacks/github-expert-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/github-expert-engineer-pack
   content_hash: sha256:06c76487b21ab69245d108a8180455549315b853f1ad1166708efe586345c1f7
 - kind: project-relative
   target: kiro
@@ -3734,8 +3734,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:53c71a282415de76c99e72052ed2d57f61f00da0513fd66619297adae261f82e
 - kind: project-relative
   target: kiro
@@ -3743,8 +3743,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5b778486178271f3bf4666428aa3a3f42c92f2ddbee367767a73463876c1527b
 - kind: project-relative
   target: kiro
@@ -3752,8 +3752,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:f2388386e647196c1c84ed94d50ff1c88a854b8985f8f2a25a84e0b701791ed1
 - kind: project-relative
   target: kiro
@@ -3761,8 +3761,8 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
-  active_owner: saulpatinojr/proj-agent_packs/typescript-distinguished-engineer-pack
+  - hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
+  active_owner: hybridcloudworks/agentpacks/typescript-distinguished-engineer-pack
   content_hash: sha256:5f3efd2b03d3b7cc3f07779b8acfd932880a852be759d577ef628b8d3654908f
 - kind: project-relative
   target: legacy
