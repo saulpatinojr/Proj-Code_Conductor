@@ -5,7 +5,7 @@ Code Conductor is a **VS Code-centered, multi-provider agent engineering system*
 ## Status
 
 **Target:** v0.1 workstation/VS Code release  
-**Current checkpoint:** the approved v0.1 architecture/product delta is implemented on `main`: surface-aware harnesses and provider specialization/routing, a guarded Kiro ACP path, self-contained thin-client packaging/lazy startup, immutable Agent Catalog intake tooling, and the VSIX packaging foundation. The active critical path is now clean-machine/workstation validation plus real R1/R2 dogfood. The first-party context optimizer remains a conservative context-preparation capability; its MCP transport is experimental until official-SDK/current-protocol validation is complete.
+**Current checkpoint:** [Code Conductor 0.1.1 (beta)](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.1) is published as a GitHub pre-release (2026-10-20): download `code-conductor-0.1.1.vsix`, check it with `sha256sum -c SHA256SUMS` and `gh attestation verify code-conductor-0.1.1.vsix --repo saulpatinojr/Proj-Code_Conductor`, then `code --install-extension code-conductor-0.1.1.vsix`. Validated on Windows 11 under issue #4; see [`docs/INSTALL.md`](docs/INSTALL.md) and [`docs/STATUS.md`](docs/STATUS.md) for the limits.
 
 See [`docs/STATUS.md`](docs/STATUS.md) for the maintained checkpoint and GitHub issue **#7** for the durable product roadmap/backlog.
 

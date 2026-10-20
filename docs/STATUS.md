@@ -1,9 +1,11 @@
 # Code Conductor status
 
-**Checkpoint:** 2026-10-19  
+**Checkpoint:** 2026-10-20  
 **Target:** v0.1 workstation/VS Code release
 
 ## Current state
+
+**Code Conductor 0.1.1 (beta) is published** as a GitHub pre-release (tag `v0.1.1` at `1385cff`, 2026-10-20; `.vsix`, CycloneDX SBOM, `SHA256SUMS`, build-provenance attestation; publisher `hybridcloudworks`). Issue #4's checklist is complete: package verified, sign-in and smoke trust for Claude Code, Codex and Kiro (read), 9 ms activation in a clean profile on a repository without Code Conductor files, an R1 run that reached `ready` on this repository (`CC-20261020054327-50bb27f7`), an R2 run with a different-provider challenger on the dogfood fixture `saulpatinojr/cc-dogfood-fixture` (`CC-20261020063459-c3c649db`), draft pull requests opened by `ccon pr` and read by `ccon github-gate` before and after Copilot review on both, and the owner's readiness decision. The beta is Windows-validated with stated limits: Kiro modify fail-closed (#41), Antigravity not revalidated (#18), context file reads need Linux (D-070), no Marketplace listing yet (#14). The 2026-10-19/20 dogfood found and fixed seven defects before the release (D-073 to D-075, #118 to #120) and replaced the cockpit (#124).
 
 The approved architecture and implementation work from the roadmap/chat consolidation is now incorporated into `main`. ADR 0008/0009 and decisions D-048 through D-056 are canonical, and the corresponding runtime/product foundations have landed rather than remaining only in feature branches.
 
@@ -103,31 +105,26 @@ Parallel work continues under #13 for the actual legacy corpus migration and #14
 
 ## Not yet release-verified
 
-- Clean-machine installation of the packaged extension/VSIX and activation without a Code Conductor source checkout.
-- First-run bootstrap and warm-start latency/resource behavior on the target workstation, including proof that providers/ACP/MCP/APM are not launched unnecessarily.
-- Official subscription authentication on the actual execution workstation for GitHub Copilot and Google Antigravity. Claude Code, Codex and Kiro CLI sign-ins were verified on the owner's Windows workstation on 2026-10-19.
-- Kiro modify and Antigravity smoke validation. Claude Code 2.1.302 and Codex 0.163.0 read and modify and Kiro CLI 2.32.0 read passed on 2026-10-19; trust is bound to those versions.
-- Kiro ACP subscription-policy boundary and read/modify authority on the target workstation; implementation is present but unattended trust remains fail-closed until this passes.
-- Authenticated official MCP behavior for real project profiles before write authority is granted.
-- The context optimizer's optional MCP adapter against the official MCP TypeScript SDK/current protocol.
-- A complete real R1/R2 task spanning isolated builder work, independent reviewer/challenger roles, deterministic validation, preserved worktree changes, GitHub PR checks/review, structured evidence, and final readiness. R1 ran twice on 2026-10-19 and ended `changes_required`; a rerun on the fixed build is pending, and R2 has not run.
-- The full unit suite run natively on Windows, outside any agent sandbox.
-- Google Antigravity unattended execution remains intentionally disabled pending permission/sandbox revalidation.
-- Perplexity Pro remains human-in-the-loop unless separately billed official MCP/API automation is explicitly enabled.
-- The actual legacy agent/skill corpus inventory, semantic deduplication/canonicalization, modular APM migration, and 100% lineage closure.
-- Marketplace publication (the owner's setup is pending), a first tagged release that exercises the SBOM/provenance/attestation workflow, and customer-facing release-channel validation.
+- Clean-machine installation on macOS, Linux and remote hosts (Windows is validated).
+- Official subscription authentication for GitHub Copilot and Google Antigravity (Claude Code, Codex and Kiro CLI are verified).
+- Kiro modify (fail-closed by design until W-002, #41); Antigravity (#18).
+- Context file reads on Linux (refused on Windows and macOS by D-070, as documented).
+- The context optimizer's optional MCP adapter against the official MCP TypeScript SDK (experimental until W-006).
+- Live use of an MCP server inside a client during a run (no run needed one; selection is validated).
+- The `--tool-output summary` comparison for #94 on a real gate (the bounded baseline exists).
+- Marketplace publication (#14 steps 3 to 7) and customer-facing release-channel validation beyond GitHub Releases.
+- The legacy corpus dispositions for the 190 third-party skills (#13).
 
 ## Immediate next milestone
 
-Done on 2026-10-19: Doctor, sign-in and smoke trust for Claude Code, Codex and Kiro (read) on the owner's Windows workstation, and the first R1 dogfood, whose defects are fixed on `main`.
+The 0.1.1 beta is out. Next, in order:
 
-1. Rerun R1 on current `main` on the Windows workstation, with dependencies installed in the builder worktree when the gate approval names it (`docs/WORKSTATION-VALIDATION.md` §12). The `typecheck` and `unit-tests` gates should now run (D-074), and the run can reach `ready` only with a passed blocking gate (D-075). This run also gives #94 its token baseline.
-2. Raise the same scenario to R2 with a different-provider challenger, deterministic validation, a draft pull request through `ccon pr`, and `ccon github-gate` before and after re-review.
-3. Post the remaining #4 evidence: the 2026-10-19 run evidence the last #4 comment asks for (now readable in the kept run records and builder branches), activation timings and the §10 process check, the MCP and tool profiles used, and package checksums and attestation once a tag exists.
-4. #14: the owner's Marketplace setup (`docs/MARKETPLACE-PUBLISHING.md`), then a first version tag, which also gives #4 its package evidence; clean-machine install validation.
-5. In parallel, run #13 immutable intake against the actual legacy agent/skill corpus and begin reviewed APM canonicalization batches with 100% source-lineage accounting.
-6. Revalidate #18 when it can materially change the active release path.
-7. Prepare the v0.1 release candidate only when the authoritative definition of done is satisfied.
+1. Beta feedback: use the extension and `ccon` on real work (the fixture for quick runs, this repository for real changes), file what is wrong, and keep the Runs view honest.
+2. #14: Marketplace steps 3 to 7 in `docs/MARKETPLACE-PUBLISHING.md` (Entra application, federated credential, publisher membership, environment secrets, `MARKETPLACE_PUBLISH=true`), then a `v0.1.2` tag publishes to the Marketplace pre-release channel.
+3. #13: the owner's package-or-exclude call per third-party collection in `agent-corpus-ledger/dispositions-2026-10-19.md`; then the issue closes with the ledger.
+4. Linux (WSL) validation of context file reads and a macOS clean install, when a machine is available.
+5. #41 Kiro modify and #18 Antigravity when their permission models can be validated; Kiro IDE and Antigravity IDE as surfaces after 1.0.
+6. Code Workflow: Codex and Copilot orchestrator templates (its own roadmap), consuming the same Agent Packs.
 
 ## Release definition
 
