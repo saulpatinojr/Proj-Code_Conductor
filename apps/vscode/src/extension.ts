@@ -5,6 +5,7 @@ import { defaultWorktreeRoot } from '@code-conductor/git';
 import { nextActions, printable, type NextAction } from '@code-conductor/runtime/next-actions';
 import type { RunManifest } from '@code-conductor/schemas';
 import { nativeOperation, signInHint } from './native-actions.js';
+import { runStartedAt, runSummaryMarkdown, runTitle } from './run-summary.js';
 import * as vscode from 'vscode';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -14,7 +15,23 @@ import { parse } from 'yaml';
 import { startupSnapshot, type StartupMode } from './startup.js';
 import { cliProcessSpec, localCommandName, missingBaselineCommands } from './execution.js';
 
-type ItemSpec = { label: string; description?: string; tooltip?: string; icon?: string; command?: vscode.Command };
+/**
+ * One row of a cockpit view. Every row that stands for something a person can act on
+ * carries a command: open the file it comes from, open a run's summary, perform a next
+ * action, or show the official sign-in guidance. Labels stay short; the whole story is
+ * in the tooltip.
+ */
+type Node = {
+  label: string;
+  description?: string;
+  tooltip?: string | vscode.MarkdownString;
+  icon?: string;
+  color?: string;
+  command?: vscode.Command;
+  children?: Node[];
+  expanded?: boolean;
+  contextValue?: string;
+};
 type CapabilitySurface = { kind?: string; identifiers?: string[]; commands?: string[]; command?: string; interactive?: boolean; machine_execution?: boolean; requires_local_client?: boolean; enabled_by_default?: boolean };
 type HarnessCapability = { provider?: string; sign_in?: unknown; command_candidates?: string[]; primary_specializations?: string[]; preferred_execution_surface?: string; native_capabilities?: string[]; surfaces?: Record<string, CapabilitySurface> };
 type CapabilityDocument = { defaults?: { billing_policy?: string; allow_separately_billed_api?: boolean }; harnesses?: Record<string, HarnessCapability> };
@@ -23,24 +40,29 @@ type LocalDiscovery = { version: 3; capturedAt: string; commands: Record<string,
 const STARTUP_FINGERPRINT_KEY = 'codeConductor.startupFingerprint';
 const STARTUP_MODE_KEY = 'codeConductor.startupMode';
 const STARTUP_DISCOVERY_KEY = 'codeConductor.startupDiscovery';
+const RUN_SCHEME = 'code-conductor-run';
 
 class ConductorItem extends vscode.TreeItem {
-  constructor(spec: ItemSpec) {
-    super(spec.label, vscode.TreeItemCollapsibleState.None);
-    this.description = spec.description;
-    this.tooltip = spec.tooltip;
-    this.iconPath = new vscode.ThemeIcon(spec.icon ?? 'circle-outline');
-    this.command = spec.command;
+  constructor(readonly node: Node) {
+    super(node.label, node.children?.length ? (node.expanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed) : vscode.TreeItemCollapsibleState.None);
+    this.description = node.description;
+    this.tooltip = node.tooltip;
+    this.iconPath = new vscode.ThemeIcon(node.icon ?? 'circle-outline', node.color ? new vscode.ThemeColor(node.color) : undefined);
+    this.command = node.command;
+    this.contextValue = node.contextValue;
   }
 }
 
 class ConductorProvider implements vscode.TreeDataProvider<ConductorItem> {
   private readonly changed = new vscode.EventEmitter<ConductorItem | undefined | null | void>();
   readonly onDidChangeTreeData = this.changed.event;
-  constructor(private readonly loader: () => ItemSpec[]) {}
+  constructor(private readonly loader: () => Node[]) {}
   refresh(): void { this.changed.fire(); }
   getTreeItem(element: ConductorItem): vscode.TreeItem { return element; }
-  getChildren(): ConductorItem[] { return this.loader().map((item) => new ConductorItem(item)); }
+  getChildren(element?: ConductorItem): ConductorItem[] {
+    const nodes = element ? element.node.children ?? [] : this.loader();
+    return nodes.map((node) => new ConductorItem(node));
+  }
 }
 
 function workspaceRoot(): string | undefined { return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath; }
@@ -71,22 +93,17 @@ function surfaceCommands(harness: HarnessCapability, surface?: CapabilitySurface
   if (surface?.commands?.length) return surface.commands;
   return harness.command_candidates ?? [];
 }
-
-function teamItems(root?: string): ItemSpec[] {
-  if (!root) return [{ label: 'Open a repository workspace', icon: 'info' }];
-  const roles = loadYaml<{ roles?: Record<string, { stance?: string; preferred_harnesses?: string[] }> }>(root, 'config/roles.yaml');
-  const capabilities = loadYaml<CapabilityDocument>(root, 'config/capabilities.yaml');
-  return Object.entries(roles?.roles ?? {}).map(([role, spec]) => {
-    const harnesses = spec.preferred_harnesses ?? [];
-    const specializations = [...new Set(harnesses.flatMap((harness) => capabilities?.harnesses?.[harness]?.primary_specializations ?? []))];
-    return {
-      label: role,
-      description: [spec.stance, harnesses.map(harnessLabel).join('/'), specializations.length ? specializations.join(',') : undefined].filter(Boolean).join(' · '),
-      tooltip: specializations.length ? `Primary routing specializations: ${specializations.join(', ')}` : undefined,
-      icon: role === 'builder' ? 'tools' : role.includes('review') || role.includes('challenger') ? 'search' : 'account',
-    };
-  });
+function markdown(text: string): vscode.MarkdownString {
+  const value = new vscode.MarkdownString(text);
+  value.isTrusted = false;
+  return value;
 }
+/** Open a file of the workspace (or the packaged default when the workspace has none) in the editor. */
+function openFile(root: string | undefined, relative: string, title: string): vscode.Command {
+  return { command: 'codeConductor.openFile', title, arguments: [root ? join(root, relative) : undefined, relative] };
+}
+
+// ---------------------------------------------------------------- Runs
 
 function runsDirectory(): string { return join(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'runs'); }
 
@@ -98,38 +115,81 @@ function storedManifest(runId: string): RunManifest | undefined {
   } catch { return undefined; }
 }
 
-function runItems(): ItemSpec[] {
-  const runs = runsDirectory();
-  if (!existsSync(runs)) return [{ label: 'No runs yet', description: 'Use Code Conductor: Plan Task', icon: 'history' }];
-  return readdirSync(runs, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().slice(0, 20).map((name) => {
-    const manifest = storedManifest(name);
-    const unavailable = { label: name, description: 'manifest unavailable or too large · use ccon next', icon: 'run-all' };
-    if (!manifest) return unavailable;
-    // One malformed run must not break the whole view.
-    let actions: NextAction[];
-    try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { return unavailable; }
-    const decision = manifest.mergeDecision?.decision ?? 'planned';
-    return {
-      label: name,
-      description: `${printable(decision, 40)}${actions[0] ? ` · next: ${printable(actions[0].title, 160, false)}` : ''}`,
-      tooltip: [manifest.task.objective, manifest.mergeDecision?.rationale].filter((line): line is string => Boolean(line)).map((line) => printable(line, 600, false)).concat(actions.map((action) => `• ${printable(action.title, 200, false)}`)).join('\n'),
-      icon: decision === 'ready' ? 'pass' : decision === 'planned' ? 'run-all' : decision === 'human_required' ? 'person' : 'warning',
-      command: { command: 'codeConductor.nextActions', title: 'Show next actions', arguments: [name] },
-    };
+function decisionLook(decision: string): { icon: string; color?: string } {
+  switch (decision) {
+    case 'ready': return { icon: 'pass-filled', color: 'testing.iconPassed' };
+    case 'planned': return { icon: 'circle-large-outline' };
+    case 'human_required': return { icon: 'person', color: 'charts.yellow' };
+    case 'blocked': return { icon: 'error', color: 'testing.iconFailed' };
+    default: return { icon: 'warning', color: 'charts.orange' };
+  }
+}
+function statusLook(status: string): { icon: string; color?: string } {
+  switch (status) {
+    case 'completed': case 'passed': return { icon: 'pass', color: 'testing.iconPassed' };
+    case 'failed': case 'blocked': case 'cancelled': return { icon: 'error', color: 'testing.iconFailed' };
+    case 'awaiting_external': return { icon: 'person', color: 'charts.yellow' };
+    case 'skipped': return { icon: 'debug-step-over' };
+    default: return { icon: 'circle-outline' };
+  }
+}
+
+function runNode(runId: string): Node {
+  const manifest = storedManifest(runId);
+  if (!manifest) return { label: runId, description: 'record unavailable', icon: 'warning', tooltip: 'The manifest could not be read here, or is larger than 1 MiB. Use `ccon next --run <id>` in a terminal.' };
+  let actions: NextAction[] = [];
+  try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { /* shown without next actions */ }
+  const decision = manifest.mergeDecision?.decision ?? 'planned';
+  const open: vscode.Command = { command: 'codeConductor.openRun', title: 'Open run summary', arguments: [runId] };
+  const children: Node[] = [];
+  children.push({
+    label: decision === 'planned' ? 'Planned only' : `Decision: ${printable(decision, 40)}`,
+    description: printable(manifest.mergeDecision?.rationale ?? 'nothing was executed', 90, false),
+    tooltip: printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600, false),
+    ...decisionLook(decision), command: open,
   });
+  for (const assignment of manifest.assignments) {
+    const result = manifest.results.find((item) => item.assignmentId === assignment.id);
+    const blocking = result?.findings.filter((finding) => finding.blocking).length ?? 0;
+    children.push({
+      label: `${printable(assignment.role, 40)} · ${harnessLabel(assignment.harness)}`,
+      description: result ? `${printable(result.status, 40)} · ${printable(result.recommendation, 40)}${blocking ? ` · ${blocking} blocking` : ''}` : 'not started',
+      tooltip: markdown([`**${printable(assignment.agentId, 80)}** (${printable(assignment.stance, 20)}, ${printable(assignment.surface ?? 'surface unknown', 20)})`, ...(result ? [...result.blockers.map((b) => `- ⛔ ${printable(b, 400, false)}`), ...result.findings.map((f) => `- ${f.blocking ? '🛑' : '•'} ${printable(f.severity, 20)}: ${printable(f.summary, 400, false)}`), ...(result.notVerified ?? []).map((n) => `- not verified: ${printable(n, 300, false)}`)] : [])].join('\n')),
+      ...statusLook(result?.status ?? 'planned'), command: open,
+    });
+  }
+  for (const gate of manifest.gates) {
+    children.push({ label: `gate · ${printable(gate.gate, 60)}`, description: `${printable(gate.status, 20)}${gate.summary ? ` · ${printable(gate.summary, 80, false)}` : ''}`, tooltip: printable(gate.summary ?? gate.status, 600, false), ...statusLook(gate.status), command: open });
+  }
+  actions.forEach((action, index) => {
+    children.push({
+      label: printable(action.title, 80, false),
+      description: action.surface.replace('_', ' '),
+      tooltip: markdown(`${printable(action.detail, 600, false)}${action.commands?.length ? '\n\n' + action.commands.map((argv) => `\`${printable(argv.join(' '), 300, false)}\``).join('\n\n') : ''}`),
+      icon: action.surface === 'source_control' ? 'source-control' : action.surface === 'github' ? 'github' : action.surface === 'terminal' ? 'terminal' : 'arrow-right',
+      color: 'charts.blue',
+      command: { command: 'codeConductor.performAction', title: 'Do this', arguments: [runId, index] },
+    });
+  });
+  return {
+    label: runTitle(manifest),
+    description: `${printable(decision, 40)} · ${runStartedAt(runId).slice(5, 16)}`,
+    tooltip: markdown(`**${printable(runId, 80)}** · risk ${printable(manifest.task.risk, 8)} · ${runStartedAt(runId)}\n\n${printable(manifest.task.objective, 600, false)}\n\n${printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600, false)}\n\nClick for the full summary.`),
+    ...decisionLook(decision), command: open, children, contextValue: 'run',
+  };
 }
 
-function gateItems(root?: string): ItemSpec[] {
-  if (!root) return [];
-  const doc = loadYaml<{ profiles?: Record<string, { gates?: Array<{ id: string; blocking?: boolean }> }> }>(root, 'config/gates.yaml');
-  return Object.entries(doc?.profiles ?? {}).flatMap(([profile, spec]) => (spec.gates ?? []).map((gate) => ({ label: gate.id, description: `${profile}${gate.blocking === false ? ' · advisory' : ' · blocking'}`, icon: gate.blocking === false ? 'info' : 'shield' })));
+function runNodes(): Node[] {
+  const runs = runsDirectory();
+  if (!existsSync(runs)) return [];
+  return readdirSync(runs, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().slice(0, 25).map(runNode);
 }
 
-function connectionItems(root?: string, discovery?: LocalDiscovery): ItemSpec[] {
-  if (!root) return [{ label: 'Open a repository workspace', icon: 'info' }];
-  if (!vscode.workspace.isTrusted) return [{ label: 'Restricted Mode', description: 'Local process discovery is disabled', icon: 'lock' }];
+// ---------------------------------------------------------------- Workstation
+
+function clientNodes(root: string, discovery?: LocalDiscovery): Node[] {
   const capabilities = loadYaml<CapabilityDocument>(root, 'config/capabilities.yaml');
-  const items: ItemSpec[] = [];
+  const nodes: Node[] = [];
   for (const [id, harness] of Object.entries(capabilities?.harnesses ?? {})) {
     if (id === 'internal-validator') continue;
     const preferredName = harness.preferred_execution_surface ?? 'unknown';
@@ -139,51 +199,117 @@ function connectionItems(root?: string, discovery?: LocalDiscovery): ItemSpec[] 
     const extensionIds = Object.values(harness.surfaces ?? {}).flatMap((surface) => surface.identifiers ?? []);
     const extensionAvailable = extensionIds.some((extensionId) => Boolean(vscode.extensions.getExtension(extensionId)));
     const requiresLocal = Boolean(preferred?.requires_local_client);
-    const preferredAvailable = requiresLocal ? localClientAvailable : preferred?.kind === 'vscode_extension' ? extensionAvailable : false;
-    const allSurfaces = Object.entries(harness.surfaces ?? {}).map(([name, surface]) => `${name}:${surface.kind ?? 'unknown'}${surface.machine_execution ? ':machine' : ':human'}`).join(', ');
-    items.push({
-      command: { command: 'codeConductor.signIn', title: 'Sign in with the official client', arguments: [id] },
+    const manual = !requiresLocal && preferred?.kind !== 'vscode_extension';
+    const available = requiresLocal ? localClientAvailable : preferred?.kind === 'vscode_extension' ? extensionAvailable : false;
+    const hint = signInHint(harness.sign_in);
+    nodes.push({
       label: harnessLabel(id),
-      description: `${preferredAvailable ? 'detected; auth/trust not checked' : requiresLocal ? 'not detected in cached discovery' : 'native/manual setup not verified'} · preferred ${preferredName}${commands.length ? ` · ${commands.join('|')}` : ''}`,
-      tooltip: `Provider: ${harness.provider ?? 'unknown'}\nSign in: ${signInHint(harness.sign_in)?.instructions ?? 'through the official client'}\nSurfaces: ${allSurfaces || 'none'}\nNative capabilities: ${(harness.native_capabilities ?? []).join(', ') || 'none declared'}${extensionIds.length ? `\nVS Code extensions: ${extensionIds.join(', ')}${extensionAvailable ? ' (detected)' : ''}` : ''}`,
-      icon: preferredAvailable ? (id === 'kiro' ? 'checklist' : id === 'antigravity' ? 'globe' : id === 'copilot-github' ? 'github' : 'hubot') : 'warning',
+      description: manual ? 'manual platform' : available ? 'installed' : 'not found',
+      tooltip: markdown([
+        `**${harnessLabel(id)}** · provider ${printable(harness.provider ?? 'unknown', 40)} · preferred surface \`${printable(preferredName, 40)}\``,
+        commands.length ? `Command: \`${commands.join('` or `')}\`` : '',
+        extensionIds.length ? `VS Code extension: ${extensionIds.join(', ')}${extensionAvailable ? ' (installed)' : ''}` : '',
+        manual ? 'Used through its own platform; nothing to detect locally.' : available ? 'Installed. Whether it is signed in and trusted is what **Doctor** checks.' : 'Not found in the last discovery. Install the official client, then Refresh.',
+        hint ? `Sign in: ${printable(hint.instructions, 300, false)}` : '',
+        'Click for the official sign-in guidance.',
+      ].filter(Boolean).join('\n\n')),
+      icon: manual ? 'globe' : available ? 'pass' : 'circle-slash',
+      color: manual ? undefined : available ? 'testing.iconPassed' : 'disabledForeground',
+      command: { command: 'codeConductor.signIn', title: 'Sign in with the official client', arguments: [id] },
     });
   }
-  const apmAvailable = discovery?.commands.apm === true;
-  items.push({ label: 'Microsoft APM (optional)', description: `${apmAvailable ? 'detected' : 'not detected'} · apm`, icon: apmAvailable ? 'package' : 'warning' });
-  return items;
+  return nodes;
 }
 
-function packItems(root?: string): ItemSpec[] {
-  if (!root) return [];
-  const manifest = loadYaml<{ targets?: string[] }>(root, 'apm.yml');
-  const agents = existsSync(join(root, '.apm', 'agents')) ? readdirSync(join(root, '.apm', 'agents')).filter((x) => x.endsWith('.md')).length : 0;
+function toolNodes(discovery?: LocalDiscovery): Node[] {
+  const tools: Array<[string, string]> = [['node', 'Node.js'], ['git', 'Git'], ['gh', 'GitHub CLI'], ['apm', 'Microsoft APM'], ['terraform', 'Terraform'], ['ansible', 'Ansible'], ['pwsh', 'PowerShell 7'], ['az', 'Azure CLI'], ['aws', 'AWS CLI'], ['gcloud', 'Google Cloud CLI'], ['kubectl', 'kubectl'], ['helm', 'Helm']];
+  const required = new Set(['node', 'git', 'gh']);
+  return tools.map(([command, label]) => {
+    const found = discovery?.commands[command] === true;
+    return {
+      label, description: `${found ? 'installed' : required.has(command) ? 'missing (required)' : 'not found'} · ${command}`,
+      tooltip: found ? `\`${command}\` was found on PATH in the last discovery.` : required.has(command) ? `\`${command}\` is required and was not found. Install it, then Refresh.` : `\`${command}\` is optional; only repositories whose gate profile needs it use it.`,
+      icon: found ? 'pass' : required.has(command) ? 'error' : 'circle-slash',
+      color: found ? 'testing.iconPassed' : required.has(command) ? 'testing.iconFailed' : 'disabledForeground',
+      command: { command: 'codeConductor.doctor', title: 'Run Doctor' },
+    };
+  });
+}
+
+function gateNodes(root: string): Node[] {
+  const doc = loadYaml<{ profiles?: Record<string, { gates?: Array<{ id: string; command?: string; args?: string[]; blocking?: boolean }> }> }>(root, 'config/gates.yaml');
+  return Object.entries(doc?.profiles ?? {}).map(([profile, spec]) => ({
+    label: profile,
+    description: `${(spec.gates ?? []).length} gate(s)`,
+    icon: 'shield', command: openFile(root, 'config/gates.yaml', 'Open gate catalog'),
+    children: (spec.gates ?? []).map((gate) => ({
+      label: gate.id,
+      description: `${gate.blocking === false ? 'advisory' : 'blocking'}${gate.command ? ` · ${printable([gate.command, ...(gate.args ?? [])].join(' '), 60)}` : ''}`,
+      tooltip: gate.blocking === false ? 'Advisory: its result is recorded and never establishes readiness.' : 'Blocking: a failure makes the run changes_required; readiness needs at least one passed blocking gate.',
+      icon: gate.blocking === false ? 'info' : 'shield', command: openFile(root, 'config/gates.yaml', 'Open gate catalog'),
+    })),
+  }));
+}
+
+function packNodes(root: string): Node[] {
+  const manifest = loadYaml<{ targets?: string[]; dependencies?: { apm?: unknown[] } }>(root, 'apm.yml');
+  const lock = existsSync(join(root, 'apm.lock.yaml'));
+  const dependencies = Array.isArray(manifest?.dependencies?.apm) ? manifest.dependencies.apm.length : 0;
   const skills = existsSync(join(root, '.apm', 'skills')) ? readdirSync(join(root, '.apm', 'skills'), { withFileTypes: true }).filter((x) => x.isDirectory()).length : 0;
+  if (!manifest && !lock) return [{ label: 'No APM packaging', description: 'optional', tooltip: 'This repository declares no agent packs. Code Conductor works without them; packs come from an APM package source such as Agent Packs.', icon: 'package', color: 'disabledForeground' }];
   return [
-    { label: 'APM lock', description: existsSync(join(root, 'apm.lock.yaml')) ? 'present (Git tracking not checked)' : 'not installed (optional)', icon: existsSync(join(root, 'apm.lock.yaml')) ? 'lock' : 'warning' },
-    { label: 'Canonical agents', description: String(agents), icon: 'organization' }, { label: 'Canonical skills', description: String(skills), icon: 'extensions' },
-    { label: 'Targets', description: manifest?.targets?.join(', ') ?? 'unknown', icon: 'symbol-array' },
+    { label: 'Pack dependencies', description: String(dependencies), tooltip: 'Packs declared in apm.yml, installed with `apm install` at a pinned reference. Click to open apm.yml.', icon: 'package', command: openFile(root, 'apm.yml', 'Open apm.yml') },
+    { label: 'Lock', description: lock ? 'present' : 'missing', tooltip: lock ? 'apm.lock.yaml pins what was installed. Click to open it.' : 'No apm.lock.yaml: run `apm install`.', icon: lock ? 'lock' : 'warning', color: lock ? undefined : 'charts.yellow', ...(lock ? { command: openFile(root, 'apm.lock.yaml', 'Open apm.lock.yaml') } : {}) },
+    { label: 'Own skills', description: String(skills), tooltip: 'Skills this repository itself publishes from .apm/skills.', icon: 'extensions', ...(skills ? { command: openFile(root, '.apm/skills', 'Open .apm/skills') } : {}) },
+    { label: 'Targets', description: manifest?.targets?.join(', ') ?? 'none', tooltip: 'Clients APM projects the packs into.', icon: 'symbol-array', command: openFile(root, 'apm.yml', 'Open apm.yml') },
   ];
 }
 
-function usageItems(root?: string): ItemSpec[] {
-  const capabilities = root ? loadYaml<CapabilityDocument>(root, 'config/capabilities.yaml') : undefined;
-  const statsPath = join(process.env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'context-optimization-stats.json');
-  let savedTokens = 0;
-  if (existsSync(statsPath)) {
-    try {
-      const stats = JSON.parse(readFileSync(statsPath, 'utf8'));
-      savedTokens = stats.tokensSaved ?? 0;
-    } catch { /* ignore */ }
-  }
+function workstationNodes(root: string | undefined, discovery?: LocalDiscovery): Node[] {
+  if (!root) return [];
+  if (!vscode.workspace.isTrusted) return [{ label: 'Restricted Mode', description: 'trust the workspace to discover clients', icon: 'lock', color: 'charts.yellow', command: { command: 'workbench.trust.manage', title: 'Manage Workspace Trust' } }];
+  const clients = clientNodes(root, discovery);
+  const tools = toolNodes(discovery);
+  const missing = tools.filter((tool) => tool.icon === 'error').length;
   return [
-    { label: 'Billing policy', description: capabilities?.defaults?.billing_policy ?? 'subscription_first', icon: 'credit-card' },
-    { label: 'Separately billed API', description: capabilities?.defaults?.allow_separately_billed_api ? 'enabled' : 'disabled by default', icon: capabilities?.defaults?.allow_separately_billed_api ? 'warning' : 'pass' },
-    { label: 'Context optimizer', description: 'available · lossless default', tooltip: 'Aggressive comment/whitespace removal is explicit opt-in.', icon: 'zap' },
-    { label: 'Estimated input tokens saved', description: `${savedTokens.toLocaleString()} tokens`, tooltip: 'Approximate characters/4 telemetry; not vendor billing data.', icon: 'graph' },
-    { label: 'Quota telemetry', description: 'vendor-native / not stored', icon: 'pulse' },
+    { label: 'AI clients', description: `${clients.filter((c) => c.icon === 'pass').length} installed`, icon: 'hubot', expanded: true, children: clients, tooltip: 'Installed means found on this machine. Signed in and trusted are checked by Doctor and by the smoke tests.' },
+    { label: 'Tools', description: missing ? `${missing} required missing` : `${tools.filter((t) => t.icon === 'pass').length} installed`, icon: 'tools', children: tools, color: missing ? 'testing.iconFailed' : undefined },
+    { label: 'Gate profiles', description: `${gateNodes(root).length} profile(s)`, icon: 'shield', children: gateNodes(root), tooltip: 'Deterministic checks the validator runs, chosen by what the repository contains.' },
+    { label: 'Packs', description: existsSync(join(root, 'apm.lock.yaml')) ? 'APM' : 'none', icon: 'package', children: packNodes(root) },
   ];
 }
+
+// ---------------------------------------------------------------- Policy
+
+function policyNodes(root: string | undefined): Node[] {
+  if (!root) return [];
+  const roles = loadYaml<{ roles?: Record<string, { stance?: string; preferred_harnesses?: string[]; instructions?: string[] }> }>(root, 'config/roles.yaml');
+  const risk = loadYaml<{ risk_classes?: Record<string, { description?: string; required_roles?: string[]; human_approval?: boolean }> }>(root, 'config/risk.yaml');
+  const capabilities = loadYaml<CapabilityDocument>(root, 'config/capabilities.yaml');
+  const roleNodes: Node[] = Object.entries(roles?.roles ?? {}).map(([role, spec]) => ({
+    label: role,
+    description: `${spec.stance ?? ''}${spec.preferred_harnesses?.length ? ` · ${spec.preferred_harnesses.map(harnessLabel).join(', ')}` : ''}`,
+    tooltip: markdown([`**${role}** (${spec.stance ?? 'stance unset'})`, spec.preferred_harnesses?.length ? `Preferred clients: ${spec.preferred_harnesses.map(harnessLabel).join(', ')}` : '', ...(spec.instructions ?? []).map((rule) => `- ${printable(rule, 300, false)}`)].filter(Boolean).join('\n\n')),
+    icon: role === 'builder' ? 'tools' : role === 'validator' ? 'shield' : role.includes('review') || role === 'challenger' || role === 'github_gatekeeper' ? 'search' : role === 'arbiter' || role === 'finalizer' ? 'law' : 'account',
+    command: openFile(root, 'config/roles.yaml', 'Open roles'),
+  }));
+  const riskNodes: Node[] = Object.entries(risk?.risk_classes ?? {}).map(([name, spec]) => ({
+    label: name,
+    description: `${(spec.required_roles ?? []).join(', ')}${spec.human_approval ? ' · human approval' : ''}`,
+    tooltip: printable(spec.description ?? name, 300, false),
+    icon: spec.human_approval ? 'person' : 'checklist',
+    command: openFile(root, 'config/risk.yaml', 'Open risk classes'),
+  }));
+  const billingSeparate = Boolean(capabilities?.defaults?.allow_separately_billed_api);
+  return [
+    { label: 'Roles', description: `${roleNodes.length}`, icon: 'organization', children: roleNodes, tooltip: 'What each role may do, and the rules rendered into its prompt. Click a role to open config/roles.yaml.' },
+    { label: 'Risk classes', description: `${riskNodes.length}`, icon: 'checklist', children: riskNodes, tooltip: 'Which roles a run needs, by risk class.' },
+    { label: 'Billing', description: billingSeparate ? 'separately billed API allowed' : 'subscriptions only', tooltip: `Policy: ${printable(capabilities?.defaults?.billing_policy ?? 'subscription_first', 40)}. ${billingSeparate ? 'Separately billed API execution is enabled.' : 'Separately billed API execution is disabled; official clients run on their subscriptions.'}`, icon: billingSeparate ? 'warning' : 'credit-card', color: billingSeparate ? 'charts.yellow' : undefined, command: openFile(root, 'config/capabilities.yaml', 'Open capabilities') },
+    { label: 'Decisions', description: 'ADRs and the decision register', tooltip: 'docs/DECISIONS.md, when this repository has one.', icon: 'book', command: { command: 'codeConductor.openDecisions', title: 'Open decision register' } },
+  ];
+}
+
+// ---------------------------------------------------------------- Startup, commands
 
 function discoverLocalSurfaces(): LocalDiscovery {
   if (!vscode.workspace.isTrusted) return { version: 3, capturedAt: new Date().toISOString(), commands: {}, extensions: {} };
@@ -233,8 +359,10 @@ async function performNextAction(context: vscode.ExtensionContext, action: NextA
   }
 }
 
+function validRunId(runId: unknown): runId is string { return typeof runId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(runId); }
+
 async function showNextActions(context: vscode.ExtensionContext, runId: unknown): Promise<void> {
-  if (typeof runId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(runId)) return;
+  if (!validRunId(runId)) return;
   const manifest = storedManifest(runId);
   if (!manifest) { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`); return; }
   let actions: NextAction[];
@@ -245,15 +373,55 @@ async function showNextActions(context: vscode.ExtensionContext, runId: unknown)
   if (picked) await performNextAction(context, picked.action);
 }
 
+async function performRunAction(context: vscode.ExtensionContext, runId: unknown, index: unknown): Promise<void> {
+  if (!validRunId(runId) || typeof index !== 'number' || !Number.isInteger(index) || index < 0) return;
+  const manifest = storedManifest(runId);
+  if (!manifest) return;
+  let actions: NextAction[];
+  try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { return; }
+  const action = actions[index];
+  if (action) await performNextAction(context, action);
+}
+
+async function openRunSummary(runId: unknown): Promise<void> {
+  if (!validRunId(runId)) return;
+  const uri = vscode.Uri.parse(`${RUN_SCHEME}:/${runId}.md`);
+  const document = await vscode.workspace.openTextDocument(uri);
+  await vscode.window.showTextDocument(document, { preview: true });
+  try { await vscode.commands.executeCommand('markdown.showPreview', uri); } catch { /* the Markdown source is open either way */ }
+}
+
+/** Run summaries as read-only virtual documents; nothing is written to disk. */
+class RunSummaryProvider implements vscode.TextDocumentContentProvider {
+  private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  readonly onDidChange = this.changed.event;
+  refresh(): void { /* documents are regenerated on open */ }
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    const runId = uri.path.replace(/^\//, '').replace(/\.md$/, '');
+    if (!validRunId(runId)) return 'Not a run.';
+    const manifest = storedManifest(runId);
+    if (!manifest) return `Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`;
+    let actions: NextAction[] = [];
+    try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { /* summary without next actions */ }
+    return runSummaryMarkdown(manifest, actions);
+  }
+}
+
 async function showSignIn(root: string | undefined, harnessId: unknown): Promise<void> {
   if (!root || typeof harnessId !== 'string') return;
   const capabilities = loadYaml<CapabilityDocument>(root, 'config/capabilities.yaml');
   const hint = signInHint(capabilities?.harnesses?.[harnessId]?.sign_in);
   if (!hint) { await vscode.window.showInformationMessage(`${harnessLabel(harnessId)}: sign in through its official client.`); return; }
-  const choices = [...(hint.command ? ['Copy sign-in command'] : []), ...(hint.docs ? ['Open official documentation'] : [])];
+  const choices = [...(hint.command ? ['Copy sign-in command'] : []), ...(hint.docs ? ['Open official documentation'] : []), 'Run Doctor'];
   const choice = await vscode.window.showInformationMessage(`${harnessLabel(harnessId)}: ${hint.instructions} Code Conductor never asks for, stores or copies your credentials.`, ...choices);
   if (choice === 'Copy sign-in command' && hint.command) await vscode.env.clipboard.writeText(hint.command);
   if (choice === 'Open official documentation' && hint.docs) await vscode.env.openExternal(vscode.Uri.parse(hint.docs));
+  if (choice === 'Run Doctor') await vscode.commands.executeCommand('codeConductor.doctor');
+}
+
+async function openWorkspaceFile(path: unknown, relative: unknown): Promise<void> {
+  if (typeof path === 'string' && existsSync(path)) { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)); return; }
+  await vscode.window.showInformationMessage(`${typeof relative === 'string' ? relative : 'That file'} is not in this workspace; Code Conductor is using its packaged default.`);
 }
 
 async function runCli(context: vscode.ExtensionContext, root: string, args: string[], title: string): Promise<void> {
@@ -316,12 +484,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let startupStatus = await initializeStartup(context);
   context.subscriptions.push({ dispose: () => startupStatus.dispose() });
 
-  const providers = [
-    new ConductorProvider(() => teamItems(root())), new ConductorProvider(runItems), new ConductorProvider(() => gateItems(root())),
-    new ConductorProvider(() => connectionItems(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY))), new ConductorProvider(() => packItems(root())), new ConductorProvider(() => usageItems(root())),
-  ];
-  const ids = ['codeConductor.team', 'codeConductor.runs', 'codeConductor.gates', 'codeConductor.connections', 'codeConductor.packs', 'codeConductor.usage'];
-  ids.forEach((id, index) => context.subscriptions.push(vscode.window.registerTreeDataProvider(id, providers[index]!)));
+  const providers = {
+    runs: new ConductorProvider(runNodes),
+    workstation: new ConductorProvider(() => workstationNodes(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY))),
+    policy: new ConductorProvider(() => policyNodes(root())),
+  };
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('codeConductor.runs', providers.runs),
+    vscode.window.registerTreeDataProvider('codeConductor.workstation', providers.workstation),
+    vscode.window.registerTreeDataProvider('codeConductor.policy', providers.policy),
+    vscode.workspace.registerTextDocumentContentProvider(RUN_SCHEME, new RunSummaryProvider()),
+  );
+  await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().length > 0);
+
+  const refreshViews = async (): Promise<void> => {
+    Object.values(providers).forEach((provider) => provider.refresh());
+    await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().length > 0);
+  };
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.refresh', async () => {
     const r = root();
     if (r && vscode.workspace.isTrusted) {
@@ -331,20 +510,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     startupStatus.dispose();
     startupStatus = await initializeStartup(context);
-    providers.forEach((provider) => provider.refresh());
+    await refreshViews();
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.refreshRuns', refreshViews));
   context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { void vscode.commands.executeCommand('codeConductor.refresh'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.doctor', async () => { const r = root(); if (r) await runCli(context, r, ['doctor', '.'], 'Code Conductor Doctor'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.validate', async () => { const r = root(); if (r) await runCli(context, r, ['workspace-validate', '.'], 'Code Conductor Validate'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.plan', async () => {
-    const r = root(); if (!r) return; const objective = await vscode.window.showInputBox({ prompt: 'Task objective', ignoreFocusOut: true }); if (!objective) return;
-    const risk = await vscode.window.showQuickPick(['R0', 'R1', 'R2', 'R3', 'R4'], { placeHolder: 'Risk class' }); if (!risk) return;
-    await runCli(context, r, ['plan', '--repo', '.', '--risk', risk, '--objective', objective], 'Code Conductor Plan');
+    const r = root(); if (!r) return; const objective = await vscode.window.showInputBox({ prompt: 'What should the run do? One sentence; name the files.', placeHolder: 'Add a test for subtract() in math.test.js; do not change math.js', ignoreFocusOut: true }); if (!objective) return;
+    const risk = await vscode.window.showQuickPick([
+      { label: 'R1', description: 'normal change: builder, reviewer, gates' },
+      { label: 'R0', description: 'trivial: builder and gates' },
+      { label: 'R2', description: 'important: builder, different-provider challenger, gates, GitHub review' },
+      { label: 'R3', description: 'high impact: research, spec, build, challenge, security, gates, GitHub, finalizer, human approval' },
+      { label: 'R4', description: 'destructive or production: R3 plus approval before any side effect' },
+    ], { placeHolder: 'Risk class' }); if (!risk) return;
+    await runCli(context, r, ['plan', '--repo', '.', '--risk', risk.label, '--objective', objective], 'Code Conductor Plan');
+    await refreshViews();
   }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.nextActions', async (runId: unknown) => showNextActions(context, runId)));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.performAction', async (runId: unknown, index: unknown) => performRunAction(context, runId, index)));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.openRun', async (runId: unknown) => openRunSummary(runId)));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.openFile', async (path: unknown, relative: unknown) => openWorkspaceFile(path, relative)));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.signIn', async (harnessId: unknown) => showSignIn(root(), harnessId)));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.openDecisions', async () => {
-    const r = root(); if (!r) return; const uri = vscode.Uri.file(join(r, 'docs', 'DECISIONS.md')); if (existsSync(uri.fsPath)) await vscode.window.showTextDocument(uri);
+    const r = root(); if (!r) return; const uri = vscode.Uri.file(join(r, 'docs', 'DECISIONS.md'));
+    if (existsSync(uri.fsPath)) await vscode.window.showTextDocument(uri);
+    else await vscode.window.showInformationMessage('This repository has no docs/DECISIONS.md. Code Conductor\'s own decision register is at github.com/saulpatinojr/Proj-Code_Conductor/blob/main/docs/DECISIONS.md.');
   }));
 }
 
