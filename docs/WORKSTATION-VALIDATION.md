@@ -296,12 +296,15 @@ The run asks in the terminal before each consequential action: starting a provid
 
 A modifying agent receives an isolated worktree. Review/validation remains independent, and GitHub PR/merge remains a separate gate.
 
-The gates run in the builder's worktree, which starts without `node_modules` or build
-output, and Code Conductor never installs them (D-061). When the gate approval prompt
-names that worktree, open a second terminal, read its `package.json`, and run
-`npm ci --ignore-scripts` then `npm run build:ts` there before typing the code; or approve
-as it is and read the `fix_validation` next action, which names each gate that could not
-run. On Windows the `npm` gates run through Node's bundled `npm-cli.js` (D-074). Each
+The builder, the reviewer and the gates all run in the builder's worktree, which starts
+without `node_modules` or build output, and Code Conductor never installs them (D-061).
+The builder's own rules tell it not to install them either, and to complete with the
+checks it could not run in `notVerified` (the 2026-10-20 run `CC-20261020032623-c12cf4c4`
+blocked on that instead). So, when the **first** approval prompt names the worktree, open
+a second terminal, read its `package.json`, and run `npm ci --ignore-scripts` then
+`npm run build:ts` there before typing the code; the same files serve the reviewer and the
+gates. Or approve as it is and read the `fix_validation` next action, which names each
+gate that could not run. On Windows the `npm` gates run through Node's bundled `npm-cli.js` (D-074). Each
 approval prompt expires after 15 minutes; a reviewer can take ten, so for an attended run
 pass `--approval-ttl 60`, and start from a checkout on `main`, because the agent worktree
 is based on the checkout's current branch.
