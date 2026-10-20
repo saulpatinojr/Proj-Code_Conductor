@@ -18,7 +18,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onView:codeConductor.team",
+    "onView:codeConductor.runs",
     "onCommand:codeConductor.doctor"
   ],
   "main": "./dist/extension.js",
@@ -50,27 +50,49 @@
     "commands": [
       {
         "command": "codeConductor.refresh",
-        "title": "Code Conductor: Refresh Local Discovery"
+        "title": "Code Conductor: Refresh Local Discovery",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codeConductor.refreshRuns",
+        "title": "Code Conductor: Refresh Runs",
+        "icon": "$(refresh)"
       },
       {
         "command": "codeConductor.doctor",
-        "title": "Code Conductor: Doctor"
+        "title": "Code Conductor: Doctor",
+        "icon": "$(heart)"
       },
       {
         "command": "codeConductor.validate",
-        "title": "Code Conductor: Validate Repository"
+        "title": "Code Conductor: Validate Repository",
+        "icon": "$(verified)"
       },
       {
         "command": "codeConductor.plan",
-        "title": "Code Conductor: Plan Task"
+        "title": "Code Conductor: Plan Task",
+        "icon": "$(add)"
       },
       {
         "command": "codeConductor.openDecisions",
-        "title": "Code Conductor: Open Decision Register"
+        "title": "Code Conductor: Open Decision Register",
+        "icon": "$(book)"
       },
       {
         "command": "codeConductor.nextActions",
         "title": "Code Conductor: Show Next Actions for Run"
+      },
+      {
+        "command": "codeConductor.performAction",
+        "title": "Code Conductor: Perform Next Action"
+      },
+      {
+        "command": "codeConductor.openRun",
+        "title": "Code Conductor: Open Run Summary"
+      },
+      {
+        "command": "codeConductor.openFile",
+        "title": "Code Conductor: Open Configuration File"
       },
       {
         "command": "codeConductor.signIn",
@@ -89,37 +111,59 @@
     "views": {
       "codeConductor": [
         {
-          "id": "codeConductor.team",
-          "name": "Team"
-        },
-        {
           "id": "codeConductor.runs",
-          "name": "Runs"
+          "name": "Runs",
+          "icon": "media/conductor.svg",
+          "contextualTitle": "Code Conductor runs"
         },
         {
-          "id": "codeConductor.gates",
-          "name": "Gates"
+          "id": "codeConductor.workstation",
+          "name": "Workstation",
+          "icon": "media/conductor.svg",
+          "contextualTitle": "Code Conductor workstation"
         },
         {
-          "id": "codeConductor.connections",
-          "name": "Connections"
-        },
-        {
-          "id": "codeConductor.packs",
-          "name": "Packs"
-        },
-        {
-          "id": "codeConductor.usage",
-          "name": "Usage"
+          "id": "codeConductor.policy",
+          "name": "Policy",
+          "icon": "media/conductor.svg",
+          "contextualTitle": "Code Conductor policy",
+          "visibility": "collapsed"
         }
       ]
     },
     "menus": {
       "view/title": [
         {
+          "command": "codeConductor.plan",
+          "when": "view == codeConductor.runs",
+          "group": "navigation@1"
+        },
+        {
+          "command": "codeConductor.refreshRuns",
+          "when": "view == codeConductor.runs",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codeConductor.doctor",
+          "when": "view == codeConductor.workstation",
+          "group": "navigation@1"
+        },
+        {
           "command": "codeConductor.refresh",
-          "when": "view =~ /codeConductor\\./",
-          "group": "navigation"
+          "when": "view == codeConductor.workstation",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codeConductor.openDecisions",
+          "when": "view == codeConductor.policy",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "codeConductor.nextActions",
+          "when": "view == codeConductor.runs && viewItem == run",
+          "group": "inline"
         }
       ],
       "commandPalette": [
@@ -128,11 +172,44 @@
           "when": "false"
         },
         {
+          "command": "codeConductor.performAction",
+          "when": "false"
+        },
+        {
+          "command": "codeConductor.openRun",
+          "when": "false"
+        },
+        {
+          "command": "codeConductor.openFile",
+          "when": "false"
+        },
+        {
           "command": "codeConductor.signIn",
+          "when": "false"
+        },
+        {
+          "command": "codeConductor.refreshRuns",
           "when": "false"
         }
       ]
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "codeConductor.runs",
+        "contents": "Open a repository folder to use Code Conductor.\n[Open Folder](command:vscode.openFolder)",
+        "when": "workbenchState == empty"
+      },
+      {
+        "view": "codeConductor.runs",
+        "contents": "No runs yet. A run plans the roles a task needs, isolates the change in a worktree, has it reviewed, runs the deterministic gates and records the evidence.\n[Plan a Task](command:codeConductor.plan)\n\nExecuting a run happens in a terminal with `ccon run … --execute`, where each consequential step asks for your approval.",
+        "when": "workbenchState != empty && !codeConductor.hasRuns"
+      },
+      {
+        "view": "codeConductor.workstation",
+        "contents": "This workspace is in Restricted Mode. Code Conductor discovers clients and runs processes only in a trusted workspace.\n[Manage Workspace Trust](command:workbench.trust.manage)",
+        "when": "!isWorkspaceTrusted"
+      }
+    ]
   },
   "dependencies": {
     "@code-conductor/git": "0.1.0",
