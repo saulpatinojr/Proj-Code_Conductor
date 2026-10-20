@@ -34,7 +34,7 @@ describe('the result contract in the prompt, and a retry that knows why it was r
     const lines = assignmentPrompt(task, assignment, undefined, ['Stay read-only.']).split('\n');
     const contract = lines.findIndex((line) => line.startsWith('Result contract: '));
     expect(contract).toBeGreaterThan(0);
-    for (const value of ['completed, awaiting_external, blocked, failed, cancelled', 'continue, review, changes_required, ready, human_required', '"passed"|"failed"|"skipped"', '"info"|"low"|"medium"|"high"|"critical"', '"blocking": boolean']) expect(lines[contract]).toContain(value);
+    for (const value of ['completed, awaiting_external, blocked, failed, cancelled', 'continue, review, changes_required, ready, human_required', '"passed"|"failed"|"skipped"', '"info"|"low"|"medium"|"high"|"critical"', '"blocking": boolean', 'a check you could not run is not a finding, name it in notVerified']) expect(lines[contract]).toContain(value);
     expect(lines[contract + 1]).toMatch(/^Valid example: \{"status":"completed"/);
     expect(JSON.parse(lines[contract + 1]!.slice('Valid example: '.length))).toMatchObject({ recommendation: 'ready' });
     expect(lines.at(-1)).toMatch(/^Your FINAL line MUST be CC_RESULT_JSON/);
