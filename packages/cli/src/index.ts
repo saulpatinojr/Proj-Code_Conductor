@@ -20,7 +20,7 @@ import { ContextOptimizer } from '@code-conductor/context-optimizer';
 import { TerminalApprover } from './approval-prompt.js';
 import { terminalSafeJson, terminalText } from './terminal-text.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 function hasCommand(command: string): boolean { const probe = process.platform === 'win32' ? 'where' : 'which'; return spawnSync(probe, [command], { stdio: 'ignore' }).status === 0; }
 function getOption(args: string[], name: string): string | undefined { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; }
 function listOption(args: string[], name: string): string[] { return getOption(args, name)?.split(',').map((value) => value.trim()).filter(Boolean) ?? []; }
