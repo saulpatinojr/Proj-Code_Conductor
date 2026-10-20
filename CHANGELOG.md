@@ -4,6 +4,12 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.1.1 (2026-10-20, beta pre-release)
+
+The first installable build, published as a GitHub pre-release with its SBOM, checksums and build-provenance attestation (`docs/RELEASE.md`; an odd minor version marks a pre-release). Validated on the owner's Windows 11 workstation under issue #4: clean-profile install, 9 ms activation, Doctor, an R1 run on this repository and an R2 run with a different-provider challenger on the dogfood fixture, both taken through `ccon pr` and the GitHub gate with a Copilot review. Windows only; Kiro modify stays fail-closed; Antigravity not revalidated; context file reads need Linux; no Marketplace listing yet. Everything below was unreleased until this build.
+
 ### Added
 
 - The VS Code cockpit is three views instead of six, and every row does something. **Runs** lists runs by objective with their decision and start time; a run expands into its decision, assignments, gates and next actions, a next action runs on click (Source Control, a read-only task terminal, or the exact command to copy), and the run itself opens a read-only Markdown summary of the whole record. **Workstation** groups AI clients, tools, gate profiles and packs, with installed/missing states coloured and configuration files one click away. **Policy** (collapsed) shows roles with the rules rendered into their prompts, risk classes and billing. Title buttons for Plan a Task, Doctor and Refresh; welcome text when there are no runs or the workspace is untrusted; the plan command explains each risk class. The six flat lists (Team, Runs, Gates, Connections, Packs, Usage) are gone. `docs/UI.md` describes the views.

@@ -67,7 +67,7 @@ release.
 ## Cutting a release
 
 1. **Prepare the release in a pull request:**
-   - set `version` in `apps/vscode/package.json`;
+   - set `version` in `apps/vscode/package.json`, `packages/cli/package.json` and the `VERSION` constant in `packages/cli/src/index.ts` (the bundle smoke checks that `ccon version` equals the package version);
    - move the `CHANGELOG.md` entries from **Unreleased** to a section for that version.
 2. Merge it after review and CI.
 3. Tag the merged commit on `main` and push the tag:
