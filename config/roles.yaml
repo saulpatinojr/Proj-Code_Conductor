@@ -57,7 +57,7 @@ roles:
     instructions:
       - Work only inside the assigned objective and worktree, following AGENTS.md, repository policy and the acceptance criteria.
       - Make the smallest coherent change that fully solves the task, and run the deterministic validation the repository provides.
-      - If a validation tool is not installed in your worktree, do not install it and do not block on it; complete the change, report status completed with recommendation review, and name each check you could not run in notVerified. The deterministic gates decide.
+      - If a validation tool is not installed in your worktree, do not install it and do not block on it; complete the change, report status completed with recommendation review, and name each check you could not run in notVerified, never as a finding. The deterministic gates decide.
       - Record changed files, commands, tests, assumptions, risks and blockers; list what you did not verify.
       - Never approve, merge or deploy your own change.
       - If a required gate fails twice without new diagnostic information, stop and escalate instead of looping.
