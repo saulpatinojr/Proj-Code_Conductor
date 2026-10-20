@@ -99,7 +99,7 @@ Perplexity may discover sources, but authoritative implementation decisions shou
 - `apm.yml` declares project package dependencies.
 - `apm.lock.yaml` pins resolved dependency state.
 - `apm-policy.yml` governs allowed package/MCP policy.
-- Canonical agent-pack source lives in the Agent Packs repository (`saulpatinojr/Proj-Agent_Packs`), installed through APM at a pinned reference; Code Conductor ships no agent files, and `.apm/` here holds only Code Conductor's own skills (ADR 0015).
+- Canonical agent-pack source lives in the Agent Packs repository (`saulpatinojr/Proj-Agent_Packs`) and is installed through APM from its company-owned mirror `hybridcloudworks/AgentPacks` at a pinned reference; Code Conductor ships no agent files, and `.apm/` here holds only Code Conductor's own skills (ADR 0015).
 - Roles (`config/roles.yaml`) are runtime vocabulary: their authority and one-line rules are rendered into every assignment prompt by the runtime, not read from agent files.
 - Do not manually fork equivalent agent instructions across Copilot, Claude, Codex, Kiro and Google when APM can project them.
 
