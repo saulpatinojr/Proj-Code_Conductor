@@ -11,7 +11,7 @@ const publisher = process.env.VSCE_PUBLISHER?.trim();
 if (!publisher) throw new Error('VSCE_PUBLISHER is required. Configure the intended Marketplace publisher ID before packaging.');
 if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(publisher)) throw new Error(`VSCE_PUBLISHER contains unsupported characters: ${publisher}`);
 
-for (const file of ['dist/extension.js', 'dist/ccon.js', 'media/conductor.svg']) {
+for (const file of ['dist/extension.js', 'dist/ccon.js', 'media/conductor.svg', 'media/icon.png']) {
   if (!existsSync(join(appRoot, file))) throw new Error(`Missing VS Code release input ${file}. Run npm run build first.`);
 }
 
@@ -38,8 +38,11 @@ try {
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   const out = join(releaseRoot, `code-conductor-${manifest.version}.vsix`);
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const result = spawnSync(npx, ['--no-install', 'vsce', 'package', '--no-dependencies', '--out', out], {
+  // The locked vsce, run as a script under this Node: no npx and no batch shim, which Node
+  // refuses to spawn without a shell on Windows (and this repository never uses one, D-061).
+  const vsce = join(root, 'node_modules', '@vscode', 'vsce', 'vsce');
+  if (!existsSync(vsce)) throw new Error(`The locked @vscode/vsce is not installed at ${vsce}. Run npm ci first.`);
+  const result = spawnSync(process.execPath, [vsce, 'package', '--no-dependencies', '--out', out], {
     cwd: stage,
     stdio: 'inherit',
     shell: false,

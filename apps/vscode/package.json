@@ -8,6 +8,11 @@
   "engines": {
     "vscode": "^1.105.0"
   },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0B1220",
+    "theme": "dark"
+  },
   "categories": [
     "Other"
   ],
@@ -24,6 +29,7 @@
     "defaults/manifest.json",
     "schema/contracts.schema.json",
     "media/conductor.svg",
+    "media/icon.png",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
