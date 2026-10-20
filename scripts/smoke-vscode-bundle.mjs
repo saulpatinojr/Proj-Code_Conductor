@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 const SHIPPED = [
   /^package\.json$/, /^readme\.md$/i, /^changelog\.md$/i, /^license(\.txt)?$/i,
   /^dist\/(extension|ccon)\.js$/, /^defaults\/[a-z-]+\.yaml$/, /^defaults\/manifest\.json$/,
-  /^schema\/contracts\.schema\.json$/, /^media\/[a-z-]+\.svg$/,
+  /^schema\/contracts\.schema\.json$/, /^media\/[a-z-]+\.svg$/, /^media\/icon\.png$/,
 ];
 const REQUIRED = ['package.json', 'dist/extension.js', 'dist/ccon.js', 'defaults/manifest.json', 'schema/contracts.schema.json'];
 
