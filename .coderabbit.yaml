@@ -1,0 +1,112 @@
+# CodeRabbit configuration for Code Conductor.
+# Reference: https://docs.coderabbit.ai/reference/configuration
+# Repository policy that CodeRabbit must apply lives in AGENTS.md and REVIEW.md;
+# this file only tells CodeRabbit where to look and how loud to be.
+
+language: en-US
+
+reviews:
+  # "chill" is the default; "assertive" surfaces more findings, which this
+  # repo wants because every PR is agent-authored and merges within minutes.
+  profile: assertive
+
+  # Keep the PR description as the human-authored contract (see PR template).
+  # Put the generated summary in the walkthrough comment instead.
+  high_level_summary: false
+  high_level_summary_in_walkthrough: true
+  poem: false
+  sequence_diagrams: false
+  suggested_labels: false
+
+  # Separation of duties (AGENTS.md §2): the author cannot clear findings.
+  allow_author_approval: false
+  request_changes_workflow: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_usernames:
+      - dependabot[bot]
+    # Code Conductor's own builder branches (cc/<task>/builder-*) are reviewed
+    # when they target main, so no base_branches entry is needed.
+
+  # Skip generated and vendored content.
+  path_filters:
+    - "!**/dist/**"
+    - "!**/node_modules/**"
+    - "!apm_modules/**"
+    - "!packages/policy/defaults/**"
+    - "!apps/vscode/defaults/**"
+    - "!apps/vscode/schema/**"
+    - "!apm.lock.yaml"
+    - "!package-lock.json"
+    - "!CHANGELOG.md"
+
+  path_instructions:
+    - path: "**/*.ts"
+      instructions: |
+        Apply REVIEW.md in order: security and destructive behavior, correctness
+        and fail-closed behavior, separation of duties, authentication and billing,
+        evidence, worktree/Git safety, provider neutrality, APM/MCP boundaries.
+        Flag any adapter that stores consumer OAuth or session tokens, any path
+        that enables separately billed API usage silently, any unbounded retry,
+        and any worktree cleanup that could discard unmerged work.
+    - path: "packages/{policy,github-gate,workstation,gates}/**"
+      instructions: |
+        These packages are governance boundaries (CODEOWNERS). Treat any change to
+        approval, authority, risk-class, or gate semantics as blocking unless the
+        PR links an ADR and a docs/DECISIONS.md update.
+    - path: ".github/workflows/**"
+      instructions: |
+        Require pinned action SHAs, least-privilege permissions blocks, and
+        persist-credentials: false on checkout. Flag any new secret usage.
+    - path: "tests/**"
+      instructions: |
+        Confirm the test exercises the behavior the PR claims, not only that it
+        passes. Flag tests that assert on generated narrative instead of outcomes.
+    - path: "docs/adr/**"
+      instructions: |
+        Check Status, Context, Decision, Consequences are present and that the
+        decision is reflected in docs/DECISIONS.md.
+
+  tools:
+    # No ESLint/Biome config exists in this repo yet; keep the linters that work
+    # without project config and the ones that match the repo's security posture.
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    osv:
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    github-checks:
+      enabled: true
+    languagetool:
+      enabled: false
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "REVIEW.md"
+      - ".github/copilot-instructions.md"
+      - ".claude/rules/*.md"
+  learnings:
+    scope: local
+  pull_requests:
+    scope: local
