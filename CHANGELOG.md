@@ -6,7 +6,7 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ### Changed
 
-- Packs are installed from `hybridcloudworks/AgentPacks`, the company-owned mirror of the Agent Packs source repository (main and release tags), not from the personal repository: `apm.yml` points there and the lock was re-materialized (same commits, same hashes; `apm audit` 31 of 31). `apm install hybridcloudworks/AgentPacks` installs the whole catalog, `-g` into the user profile for every client; verified in a scratch project: 39 agents and 236 skills in each of the Claude, Codex, Copilot and Kiro folders.
+- Packs are installed from `hybridcloudworks/Proj-AgentPacks`, the company-owned mirror of the Agent Packs source repository (main and release tags), not from the personal repository: `apm.yml` points there and the lock was re-materialized (same commits, same hashes; `apm audit` 31 of 31). `apm install hybridcloudworks/Proj-AgentPacks` installs the whole catalog, `-g` into the user profile for every client; verified in a scratch project: 39 agents and 236 skills in each of the Claude, Codex, Copilot and Kiro folders.
 
 ## 0.1.1 (2026-10-20, beta pre-release)
 
