@@ -301,7 +301,10 @@ output, and Code Conductor never installs them (D-061). When the gate approval p
 names that worktree, open a second terminal, read its `package.json`, and run
 `npm ci --ignore-scripts` then `npm run build:ts` there before typing the code; or approve
 as it is and read the `fix_validation` next action, which names each gate that could not
-run. On Windows the `npm` gates run through Node's bundled `npm-cli.js` (D-074).
+run. On Windows the `npm` gates run through Node's bundled `npm-cli.js` (D-074). Each
+approval prompt expires after 15 minutes; a reviewer can take ten, so for an attended run
+pass `--approval-ttl 60`, and start from a checkout on `main`, because the agent worktree
+is based on the checkout's current branch.
 
 For the #94 token baseline, run the same scenario once more with `--tool-output summary` and compare the `gate.output.recorded` events in the two runs' `events.jsonl` (estimated original and shown tokens per gate). Check that the gate statuses and the merge decision are identical in both runs, and that `ccon gate-output --evidence <E-id>` prints the full output back for a summarised gate ([`GATE-PROFILES.md`](GATE-PROFILES.md#stored-output-and-the-summary-mode-94)).
 
