@@ -10,6 +10,18 @@ The extension carries:
 It works in any repository without cloning or building Code Conductor. There is no hosted
 backend: everything runs, and is stored, on the machine where your workspace lives.
 
+## Get the beta
+
+The current build is [0.1.1 (beta)](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.1), a GitHub pre-release. Download `code-conductor-0.1.1.vsix` and `SHA256SUMS` from it, then:
+
+```bash
+sha256sum -c SHA256SUMS
+gh attestation verify code-conductor-0.1.1.vsix --repo saulpatinojr/Proj-Code_Conductor
+code --install-extension code-conductor-0.1.1.vsix
+```
+
+The extension does not put `ccon` on `PATH`; run the bundled runtime by path, for example in PowerShell `function ccon { node "$env:USERPROFILE.vscodeextensionshybridcloudworks.code-conductor-vscode-0.1.1distccon.js" @args }`. There is no Marketplace listing yet.
+
 ## Prerequisites
 
 | Requirement | Why |
