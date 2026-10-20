@@ -14,8 +14,8 @@ targets:
 
 dependencies:
   apm:
-    - hybridcloudworks/AgentPacks/typescript-distinguished-engineer-pack#16f41836d65cbf79070ecdb2ef835c78c57b6ae6
-    - hybridcloudworks/AgentPacks/github-expert-engineer-pack#16f41836d65cbf79070ecdb2ef835c78c57b6ae6
+    - hybridcloudworks/Proj-AgentPacks/typescript-distinguished-engineer-pack#16f41836d65cbf79070ecdb2ef835c78c57b6ae6
+    - hybridcloudworks/Proj-AgentPacks/github-expert-engineer-pack#16f41836d65cbf79070ecdb2ef835c78c57b6ae6
   mcp: []
 
 includes: auto
