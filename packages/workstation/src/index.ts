@@ -22,7 +22,7 @@ type LegacyWorkstationState = {
 };
 
 export function workstationStatePath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.CODE_CONDUCTOR_WORKSTATION_STATE || join(env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'workstation.json');
+  return join(env.CODE_CONDUCTOR_HOME || join(homedir(), '.code-conductor'), 'workstation.json');
 }
 
 function ensurePrivateDirectory(path: string): void {

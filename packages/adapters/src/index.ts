@@ -1,10 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { AgentAssignment, TaskEnvelope } from '@code-conductor/schemas';
+import { conductorTempDirectory } from '@code-conductor/core/home';
 import { KILL_GRACE_MS, resolveExecutable, spawnIsolated, terminateGroup } from '@code-conductor/core/processes';
 import { withoutGitLocalEnv } from '@code-conductor/git';
 import { officialAuthStatus, type ClientAuthStatus } from './client-status.js';
@@ -155,7 +155,7 @@ function clientExecutable(command: string): string | undefined {
 // Like the sign-in status probe: no repository, so a repository's own client
 // configuration cannot change what the client reports.
 function commandVersion(executable: string): string | undefined {
-  const directory = mkdtempSync(join(tmpdir(), 'cc-probe-'));
+  const directory = conductorTempDirectory('cc-probe-');
   try {
     const result = spawnSync(executable, ['--version'], { cwd: directory, env: providerEnvironment(), encoding: 'utf8', shell: false, timeout: 15000, maxBuffer: 64 * 1024, windowsHide: true });
     return result.status === 0 ? (result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] : undefined;

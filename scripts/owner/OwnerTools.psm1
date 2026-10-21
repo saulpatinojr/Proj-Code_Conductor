@@ -50,6 +50,20 @@ function Invoke-Gh {
     $result.Output -join "`n"
 }
 
+function Get-ConductorFolder {
+    <#
+    .SYNOPSIS
+        Returns a folder under the one place Code Conductor writes: $env:CODE_CONDUCTOR_HOME, or .code-conductor in your home folder.
+    .DESCRIPTION
+        Creates the folder when it is missing. Reports and short-lived files go here, never the operating system's temporary folder.
+    #>
+    param([Parameter(Mandatory = $true)][string] $Subfolder)
+    $base = if ($env:CODE_CONDUCTOR_HOME) { $env:CODE_CONDUCTOR_HOME } else { Join-Path $HOME '.code-conductor' }
+    $path = Join-Path $base $Subfolder
+    $null = New-Item -ItemType Directory -Path $path -Force
+    return (Resolve-Path -LiteralPath $path).ProviderPath
+}
+
 function Write-Utf8File {
     <#
     .SYNOPSIS
@@ -76,7 +90,7 @@ function Invoke-GhApi {
     $inputFile = $null
     try {
         if ($null -ne $Body) {
-            $inputFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ccon-owner-{0}.json" -f [guid]::NewGuid().ToString('N'))
+            $inputFile = Join-Path (Get-ConductorFolder 'tmp') ("ccon-owner-{0}.json" -f [guid]::NewGuid().ToString('N'))
             Write-Utf8File -Path $inputFile -Text (ConvertTo-Json -InputObject $Body -Depth 20)
             $arguments += @('--input', $inputFile)
         }
@@ -163,4 +177,4 @@ function Resolve-OwnerPath {
     $full
 }
 
-Export-ModuleMember -Function Invoke-Native, Invoke-Gh, Write-Utf8File, Invoke-GhApi, Get-GhList, Assert-GhRepository, Protect-EvidenceText, Resolve-OwnerPath
+Export-ModuleMember -Function Invoke-Native, Invoke-Gh, Get-ConductorFolder, Write-Utf8File, Invoke-GhApi, Get-GhList, Assert-GhRepository, Protect-EvidenceText, Resolve-OwnerPath

@@ -18,6 +18,7 @@
   "dependencies": {
     "@code-conductor/adapters": "0.1.0",
     "@code-conductor/context-optimizer": "0.1.0",
+    "@code-conductor/core": "0.1.0",
     "@code-conductor/evidence": "0.1.0",
     "@code-conductor/gates": "0.1.0",
     "@code-conductor/git": "0.1.0",
