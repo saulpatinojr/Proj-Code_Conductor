@@ -4,6 +4,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+## 0.1.2 (2026-10-21, beta pre-release)
+
+Prepared 2026-10-21 from `main`; the tag decides the release date (`docs/RELEASE.md`). An odd minor version marks a pre-release.
+
 ### Added
 
 - `docs/DOGFOOD-FIXTURE.md` documents the practice repository used for quick dogfood runs (now `Proj-Code_Conductor_Fixture`, formerly `cc-dogfood-fixture`): what it is and why it is separate, how to use it, what archiving it does to a run, and every file needed to rebuild it.
@@ -12,6 +16,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 - Code Conductor writes only under `~/.code-conductor` (or `$CODE_CONDUCTOR_HOME`). The short-lived working folders (`cc-pr-`, `cc-tree-`, `cc-smoke-`, `cc-probe-`) now live in its `tmp/` folder instead of the operating system's temporary folder, and the owner scripts write their reports to `reports/` and their `gh` request files to `tmp/` instead of the temporary folder. `CODE_CONDUCTOR_WORKSTATION_STATE` is removed: the smoke-test trust file is always `workstation.json` in the Code Conductor folder. `tests/core/home.test.ts` fails if shipped source goes back to the operating system's temporary folder.
 - Packs are installed from `hybridcloudworks/Proj-AgentPacks`, the company-owned mirror of the Agent Packs source repository (main and release tags), not from the personal repository: `apm.yml` points there and the lock was re-materialized (same commits, same hashes; `apm audit` 31 of 31). `apm install hybridcloudworks/Proj-AgentPacks` installs the whole catalog, `-g` into the user profile for every client; verified in a scratch project: 39 agents and 236 skills in each of the Claude, Codex, Copilot and Kiro folders.
+
+### Removed
+
+- The `CODE_CONDUCTOR_WORKSTATION_STATE` setting. The smoke-test trust file is always `workstation.json` in the Code Conductor folder (`~/.code-conductor`, or `$CODE_CONDUCTOR_HOME`). If you had set the old variable, unset it and either copy that file to the new location or run `ccon harness-smoke` again for each client. If you never set it, nothing changes.
 
 ## 0.1.1 (2026-10-20, beta pre-release)
 

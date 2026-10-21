@@ -2,7 +2,7 @@
   "name": "code-conductor-vscode",
   "displayName": "Code Conductor",
   "description": "VS Code cockpit for the Code Conductor multi-provider agent engineering team.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "engines": {
