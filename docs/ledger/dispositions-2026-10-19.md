@@ -2,13 +2,15 @@
 
 Ledger: ledger-2026-10-19.json (kept by the owner, not in this repository: 2 MB). Mark each group `package` (generate a pack in Agent Packs) or `exclude` (vendor-provided, installed by its own distribution, not migrated). Edit the `Disposition:` lines; nothing else is needed.
 
-Recorded 2026-10-21: the owner chose the `Disposition:` lines below. The `Note:` lines and the review notes that follow are suggestions that still need the owner's confirmation. The only edit to the original file is that the account identifier folder inside the synced skill path of `google-workspace` is replaced with `<id>`.
+Recorded 2026-10-21: the owner chose the `Disposition:` lines below. Update the same day: the owner decided **not to package any group**, so every group is `exclude`. The owner reports that copies of the skills they care about already exist in APM and on GitHub. A name search of `Proj-Agent_Packs` on 2026-10-21 found no skill, agent or prompt with the 11 own-skill names below, so those copies are somewhere other than that repository. The only edit to the original file is that the account identifier folder inside the synced skill paths is replaced with `<id>`.
 
-## Review notes (2026-10-21, suggestions, not decisions)
+Result for issue #13: nothing is left to package and no pack needs generating.
 
-1. **Several "own" skills were in Claude's trash folder when the ledger was taken.** Their paths contain `.trash`: `azure-architect`, `azure-diagram-architect`, `aws-architect`, `aws-diagram-architect`, `cbts-onx-deck`, and six of the eight skills in the "Agent-pack prompts kept as skills" group. Confirm each one still exists on the owner's machine before packaging, because a trash folder can be emptied.
-2. **Possible overlap with packs that already exist.** Agent Packs already has `azure-cloud-architect-pack`, `aws-cloud-architect-pack` and shared draw.io diagram skills. The four architect and diagram skills above may already be represented there. Compare before generating a new pack, because generation uses the owner's subscription.
-3. **`managing-python-dependencies` and `notebook-guidance` look vendor-published.** They sit in `user/copilot/skills` next to the Google data skills (`bigquery-sql`, `data-autocleaning`, `ml-best-practices` and others). Suggested: `exclude`, which would leave six skills to package in the last group.
+## Review notes (2026-10-21)
+
+1. **Several "own" skills were in Claude's trash folder when the ledger was taken** (their paths contain `.trash`): `azure-architect`, `azure-diagram-architect`, `aws-architect`, `aws-diagram-architect`, `cbts-onx-deck`, `adr-authoring`, `agentic-workflow-engineer`, `allocation-policy-architect`, `backend-engineer`, `budget-anomaly-operator` and `cloud-billing-analyst`. **Owner decision: they are not needed here**, because copies exist in APM and on GitHub; no backup was taken from the trash. Resolved.
+2. **No pack is to be generated for them.** Generating a pack would have used the owner's subscription, and none is needed.
+3. **`managing-python-dependencies` and `notebook-guidance` look vendor-published.** They sit in `user/copilot/skills` next to the Google data skills (`bigquery-sql`, `data-autocleaning`, `ml-best-practices` and others), so `exclude` applies to them too. Resolved.
 4. **The "Anthropic built-in skills" group contains non-Anthropic items.** `customize`, `deploy`, `prepare`, `preset` and `scaffold` are sub-skills of the Azure skills `microsoft-foundry` and `azure-app-onboard`. `find-skills` and `skill-repair` are vendor tools. `exclude` still fits all of them.
 5. **Keep `hcw-stack` and `cbts-onx-deck` out of the public Agent Packs repository** unless the owner has read them for private details.
 
@@ -120,7 +122,7 @@ Disposition: exclude
 ## Azure / Microsoft (36)
 
 Disposition: exclude
-Note: Carve-outs: package azure-architect and azure-diagram-architect (own skills). Keep hcw-stack and cbts-onx-deck private (not in the public Agent Packs repo).
+Note: No carve-outs to package: the owner decided on 2026-10-21 not to package `azure-architect` or `azure-diagram-architect`. Keep `hcw-stack` and `cbts-onx-deck` out of the public Agent Packs repository.
 
 - capacity  (user/agents/skills/microsoft-foundry/models/deploy-model/capacity/SKILL.md)
 - deploy-model  (user/agents/skills/microsoft-foundry/models/deploy-model/SKILL.md)
@@ -162,7 +164,7 @@ Note: Carve-outs: package azure-architect and azure-diagram-architect (own skill
 ## AWS (8)
 
 Disposition: exclude
-Note: Carve-outs: package aws-architect and aws-diagram-architect (own skills).
+Note: No carve-outs to package: the owner decided on 2026-10-21 not to package `aws-architect` or `aws-diagram-architect`.
 
 - aws-agentic-ai  (user/agents/skills/aws-agentic-ai/SKILL.md)
 - aws-architect  (user/claude/skills/.trash/1790396857023-51328-mBhFeG/aws-architect/SKILL.md)
@@ -227,8 +229,8 @@ Disposition: exclude
 
 ## Agent-pack prompts kept as skills (candidates for Agent Packs) (8)
 
-Disposition: package
-Note: Check the origin of managing-python-dependencies and notebook-guidance before packaging.
+Disposition: exclude
+Note: Changed from `package` on 2026-10-21 by the owner: these skills are not needed here because copies exist in APM and on GitHub. `managing-python-dependencies` and `notebook-guidance` look vendor-published (see review note 3).
 
 - adr-authoring  (user/claude/skills/.trash/1790396857033-51328-noVPXS/adr-authoring/SKILL.md)
 - agentic-workflow-engineer  (user/claude/skills/.trash/1790396856987-51328-bbUxzm/agentic-workflow-engineer/SKILL.md)

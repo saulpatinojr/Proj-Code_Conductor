@@ -121,7 +121,7 @@ The 0.1.1 beta is out. Next, in order:
 
 1. Beta feedback: use the extension and `ccon` on real work (the [fixture repository](DOGFOOD-FIXTURE.md) for quick runs, this repository for real changes), file what is wrong, and keep the Runs view honest.
 2. #14: Marketplace steps 3 to 7 in `docs/MARKETPLACE-PUBLISHING.md` (Entra application, federated credential, publisher membership, environment secrets, `MARKETPLACE_PUBLISH=true`), then a `v0.1.2` tag publishes to the Marketplace pre-release channel.
-3. #13: the owner's package-or-exclude call per third-party collection in [`docs/ledger/dispositions-2026-10-19.md`](ledger/dispositions-2026-10-19.md) (recorded 2026-10-21; its review notes await the owner's confirmation, and the next step is the pack for the `package` group); then the issue closes with the ledger.
+3. #13: the owner's package-or-exclude call per third-party collection in [`docs/ledger/dispositions-2026-10-19.md`](ledger/dispositions-2026-10-19.md) (recorded 2026-10-21: every group is `exclude`, so there is nothing to package and no pack to generate); the issue can close with the ledger.
 4. Linux (WSL) validation of context file reads and a macOS clean install, when a machine is available.
 5. #41 Kiro modify and #18 Antigravity when their permission models can be validated; Kiro IDE and Antigravity IDE as surfaces after 1.0.
 6. Code Workflow: Codex and Copilot orchestrator templates (its own roadmap), consuming the same Agent Packs.
