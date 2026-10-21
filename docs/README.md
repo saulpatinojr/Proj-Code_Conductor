@@ -28,6 +28,7 @@ This directory contains the maintained design, operating, and validation documen
 - [`WORKTREES.md`](WORKTREES.md) — agent worktree isolation, commit safeguards, retention/cleanup and provider environment.
 - [`GATE-PROFILES.md`](GATE-PROFILES.md) — deterministic gate profiles, prerequisites, bounded execution and the validate/plan/apply boundary.
 - [`INSTALL.md`](INSTALL.md) — installing the VS Code extension, prerequisites, compatibility, updates, running `ccon` from it, and uninstalling.
+- [`DOGFOOD-FIXTURE.md`](DOGFOOD-FIXTURE.md) — the separate practice repository for quick runs: what it is, how to use it, whether it is archived, and how to rebuild it.
 - [`RELEASE.md`](RELEASE.md) — tagged releases: tests, SBOM, signed provenance, draft release, verification, versions, rollback and Marketplace setup.
 - [`MARKETPLACE-PUBLISHING.md`](MARKETPLACE-PUBLISHING.md) — the owner's step-by-step Marketplace setup: publisher, Entra ID application and federated credential, environment secrets, the publish switch.
 - [`PACKAGED-DEFAULTS.md`](PACKAGED-DEFAULTS.md) — packaged configuration defaults and bounded user/workspace preferences.

@@ -4,6 +4,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+### Added
+
+- `docs/DOGFOOD-FIXTURE.md` documents the practice repository used for quick dogfood runs (now `Proj-Code_Conductor_Fixture`, formerly `cc-dogfood-fixture`): what it is and why it is separate, how to use it, what archiving it does to a run, and every file needed to rebuild it.
+
 ### Changed
 
 - Code Conductor writes only under `~/.code-conductor` (or `$CODE_CONDUCTOR_HOME`). The short-lived working folders (`cc-pr-`, `cc-tree-`, `cc-smoke-`, `cc-probe-`) now live in its `tmp/` folder instead of the operating system's temporary folder, and the owner scripts write their reports to `reports/` and their `gh` request files to `tmp/` instead of the temporary folder. `CODE_CONDUCTOR_WORKSTATION_STATE` is removed: the smoke-test trust file is always `workstation.json` in the Code Conductor folder. `tests/core/home.test.ts` fails if shipped source goes back to the operating system's temporary folder.
