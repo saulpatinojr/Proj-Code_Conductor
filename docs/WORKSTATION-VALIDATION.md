@@ -280,6 +280,8 @@ Activate the minimum profile required for the repository. Confirm:
 
 ## 12. First real dry run and dogfood
 
+For a quick practice run, use the separate fixture repository instead of this one: see [`DOGFOOD-FIXTURE.md`](DOGFOOD-FIXTURE.md).
+
 ```bash
 node "$CC_JS" run --repo . --risk R1 --objective "Review the Code Conductor foundation"
 ```
