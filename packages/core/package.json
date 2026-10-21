@@ -13,6 +13,10 @@
     "./processes": {
       "types": "./dist/processes.d.ts",
       "default": "./dist/processes.js"
+    },
+    "./home": {
+      "types": "./dist/home.d.ts",
+      "default": "./dist/home.js"
     }
   },
   "dependencies": {

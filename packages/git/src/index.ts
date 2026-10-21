@@ -1,8 +1,9 @@
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash, type Hash } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { chmodSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { conductorTempDirectory } from '@code-conductor/core/home';
 import { absolutePathEnvironment, resolveExecutable } from '@code-conductor/core/processes';
 
 export interface WorktreeHandle {
@@ -163,7 +164,7 @@ export function workingTreeState(path: string): WorkingTreeState {
   // listings below are then relative to the same directory `update-index` resolves.
   const top = git(path, ['rev-parse', '--show-toplevel']).trim();
   const revision = git(top, ['rev-parse', '--verify', '-q', 'HEAD'], true).trim() || 'unborn';
-  const directory = mkdtempSync(join(tmpdir(), 'cc-tree-'));
+  const directory = conductorTempDirectory('cc-tree-');
   try {
     const temporaryIndex = join(directory, 'index');
     const env = { ...withoutGitLocalEnv(), GIT_INDEX_FILE: temporaryIndex };

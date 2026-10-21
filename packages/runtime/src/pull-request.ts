@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ApprovalRecord, ApprovalRequest, RunManifest, WorktreeRecord } from '@code-conductor/schemas';
+import { conductorTempDirectory } from '@code-conductor/core/home';
 import { branchCommit, commitsSince, gitChangedFiles, isSensitiveRepositoryPath, MAX_SCAN_BYTES, onRemote, pushCommit, redactSecrets, redactUrl, remoteUrls, scanHistoryForNewSecrets, treeChangedFiles } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import type { RunStore } from '@code-conductor/evidence';
@@ -220,7 +220,7 @@ export async function openDraftPullRequest(manifest: RunManifest, options: PullR
   record('branch.pushed', `${approved.branch}@${approved.head}`, { remote: approved.remote, pushUrl: approved.pushUrl });
   // The body goes through a private file: a long body would exceed Windows command-line
   // limits. gh runs there too, not in the agent worktree: --repo and --head say everything.
-  const directory = mkdtempSync(join(tmpdir(), 'cc-pr-'));
+  const directory = conductorTempDirectory('cc-pr-');
   try {
     const bodyFile = join(directory, 'body.md');
     writeFileSync(bodyFile, approved.body, { encoding: 'utf8', mode: 0o600 });

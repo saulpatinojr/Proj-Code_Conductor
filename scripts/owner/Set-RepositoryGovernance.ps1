@@ -39,7 +39,7 @@
     The merge methods to allow (merge, squash, rebase). Left as they are when omitted.
 
 .PARAMETER EvidencePath
-    Where to write the read-back. Defaults to a file in your temporary folder.
+    Where to write the read-back. Defaults to a file in the reports folder of .code-conductor (or $env:CODE_CONDUCTOR_HOME).
 
 .PARAMETER PostEvidence
     Also post the read-back to issue #3 as a comment.
@@ -59,13 +59,14 @@ param(
     [switch] $CopilotReview,
     [ValidateSet('merge', 'squash', 'rebase')]
     [string[]] $MergeMethods,
-    [string] $EvidencePath = (Join-Path ([System.IO.Path]::GetTempPath()) 'code-conductor-governance.md'),
+    [string] $EvidencePath,
     [switch] $PostEvidence
 )
 
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'OwnerTools.psm1') -Force
+if (-not $EvidencePath) { $EvidencePath = Join-Path (Get-ConductorFolder 'reports') 'code-conductor-governance.md' }
 $EvidencePath = Resolve-OwnerPath -Path $EvidencePath -SessionState $ExecutionContext.SessionState
 
 # The "Required checks" table of docs/REPOSITORY-GOVERNANCE.md; tests/scripts/owner-scripts.test.ts

@@ -50,7 +50,7 @@
     The repository that published the release, as owner/name.
 
 .PARAMETER OutFile
-    Where to write the report. Defaults to a file in your temporary folder.
+    Where to write the report. Defaults to a file in the reports folder of .code-conductor (or $env:CODE_CONDUCTOR_HOME).
 
 .EXAMPLE
     .\scripts\owner\Invoke-WorkstationValidation.ps1
@@ -72,12 +72,13 @@ param(
     [string] $SourceCommit,
     [ValidatePattern('^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$')]
     [string] $GitHubRepository = 'saulpatinojr/Proj-Code_Conductor',
-    [string] $OutFile = (Join-Path ([System.IO.Path]::GetTempPath()) ("code-conductor-workstation-{0}.md" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
+    [string] $OutFile
 )
 
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'OwnerTools.psm1') -Force
+if (-not $OutFile) { $OutFile = Join-Path (Get-ConductorFolder 'reports') ("code-conductor-workstation-{0}.md" -f (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 
 $onWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $onLinux = (-not $onWindows) -and [bool](Get-Variable -Name IsLinux -ValueOnly -ErrorAction SilentlyContinue)

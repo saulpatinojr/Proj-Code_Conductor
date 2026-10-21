@@ -10,6 +10,9 @@
       "path": "../schemas"
     },
     {
+      "path": "../core"
+    },
+    {
       "path": "../adapters"
     },
     {

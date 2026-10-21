@@ -102,9 +102,13 @@ leaves your data where it is:
 - `~/.code-conductor/`, or `$CODE_CONDUCTOR_HOME` if you set it:
   - `runs/`: manifests, events, approvals, handoff packets and stored gate output;
   - `worktrees/`: agent worktrees;
-  - `workstation.json`: smoke-test trust (or the file `$CODE_CONDUCTOR_WORKSTATION_STATE`
-    names);
-  - `context-optimization-stats.json`: local context-preparation estimates.
+  - `workstation.json`: smoke-test trust;
+  - `context-optimization-stats.json`: local context-preparation estimates;
+  - `tmp/`: short-lived working folders (a pull request body, a temporary Git index, a
+    smoke-test workspace, a client probe). Each is removed when its step ends; if Code
+    Conductor is killed mid-step one can be left here, and it is safe to delete;
+  - `reports/`: reports written by the owner scripts when you do not pass `-OutFile` or
+    `-EvidencePath`.
 - `~/.code-conductor/config.json`: your preferences. It is always read from your home
   folder, even when `$CODE_CONDUCTOR_HOME` is set.
 - `.code-conductor/config.json` in a repository: that workspace's preferences, if you
@@ -117,8 +121,7 @@ To remove everything, do this **before** uninstalling:
 1. Run `worktrees --remove-clean`. Review and remove any other worktrees with
    `git worktree remove`.
 2. Delete the `cc/…` branches you no longer need with `git branch -D`.
-3. Delete `~/.code-conductor/`, and `$CODE_CONDUCTOR_HOME` or
-   `$CODE_CONDUCTOR_WORKSTATION_STATE` if you set them.
+3. Delete `~/.code-conductor/`, and `$CODE_CONDUCTOR_HOME` if you set it.
 
 Code Conductor stores no credentials. Sign-in state stays in each official client and is
 removed through that client (for example `claude auth logout`, `codex logout` or

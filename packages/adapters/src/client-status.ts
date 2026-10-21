@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { conductorTempDirectory } from '@code-conductor/core/home';
 import { runIsolated } from '@code-conductor/core/processes';
 
 /**
@@ -39,7 +39,7 @@ export interface ProbeOutcome { status: number | null; stdout: string; stderr: s
  * timeout and bounded output. Undefined when it could not run or did not finish.
  */
 export async function probeClient(command: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs = PROBE_TIMEOUT_MS): Promise<ProbeOutcome | undefined> {
-  const directory = mkdtempSync(join(tmpdir(), 'cc-probe-'));
+  const directory = conductorTempDirectory('cc-probe-');
   try {
     const outcome = await runIsolated(command, args, { cwd: directory, env, timeoutMs, maxBytes: PROBE_MAX_BYTES });
     return outcome.timedOut || outcome.status === null ? undefined : outcome;

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { existsSync, lstatSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { AgentAssignment, RiskClass, TaskEnvelope } from '@code-conductor/schemas';
+import { conductorTempDirectory } from '@code-conductor/core/home';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, roleInstructions, stoppedForGitControl, TOOL_OUTPUT_MODES, type NextAction, type PullRequestOptions, type ToolOutputMode } from '@code-conductor/runtime';
@@ -272,7 +273,7 @@ async function harnessSmoke(args: string[]): Promise<number> {
   // Trust is recorded for the version that ran, so it must not change during the test.
   const clientVersion = adapter.version();
   if (!clientVersion) { console.error(`BLOCKED: ${harness} does not report its version (\`${printable(adapter.command ?? harness)} --version\`). Trust is bound to the client version, so a smoke test without one could never be used.`); return 1; }
-  const root = mkdtempSync(join(tmpdir(), 'cc-smoke-')); const workspace = join(root, 'workspace');
+  const root = conductorTempDirectory('cc-smoke-'); const workspace = join(root, 'workspace');
   try {
     spawnSync('git', ['init', workspace], { stdio: 'ignore' });
     writeFileSync(join(workspace, 'AGENTS.md'), '# Smoke test\nStay within this temporary workspace.\n');
