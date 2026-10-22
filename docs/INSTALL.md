@@ -12,15 +12,17 @@ backend: everything runs, and is stored, on the machine where your workspace liv
 
 ## Get the beta
 
-The current build is [0.1.1 (beta)](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.1), a GitHub pre-release. Download `code-conductor-0.1.1.vsix` and `SHA256SUMS` from it, then:
+The current build is [0.1.2 (beta)](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.2), a GitHub pre-release. Download `code-conductor-0.1.2.vsix` and `SHA256SUMS` from it, then:
 
 ```bash
 sha256sum -c SHA256SUMS
-gh attestation verify code-conductor-0.1.1.vsix --repo saulpatinojr/Proj-Code_Conductor
-code --install-extension code-conductor-0.1.1.vsix
+gh attestation verify code-conductor-0.1.2.vsix --repo saulpatinojr/Proj-Code_Conductor
+code --install-extension code-conductor-0.1.2.vsix
 ```
 
-The extension does not put `ccon` on `PATH`; run the bundled runtime by path, for example in PowerShell `function ccon { node "$env:USERPROFILE.vscodeextensionshybridcloudworks.code-conductor-vscode-0.1.1distccon.js" @args }`. There is no Marketplace listing yet.
+`sha256sum` does not exist in Windows PowerShell. There, run `Get-FileHash .\code-conductor-0.1.2.vsix -Algorithm SHA256` and `Get-Content .\SHA256SUMS`, and check that the hash printed by the first command matches the `.vsix` line in the second. The release notes carry the full, exact `gh attestation verify` command, and [`RELEASE.md`](RELEASE.md) explains it.
+
+The extension does not put `ccon` on `PATH`; run the bundled runtime by path, for example in PowerShell `function ccon { node "$env:USERPROFILE\.vscode\extensions\hybridcloudworks.code-conductor-vscode-0.1.2\dist\ccon.js" @args }`. There is no Marketplace listing yet.
 
 ## Prerequisites
 
