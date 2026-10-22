@@ -5,7 +5,7 @@ Code Conductor is a **VS Code-centered, multi-provider agent engineering system*
 ## Status
 
 **Target:** v0.1 workstation/VS Code release  
-**Current checkpoint:** [Code Conductor 0.1.1 (beta)](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.1) is published as a GitHub pre-release (2026-10-20): download `code-conductor-0.1.1.vsix`, check it with `sha256sum -c SHA256SUMS` and `gh attestation verify code-conductor-0.1.1.vsix --repo saulpatinojr/Proj-Code_Conductor`, then `code --install-extension code-conductor-0.1.1.vsix`. Validated on Windows 11 under issue #4; see [`docs/INSTALL.md`](docs/INSTALL.md) and [`docs/STATUS.md`](docs/STATUS.md) for the limits.
+**Current checkpoint:** [Code Conductor 0.1.2 (beta)](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.2) is published as a GitHub pre-release (2026-10-21): download `code-conductor-0.1.2.vsix`, check it with `sha256sum -c SHA256SUMS` and `gh attestation verify code-conductor-0.1.2.vsix --repo saulpatinojr/Proj-Code_Conductor`, then `code --install-extension code-conductor-0.1.2.vsix`. Version 0.1.1 was validated on Windows 11 under issue #4; 0.1.2 has not yet been installed on a clean machine. See [`docs/INSTALL.md`](docs/INSTALL.md) and [`docs/STATUS.md`](docs/STATUS.md) for the limits.
 
 See [`docs/STATUS.md`](docs/STATUS.md) for the maintained checkpoint and GitHub issue **#7** for the durable product roadmap/backlog.
 
