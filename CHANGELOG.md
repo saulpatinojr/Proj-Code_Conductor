@@ -4,6 +4,11 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+### Changed
+
+- Upgrade the Kiro adapter's ACP SDK to 2.0.1. The adapter already uses the retained stable ACP v1 app API; streaming, permission cancellation and timeout tests pass without changing its authority boundary.
+- Refresh vulnerable dependency paths (`fast-uri`, `qs`, and the VSIX toolchain's Azure Identity/MSAL dependencies). Scope an MSAL Node 7.1.2 override to Azure Identity because its current `^6.0.0` range still selects a vulnerable release. Remove the override when Azure Identity supports a patched version itself. The packaging and offline Azure CLI credential-chain smoke pass; live Marketplace authentication remains owner validation. See [MSAL's changelog](https://github.com/AzureAD/microsoft-authentication-library-for-js/blob/dev/lib/msal-node/CHANGELOG.md) for the interactive-authentication change in version 7 and [GHSA-xcx6-jx8p-x3h5](https://github.com/advisories/GHSA-xcx6-jx8p-x3h5) for the security fix.
+
 ## 0.1.2 (2026-10-21, beta pre-release)
 
 Prepared 2026-10-21 from `main`; the tag decides the release date (`docs/RELEASE.md`). An odd minor version marks a pre-release.

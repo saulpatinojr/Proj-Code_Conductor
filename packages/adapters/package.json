@@ -12,7 +12,7 @@
     }
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.9.0",
+    "@agentclientprotocol/sdk": "2.0.1",
     "@code-conductor/core": "0.1.0",
     "@code-conductor/git": "0.1.0",
     "@code-conductor/schemas": "0.1.0",
