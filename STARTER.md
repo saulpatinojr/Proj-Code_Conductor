@@ -47,11 +47,12 @@ The repository foundation is implemented rather than architecture-only:
 
 The authoritative current status is `docs/STATUS.md`. PR #143 merged the initial
 scoped-run/configuration/task-refresh fixes, and #144 added stored execution
-progress. Optional pack inspection and audit are in `docs/APM-WORKFLOWS.md`;
+progress. PR #145 merged pack inspection/audit; #146 accepted ADR 0016, and
+#147 merged the first read-only local Linux knowledge slice. Optional pack
+inspection and audit are in `docs/APM-WORKFLOWS.md`;
 exact install preview and approval remain under #142. The approved workstreams
 are #139–#142. Read merged ADR 0016 and `docs/OBSIDIAN-INTEGRATION.md` before
-implementing the optional knowledge index. Continue
-#139 reliability and retain installed-VSIX validation before claiming completion.
+extending the optional knowledge index. Continue #139 reliability and retain installed-VSIX validation before claiming completion.
 
 ## Immediate work order
 

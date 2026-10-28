@@ -1,7 +1,7 @@
 # Optional Obsidian integration
 
 [ADR 0016](adr/0016-local-first-knowledge-navigation.md) merged in #146. The
-read-only local Linux slice is implemented on the knowledge-index branch;
+read-only local Linux slice merged in [#147](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/147);
 installed VSIX/Obsidian validation and the whole #141 workstream remain open.
 
 ## Connect and browse
