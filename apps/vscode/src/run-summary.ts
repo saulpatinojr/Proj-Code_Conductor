@@ -38,6 +38,25 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
     `- **Started:** ${runStartedAt(manifest.runId)}`,
     `- **Decision:** ${decision ? `\`${p(shownDecision, 40)}\` — ${p(decision.rationale)}${shownDecision !== decision.decision ? ` (Recorded decision: ${p(decision.decision, 40)}; incomplete or contradictory evidence requires review.)` : ''}` : shownDecision === 'planned' ? '`planned` — nothing was executed' : '`incomplete` — execution observed; no final decision recorded'}`,
     '',
+    '## Recorded plan and approval boundaries',
+    '',
+    `- **Requested specializations:** ${manifest.task.specializations?.length ? manifest.task.specializations.map((value) => p(value, 100)).join(', ') : 'not recorded; objective-inferred routing specializations were not persisted'}`,
+    '- **Planned gate commands:** not recorded in this manifest. The runtime resolves the exact command plan and prerequisites in the validation worktree before asking for execution approval; recorded gate results below describe outcomes, not a future command plan.',
+    '- **Provider readiness:** the plan records a chosen provider/surface, not an authentication, billing-account or workstation-trust snapshot. Recorded results below are historical outcomes; current availability, sign-in, health and trust remain unknown here. Use Doctor and the official client for current checks.',
+    '- **Required approvals:** D-059 requires a fresh, exact-context decision immediately before each consequential action. Workspace Trust, a plan, past approvals and a successful result do not authorize another action.',
+    '- Provider starts and selected-context disclosures each require recipient-bound approval. Deterministic gate commands require approval of the exact command plan. Commits require approval of the exact tree. Deployments, when supported, require their own approval; planning does not schedule a deployment.',
+    ...(['R3', 'R4'].includes(manifest.task.risk) ? [`- **${p(manifest.task.risk, 8)}:** final readiness requires a human decision${manifest.task.risk === 'R4' ? '; destructive/production side effects also require explicit approval before the action' : ''}.`] : []),
+    '',
+    '### Stored acceptance criteria',
+    '',
+    ...(manifest.task.acceptanceCriteria.length ? manifest.task.acceptanceCriteria.map((item) => `- ${p(item)}`) : ['Not recorded. Acceptance criteria are desired outcomes, not evidence that a check ran.']),
+    '',
+    '### Stored constraints',
+    '',
+    ...(manifest.task.constraints?.length ? manifest.task.constraints.map((item) => `- ${p(item)}`) : ['Not recorded.']),
+    '',
+    'Re-plan through the supported CLI/configuration when the objective, risk or selection needs changing; this read-only summary does not alter an assignment.',
+    '',
     '## Assignments',
     '',
     '| Role | Agent | Status | Recommendation |',
@@ -47,11 +66,17 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
     const result = manifest.results.find((item) => item.assignmentId === assignment.id);
     lines.push(`| ${p(assignment.role, 40)} | ${p(assignment.agentId, 60)} | ${result ? p(result.status, 40) : progress.get(assignment.id)!.state} | ${result ? p(result.recommendation, 40) : ''} |`);
   }
-  lines.push('', '## Execution dependencies and observations', '', '| Assignment | Provider / surface | Depends on | Observed state | Authority |', '|---|---|---|---|---|');
+  lines.push('', '## Execution dependencies and observations', '', '| Assignment | Provider / harness / surface | Stance | Billing lane | Depends on | Observed state | Authority |', '|---|---|---|---|---|---|---|');
   for (const assignment of manifest.assignments) {
     const observation = progress.get(assignment.id)!;
-    lines.push(`| ${p(assignment.id, 80)} | ${p(assignment.provider, 60)} / ${p(assignment.surface ?? 'unknown', 40)} | ${assignment.dependsOn.map((id) => p(id, 80)).join(', ') || 'none'} | ${observation.state}${observation.observedAt ? ` (${p(observation.observedAt, 40)})` : ''} | ${assignment.authority.map((item) => p(item, 40)).join(', ')} |`);
+    lines.push(`| ${p(assignment.id, 80)} | ${p(assignment.provider, 60)} / ${p(assignment.harness, 60)} / ${p(assignment.surface ?? 'unknown', 40)} | ${p(assignment.stance, 30)} | ${p(assignment.billingChannel, 30)} | ${assignment.dependsOn.map((id) => p(id, 80)).join(', ') || 'none'} | ${observation.state}${observation.observedAt ? ` (${p(observation.observedAt, 40)})` : ''} | ${assignment.authority.map((item) => p(item, 40)).join(', ')} |`);
   }
+  lines.push('', '### Chosen provider and recorded evidence', '');
+  for (const assignment of manifest.assignments) {
+    const result = manifest.results.find((item) => item.assignmentId === assignment.id);
+    lines.push(`- ${p(assignment.id, 80)}: chosen ${p(assignment.provider, 60)} / ${p(assignment.harness, 60)} / ${p(assignment.surface ?? 'unknown', 40)}; ${result ? `recorded result ${p(result.status, 40)} from ${p(result.provider, 60)} / ${p(result.harness, 60)} / ${p(result.surface ?? 'surface not recorded', 40)}` : 'no result recorded'}. Current availability/trust is not established by this record.`);
+  }
+  lines.push('', 'Billing lanes are planned channels, not proof of the client account or permission to incur API charges.', '');
   lines.push('', 'States reflect stored results and local journal observations. A start event is not a heartbeat; liveness is unverified. Starts older than five minutes are unknown. Historical approvals never authorize another action.', '');
   if (manifest.gates.length) {
     lines.push('', '## Deterministic gates', '');

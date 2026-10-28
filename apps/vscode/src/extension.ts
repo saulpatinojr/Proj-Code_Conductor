@@ -181,6 +181,7 @@ function runNode(runId: string): Node {
     tooltip: printable(manifest.mergeDecision?.rationale ?? (decision === 'planned' ? 'Planned only; nothing was executed.' : 'Execution observed; no final decision recorded.'), 600, false),
     ...decisionLook(decision), command: open,
   });
+  children.push({ label: 'Plan details and approval boundaries', description: 'read-only · no execution authority', icon: 'checklist', tooltip: 'Open recorded specializations, acceptance criteria, constraints, billing lanes and the action-specific approval requirements. Missing historical command/readiness snapshots are labeled unknown.', command: open });
   for (const assignment of manifest.assignments) {
     const observation = progress.get(assignment.id)!;
     const result = manifest.results.find((item) => item.assignmentId === assignment.id);
@@ -188,7 +189,7 @@ function runNode(runId: string): Node {
     children.push({
       label: `${printable(assignment.role, 40)} · ${harnessLabel(assignment.harness)}`,
       description: result ? `${printable(result.status, 40)} · ${printable(result.recommendation, 40)}${blocking ? ` · ${blocking} blocking` : ''}` : observation.state === 'unknown' ? 'unknown / stale' : observation.state,
-      tooltip: markdown([`**${printable(assignment.agentId, 80)}** (${printable(assignment.stance, 20)}, ${printable(assignment.surface ?? 'surface unknown', 20)})`, `Depends on: ${assignment.dependsOn.map((id) => printable(id, 80)).join(', ') || 'none'}. Provider: ${printable(assignment.provider, 60)}. Authority: ${assignment.authority.map((item) => printable(item, 40)).join(', ')}.`, ...(observation.observedAt ? [`Last observation: ${observation.observedAt}. A start event is not a heartbeat.`] : []), ...(result ? [...result.blockers.map((b) => `- ⛔ ${printable(b, 400, false)}`), ...result.findings.map((f) => `- ${f.blocking ? '🛑' : '•'} ${printable(f.severity, 20)}: ${printable(f.summary, 400, false)}`), ...(result.notVerified ?? []).map((n) => `- not verified: ${printable(n, 300, false)}`)] : [])].join('\n')),
+      tooltip: markdown([`**${printable(assignment.agentId, 80)}** (${printable(assignment.stance, 20)}, ${printable(assignment.surface ?? 'surface unknown', 20)})`, `Depends on: ${assignment.dependsOn.map((id) => printable(id, 80)).join(', ') || 'none'}. Provider: ${printable(assignment.provider, 60)}. Billing lane: ${printable(assignment.billingChannel, 30)} (planned, not authenticated). Current availability/trust: not recorded here. Authority: ${assignment.authority.map((item) => printable(item, 40)).join(', ')}.`, ...(observation.observedAt ? [`Last observation: ${observation.observedAt}. A start event is not a heartbeat.`] : []), ...(result ? [...result.blockers.map((b) => `- ⛔ ${printable(b, 400, false)}`), ...result.findings.map((f) => `- ${f.blocking ? '🛑' : '•'} ${printable(f.severity, 20)}: ${printable(f.summary, 400, false)}`), ...(result.notVerified ?? []).map((n) => `- not verified: ${printable(n, 300, false)}`)] : [])].join('\n')),
       ...statusLook(observation.state), command: open,
     });
   }

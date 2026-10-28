@@ -166,6 +166,16 @@ describe('extension task, evidence and knowledge events', () => {
     await host.commands.get('codeConductor.knowledge')!();
     expect(scan).not.toHaveBeenCalled();
   });
+  it('opens recorded plan details through the existing repository-scoped read-only summary', async () => {
+    const { run } = await setup(false);
+    const plan = rows().find((row: any) => row.contextValue === 'run').children.find((row: any) => row.label === 'Plan details and approval boundaries');
+    expect(plan.command).toEqual({ command: 'codeConductor.openRun', title: 'Open run summary', arguments: [run.runId] });
+    await host.commands.get(plan.command.command)!(...plan.command.arguments);
+    const document = [...host.documents.values()].find((item: any) => item.uri.scheme === 'code-conductor-run');
+    expect(document.getText()).toContain('Recorded plan and approval boundaries');
+    expect(document.getText()).toContain('Current availability/trust is not established');
+    expect(host.tasks).toEqual([]);
+  });
   it('retains completion when start/end precede task scheduling resolution', async () => {
     await setup(false);
     await host.commands.get('codeConductor.doctor')!();
@@ -173,9 +183,9 @@ describe('extension task, evidence and knowledge events', () => {
   });
   it('expires an observed start without polling or subsequent filesystem events', async () => {
     await setup(true);
-    expect(rows().find((row: any) => row.contextValue === 'run').children[1].description).toBe('running');
+    expect(rows().find((row: any) => row.contextValue === 'run').children.find((row: any) => row.label.startsWith('builder ·')).description).toBe('running');
     await vi.advanceTimersByTimeAsync(300001);
-    expect(rows().find((row: any) => row.contextValue === 'run').children[1].description).toBe('unknown / stale');
+    expect(rows().find((row: any) => row.contextValue === 'run').children.find((row: any) => row.label.startsWith('builder ·')).description).toBe('unknown / stale');
     expect(vi.getTimerCount()).toBe(0);
   });
   it('excludes foreign, malformed and oversized manifests without crashing the cockpit', async () => {
