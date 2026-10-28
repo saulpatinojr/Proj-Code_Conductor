@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -65,6 +65,27 @@ describe('approved read-only team review', () => {
     f.adapter.execute = async (request) => { const result = await execute(request); f.input.context = 'Changed after model start'; return result; };
     const result = await reviewTeam(f.root, () => f.input, { adapter: f.adapter, trusted: () => true, approver: f.approve });
     expect(result.status).toBe('failed'); expect(result.advice).toBeUndefined();
+  });
+  it('refuses advice if the repository working tree changes while the provider runs', async () => {
+    const f = fixture(); const execute = f.adapter.execute.bind(f.adapter);
+    f.adapter.execute = async (request) => { const result = await execute(request); writeFileSync(join(f.root, 'written-by-reviewer.txt'), 'x'); return result; };
+    const result = await reviewTeam(f.root, () => f.input, { adapter: f.adapter, trusted: () => true, approver: f.approve });
+    expect(result.status).toBe('failed'); expect(result.advice).toBeUndefined();
+  });
+  it('reports bounded known causes and never reflects arbitrary exception messages', async () => {
+    const f = fixture();
+    const readiness = await reviewTeam(f.root, () => f.input, { adapter: f.adapter, approver: f.approve });
+    expect(readiness.reason).toContain('Native client readiness');
+    f.input.inputs.requiredRoles = ['invented'];
+    const metadata = await reviewTeam(f.root, () => f.input, { adapter: f.adapter, trusted: () => true, approver: f.approve });
+    expect(metadata.reason).toContain('Team metadata');
+    f.input.inputs.requiredRoles = ['reviewer'];
+    const unknown = await reviewTeam(f.root, () => { throw new Error('PRIVATE NOTES ' + 'x'.repeat(100000)); }, { adapter: f.adapter, trusted: () => true, approver: f.approve });
+    expect(unknown.reason).toContain('Team review could not be validated');
+    expect(unknown.reason).not.toContain('PRIVATE'); expect(unknown.reason!.length).toBeLessThan(300);
+    f.advice.assignments[0]!.agentId = 'invented';
+    const advice = await reviewTeam(f.root, () => f.input, { adapter: f.adapter, trusted: () => true, approver: f.approve });
+    expect(advice.reason).toContain('invalid team advice');
   });
   it.each(['unknown', 'separately_billed', 'missing'])('does not fall back to %s authentication/billing', async (billing) => {
     const f = fixture();

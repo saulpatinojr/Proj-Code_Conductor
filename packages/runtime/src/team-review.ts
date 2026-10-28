@@ -24,6 +24,16 @@ export interface TeamReviewOutcome {
   reason?: string;
 }
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+const REVIEW_FAILURES = {
+  readiness: 'Native client readiness is incomplete. Check the supported version, official sign-in, subscription billing and workstation trust.',
+  policy: 'Current configuration does not permit this review lane. Validate the repository policy and conductor role.',
+  metadata: 'Team metadata or role policy is invalid. Refresh the pack inventory and validate required roles before retrying.',
+  disclosure: 'Review context is too large or contains credential-like values. Reduce the selected context and remove secrets.',
+  advice: 'The client returned invalid team advice. Retry review after checking required capabilities, independence and handoffs.',
+} as const;
+class ReviewFailure extends Error {
+  constructor(readonly causeCode: keyof typeof REVIEW_FAILURES) { super(REVIEW_FAILURES[causeCode]); }
+}
 
 /** Read-only review action within the runtime; never invokes the normal builder plan. */
 export async function reviewTeam(root: string, readInput: () => TeamReviewInput, options: TeamReviewOptions): Promise<TeamReviewOutcome> {
@@ -49,15 +59,15 @@ export async function reviewTeam(root: string, readInput: () => TeamReviewInput,
     const prepare = async (): Promise<{ request: HarnessExecutionRequest; input: TeamReviewInput; inputHash: string; approvals: ApprovalRequest[] }> => {
       controlsUnchanged();
       const readiness = await providerReadinessProblem(root, assignment, adapter, options.trusted, true);
-      if (readiness) throw new Error(readiness);
+      if (readiness) throw new ReviewFailure('readiness');
       const roles = loadConfiguration<{ roles: Record<string, { may_review?: boolean }> }>(root, 'roles').document;
       const capabilities = loadConfiguration<{ harnesses: Record<string, { provider?: string; surfaces?: Record<string, { machine_execution?: boolean; separately_billed_api?: boolean; enabled_by_default?: boolean }> }> }>(root, 'capabilities').document;
       const configured = capabilities.harnesses[adapter.id]; const surface = configured?.surfaces?.[adapter.executionSurface];
-      if (!roles.roles.conductor?.may_review || configured?.provider !== adapter.provider || !surface?.machine_execution || surface.separately_billed_api || surface.enabled_by_default === false) throw new Error('Review lane is not permitted by current policy.');
+      if (!roles.roles.conductor?.may_review || configured?.provider !== adapter.provider || !surface?.machine_execution || surface.separately_billed_api || surface.enabled_by_default === false) throw new ReviewFailure('policy');
       const input = readInput();
-      validateTeamInputs(input.inputs);
+      try { validateTeamInputs(input.inputs); } catch { throw new ReviewFailure('metadata'); }
       const serialized = JSON.stringify(input);
-      if (Buffer.byteLength(serialized) > 48000 || typeof input.context !== 'string' || redactSecrets(serialized).redacted) throw new Error('Review inputs exceed the disclosure limit or contain credential-like values.');
+      if (Buffer.byteLength(serialized) > 48000 || typeof input.context !== 'string' || redactSecrets(serialized).redacted) throw new ReviewFailure('disclosure');
       // Snapshot caller-owned objects; subsequent mutations cannot alter the approved request.
       const snapshot = JSON.parse(serialized) as TeamReviewInput;
       const inputHash = hash(serialized);
@@ -68,7 +78,7 @@ export async function reviewTeam(root: string, readInput: () => TeamReviewInput,
         'Return one final line CC_TEAM_JSON: followed by JSON with exactly version:1, inputDigest (the supplied inputs.digest), and assignments. Each assignment has exactly id, agentId, role, dependsOn (assignment IDs). Return no file paths, authority or commands.',
         serialized,
       ].join('\n');
-      if (Buffer.byteLength(prompt) > 65536) throw new Error('Review prompt exceeds the native client limit.');
+      if (Buffer.byteLength(prompt) > 65536) throw new ReviewFailure('disclosure');
       const request: HarnessExecutionRequest = { task, assignment, cwd: root, timeoutMs, prompt };
       const invocation = adapter.invocation!(request);
       const argv = [invocation.command, ...invocation.args];
@@ -94,9 +104,11 @@ export async function reviewTeam(root: string, readInput: () => TeamReviewInput,
     if (Buffer.byteLength(message) > 65536) return outcome('failed', 'Review output exceeded its limit.');
     const marker = 'CC_TEAM_JSON:'; const position = message.lastIndexOf(marker);
     if (position < 0) return outcome('failed', 'The client did not return structured team advice.');
-    const advice = validateTeamAdvice(JSON.parse(message.slice(position + marker.length).trim()), acceptedInput.inputs);
+    let advice: TeamAdvice;
+    try { advice = validateTeamAdvice(JSON.parse(message.slice(position + marker.length).trim()), acceptedInput.inputs); }
+    catch { throw new ReviewFailure('advice'); }
     return { status: 'reviewed', reviewId, inputSha256: acceptedHash, advice, approvals: [...gate.records] };
-  } catch {
-    return outcome(gate.records.some((record) => record.status === 'approved') ? 'failed' : 'blocked', 'Team review could not be validated. Check native readiness, current inputs and policy. No project files were applied.');
+  } catch (error) {
+    return outcome(gate.records.some((record) => record.status === 'approved') ? 'failed' : 'blocked', error instanceof ReviewFailure ? `${REVIEW_FAILURES[error.causeCode]} No project files were applied.` : 'Team review could not be validated. Check native readiness, current inputs and policy. No project files were applied.');
   }
 }
