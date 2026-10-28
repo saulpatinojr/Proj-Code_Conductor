@@ -7,9 +7,8 @@ validation remain authoritative; issue scope alone is not completion.
 ## Current position
 
 **0.1.2 beta is published. Reliability, stored execution monitoring, optional
-pack provenance/audit and the knowledge ADR have advanced on main. The read-only
-knowledge implementation is prepared for review; the full workstreams and
-release validation are not complete.**
+pack provenance/audit and read-only local knowledge navigation are merged on
+main. The full workstreams and release validation are not complete.**
 
 | Area | Evidence-backed status |
 |---|---|
@@ -18,12 +17,13 @@ release validation are not complete.**
 | Initial cockpit reliability | [#143](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/143) merged at `e3a145c`: task-end refresh, repository-scoped runs, multi-root selection and effective read-only configuration. |
 | Stored execution overview | [#144](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/144) merged at `04ad126`: approved start observations, dependency/provider/authority details, evidence refresh, one-shot stale expiry and inert summary text. No new scheduler. |
 | Optional APM inventory/audit | [#145](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/145) merged at `8e2b2cb`: pinned source metadata, mismatch diagnostics, explicit bounded audit and absolute executable resolution. Installation lifecycle remains open. |
+| Knowledge implementation | [#147](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/147) merged at `599b03a`: bounded local knowledge navigation and source provenance, initially trusted local Linux only. |
 | Knowledge architecture | [#146](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/146) merged at `5cf27ea`: accepted ADR 0016/D-078, optional bounded read-only navigation with no cloud activation. |
 | Workstation evidence | #4 is closed with recorded 0.1.1 Windows evidence: provider smoke tests, activation, R1/R2 and GitHub review. That is not clean-machine validation of 0.1.2 or current source. |
 
-## Prepared knowledge implementation
+## Merged knowledge implementation
 
-Branch `feat/knowledge-vault-index` adds explicit existing-vault/folder selection,
+PR #147 adds explicit existing-vault/folder selection,
 repository-bound typed metadata, local source hashes, stale/broken states,
 click-time invalidation and native editor/Obsidian navigation. It creates no
 notes, copies no private run content and starts no indexing/provider/network
@@ -41,8 +41,10 @@ Validation after integration with current main: **70 test files, 618 passed /
 33 skipped**; typecheck, repository validation, standalone bundle/default smoke
 and local VSIX packaging passed. The VSIX uses a test publisher, not publication.
 Independent read-only review found no remaining blockers after corrections and
-reran focused integration tests. GitHub checks/review are still required before
-this prepared branch merges. Native desktop behavior is not validated here.
+reran focused integration tests. Required GitHub checks passed before merge.
+Post-merge on `main`: typecheck, 100 focused tests (one host-specific skip),
+repository validation and standalone bundle smoke passed. Native desktop behavior
+is not validated here.
 
 ## APM evidence and remaining lifecycle
 
@@ -66,7 +68,7 @@ safe update/removal remain required under #142. See [APM workflows](APM-WORKFLOW
 - [#142](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/142): full APM
   select/preview/approve/install/audit/update/removal workflow.
 - [#141](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/141): integrate
-  read-only vault slice, validate native navigation, then incremental indexing and
+  validate native navigation, then incremental indexing and
   reviewed note-template/write workflows. No automatic vault write is authorized
   by connection.
 - #137/#138 capture additional Second Brain/sidebar requests. Cloud sync needs
