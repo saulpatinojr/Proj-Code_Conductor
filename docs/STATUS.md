@@ -23,16 +23,17 @@ main. The full workstreams and release validation are not complete.**
 | Knowledge architecture | [#146](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/146) merged at `5cf27ea`: accepted ADR 0016/D-078, optional bounded read-only navigation with no cloud activation. |
 | Workstation evidence | #4 is closed with recorded 0.1.1 Windows evidence: provider smoke tests, activation, R1/R2 and GitHub review. That is not clean-machine validation of 0.1.2 or current source. |
 
-## Prepared evidence recovery
+## Merged evidence recovery
 
-Prepared separately in [PR #151](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/151):
+[PR #151](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/151) merged at `3c6b554`:
 manifest-bound gate-output recovery and repository/trust-scoped evidence documents,
 with capture-file invalidation and cached-document revalidation. Strong recovery
 rejects altered, ambiguous, truncated and legacy combined captures; it preserves
 original files. Local validation: **73 files, 661 passed / 33 skipped**, typecheck,
 repository/bundle/default/package checks, plus **12 real installed-VSIX Linux
-checks**. Independent review found no remaining blockers; GitHub review/required
-CI and merge remain pending. See the [native evidence retest](validation/2026-10-28-evidence-recovery-smoke.md).
+checks**. Independent review found no remaining blockers; required GitHub checks
+and review passed before merge. Post-integration typecheck and 96 focused tests
+(one skip) passed. See the [native evidence retest](validation/2026-10-28-evidence-recovery-smoke.md).
 
 ## Merged knowledge implementation
 
