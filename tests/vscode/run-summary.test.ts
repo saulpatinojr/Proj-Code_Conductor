@@ -48,11 +48,25 @@ describe('run summary document', () => {
     expect(text.trim().endsWith('Read-only; nothing here runs anything._')).toBe(true);
   });
 
+
+  it('shows observed execution consistently and keeps untrusted references inert', () => {
+    const running = structuredClone(manifest);
+    running.results = []; running.gates = []; delete running.mergeDecision;
+    const text = runSummaryMarkdown(running, [], [{ runId: running.runId, at: new Date().toISOString(), type: 'assignment.started', assignmentId: running.assignments[0]!.id }]);
+    expect(text).toContain('execution observed; no final decision recorded');
+    expect(text).toContain('| builder | builder-codex | running |');
+    expect(text).not.toContain('nothing was executed');
+    running.results = structuredClone(manifest.results);
+    running.results[0]!.evidence = [{ id: 'E-evil', kind: 'other', source: '[click](https://attacker.invalid)', summary: '<img src=x> | injected' }];
+    const escaped = runSummaryMarkdown(running, []);
+    expect(escaped).toContain('\\[click\\](https://attacker.invalid)');
+    expect(escaped).toContain('\\<img src=x\\> \\| injected');
+  });
   it('describes a planned run that executed nothing', () => {
     const planned: RunManifest = { ...manifest, results: [], gates: [], approvals: [], worktrees: [], mergeDecision: undefined } as RunManifest;
     const text = runSummaryMarkdown(planned, []);
     expect(text).toContain('**Decision:** `planned` — nothing was executed');
-    expect(text).toContain('| builder | builder-codex | not started |  |');
+    expect(text).toContain('| builder | builder-codex | planned |  |');
     expect(text).not.toContain('## Deterministic gates');
   });
 });

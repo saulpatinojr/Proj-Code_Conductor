@@ -4,6 +4,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Show stored execution dependencies, authority, evidence and observed progress;
+  refresh on local evidence changes and expire stale starts without polling.
+  Preserve runtime advisory-gate semantics and render untrusted summary text inert.
+
 - Refresh cockpit runs and open summaries after extension-launched tasks finish;
   show process outcomes separately from readiness, scope runs to the selected
   repository, require multi-root selection, and open effective configuration as
