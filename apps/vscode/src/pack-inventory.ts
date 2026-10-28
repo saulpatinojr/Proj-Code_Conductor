@@ -12,7 +12,7 @@ function document(root: string, name: string): { value: Record<string, unknown>;
   const path = join(root, name);
   if (!lstatSync(path, { throwIfNoEntry: false })) return undefined;
   const bytes = readBoundedFile(path, 1048576);
-  const value: unknown = parse(bytes.toString('utf8'), { maxAliasCount: 20 });
+  const value: unknown = parse(bytes.toString('utf8'), { maxAliasCount: 20, logLevel: 'error' });
   if (!object(value)) throw new Error(`${name} must contain an object.`);
   return { value, sha256: createHash('sha256').update(bytes).digest('hex') };
 }

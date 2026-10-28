@@ -517,8 +517,8 @@ function mcpList(args: string[]): number {
 }
 function apmCheck(rootArg?: string): number {
   const root = resolve(rootArg ?? '.');
-  if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; }
   const version = apmVersion(root);
+  if (version.errorCode === 'ENOENT') { console.error('ERROR apm.missing: APM executable must exist on an absolute PATH entry.'); return 1; }
   if (!version.ok || !/(?:^|\s)0\.33\.0(?:\s|$)/.test(version.stdout.trim())) {
     console.error('ERROR apm.version: this workflow requires APM 0.33.0. No audit was started.');
     return 1;

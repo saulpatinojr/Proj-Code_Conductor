@@ -1,7 +1,7 @@
 import { readFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { packInventory, packInventoryText } from '../../apps/vscode/src/pack-inventory.js';
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -43,6 +43,15 @@ describe('optional pack inventory', () => {
     const path = join(directory, 'apm.lock.yaml');
     writeFileSync(path, readFileSync(path, 'utf8').replace('host: github.com', 'host: gitlab.com'));
     expect(packInventory(directory).packs[0]?.state).toBe('mismatch');
+  });
+  it('does not log private YAML tag warnings', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const directory = root();
+    try {
+      writeFileSync(join(directory, 'apm.yml'), 'targets: !private-marker [codex]\n');
+      packInventory(directory);
+      expect(warn).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
   });
   it('rejects unpinned and unreviewed sources without treating their text as provenance', () => {
     const directory = root(); writeFileSync(join(directory, 'apm.yml'), 'dependencies:\n  apm: [https://attacker.invalid/private-token]\n');

@@ -298,7 +298,18 @@ function packNodes(root: string): Node[] {
   const inventory = packInventory(root);
   const inspect: vscode.Command = { command: 'codeConductor.inspectPacks', title: 'Inspect pack provenance' };
   if (!inventory.manifestSha256 && !inventory.lockSha256 && !inventory.diagnostics.length) return [{ label: 'No APM packaging', description: 'optional', tooltip: 'Basic handoffs work without APM. Click for packaging requirements.', icon: 'package', command: inspect }];
+  let ownSkills: number | undefined;
+  try {
+    const parent = lstatSync(join(root, '.apm'), { throwIfNoEntry: false });
+    if (!parent) ownSkills = 0;
+    else if (parent.isDirectory() && !parent.isSymbolicLink()) {
+      const folder = lstatSync(join(root, '.apm/skills'), { throwIfNoEntry: false });
+      if (!folder) ownSkills = 0;
+      else if (folder.isDirectory() && !folder.isSymbolicLink()) ownSkills = readdirSync(join(root, '.apm/skills'), { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.isSymbolicLink()).length;
+    }
+  } catch { /* unavailable is distinct from zero */ }
   return [
+    { label: 'Own skills', description: ownSkills === undefined ? 'unavailable' : String(ownSkills), tooltip: 'Repository-authored skill directories; not an audit or trust claim.', icon: 'extensions', command: inspect },
     ...inventory.packs.map((pack): Node => ({ label: printable(pack.name, 80, false), description: `${pack.state} · ${pack.commit?.slice(0, 12) ?? 'no locked commit'}`, tooltip: `Declared: ${printable(pack.reference, 300, false)}. Lock association only; audit unknown.`, icon: pack.state === 'mismatch' || pack.state === 'unsupported' ? 'warning' : 'package', command: inspect })),
     { label: 'Targets', description: inventory.targets.map((target) => printable(target, 40)).join(', ') || 'none', icon: 'symbol-array', command: openFile(root, 'apm.yml', 'Open apm.yml') },
     { label: 'Audit', description: 'unknown · run explicitly', tooltip: 'Run the existing bounded APM audit in a terminal. Audit does not install packs or authorize providers.', icon: 'shield', command: { command: 'codeConductor.auditPacks', title: 'Audit packs' } },
