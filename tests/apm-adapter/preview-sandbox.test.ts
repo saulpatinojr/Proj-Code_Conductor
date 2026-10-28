@@ -65,6 +65,23 @@ describe.skipIf(process.platform !== 'linux')('explicit native preview sandbox',
     for (const selected of [[], ['arbitrary/url#main'], [PREVIEW_PACKS[0], PREVIEW_PACKS[0]]]) await expect(previewPacks(repository, selected as any)).rejects.toThrow(/Select/);
     expect(run).not.toHaveBeenCalled();
   });
+  it('rejects unsupported local locks before staging or network use', async () => {
+    writeFileSync(join(repository, 'apm.lock.yaml'), 'lockfile_version: unsupported\n');
+    await expect(previewPacks(repository, [PREVIEW_PACKS[0]])).rejects.toThrow(/Unsupported APM lock/);
+    expect(run).not.toHaveBeenCalled(); expect(existsSync(home)).toBe(false);
+  });
+  it.each([
+    ['bwrap: namespace Operation not permitted', 'sandbox/namespace'],
+    ['TLS proxy connection failed https://user:password@proxy.example', 'network/TLS/proxy'],
+    ['Permission denied', 'executable/path'],
+  ])('provides fixed credential-safe diagnostics for %s', async (stderr, expected) => {
+    run.mockResolvedValue({ ...result(), status: 1, stderr: stderr + '\n' + 'gh' + 'p_' + 'A'.repeat(40) + '\u001b[2J\u202e' });
+    const error = await previewPacks(repository, [PREVIEW_PACKS[0]]).catch((error: Error) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(expected);
+    expect((error as Error).message).toContain('No repository files were changed.');
+    expect((error as Error).message).not.toMatch(/password|ghp_|\u001b|\u202e/);
+  });
   it.each(['private', '..private'])('rejects staging under the selected repository (%s) before creating anything', async (name) => {
     vi.stubEnv('CODE_CONDUCTOR_HOME', join(repository, name));
     await expect(previewPacks(repository, [PREVIEW_PACKS[0]])).rejects.toThrow(/outside/);
