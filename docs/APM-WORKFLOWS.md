@@ -1,0 +1,54 @@
+# Optional APM workflows
+
+APM remains optional. Basic handoffs require no package install. The supported
+version is 0.33.0, coordinated with Agent Packs (ADR 0015 / D-077).
+
+## Available cockpit actions
+
+- **Inspect Pack Provenance:** local metadata only, with source-file SHA-256 hashes.
+  A supported reference names the reviewed `hybridcloudworks/Proj-AgentPacks`
+  distribution mirror and a full commit. The source remains
+  `saulpatinojr/Proj-Agent_Packs`.
+- **Audit Packs:** explicitly starts `ccon apm-audit .` in the selected trusted
+  workspace. The CLI checks the version, then calls the existing bounded native
+  audit. Failures remain failures; partial output and timeout diagnostics stay in
+  the terminal. This command installs nothing and grants no runtime authority.
+
+Inventory states mean only:
+
+| State | Evidence |
+|---|---|
+| declared | Reviewed pinned reference exists in apm.yml; no matching lock entry. |
+| locked | GitHub host, mirror identity, virtual package path and full commit match. |
+| mismatch | A candidate lock entry exists but its source or commit differs. |
+| unsupported | Reference is outside the reviewed pinned mirror format. |
+
+A locked entry is not an audit pass, authentication, trust or permission to run
+providers, hooks or MCP servers. Recorded projection paths are inventory; they
+are not a proposed installation diff. Static inventory audit state is unknown.
+
+Reads are limited to 1 MiB per metadata file and 1,000 dependencies/projection
+paths per list. Symlinked metadata, malformed shapes, unsupported lock formats,
+unsafe projection paths and ambiguous source associations fail visibly. Parser
+errors do not echo source snippets. Refresh or reopening provenance regenerates
+its read-only virtual document; nothing writes into the repository.
+
+## Remaining installation workflow (#142)
+
+Selection, exact projected-file diffs, local-conflict detection, digest-bound
+installation approval, audit evidence tied to the actual deployment, and safe
+update/removal are still required. Existing APM owns resolution and lock generation;
+Code Conductor must not hand-edit the lock or overwrite human instructions.
+
+The official 0.33.0 CLI advertises `install --dry-run`, `--only apm`, `--target`,
+`--no-trust-bin` and `--root`. Before exposing installation, validate their actual
+semantics using disposable repositories, conflict fixtures, hook/MCP boundaries
+and exact generated diffs. A package preview must not invoke a provider, start an
+MCP server or execute package hooks. A summary of package names alone is not an
+exact projection preview.
+
+Official references:
+
+- [APM 0.33.0 source](https://github.com/microsoft/apm/tree/v0.33.0)
+- [APM CLI reference](https://microsoft.github.io/apm/reference/cli-commands/)
+- [APM governance](https://microsoft.github.io/apm/enterprise/governance/)

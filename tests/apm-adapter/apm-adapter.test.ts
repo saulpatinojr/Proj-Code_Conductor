@@ -10,7 +10,8 @@ describe('APM adapter', () => {
       const result = apmTargets(resolve('.'));
       expect(result.ok).toBe(false);
       expect(result.status).toBeNull();
-      expect(result.stderr).toMatch(/ENOENT|spawnSync apm/i);
+      expect(result.errorCode).toBe('ENOENT');
+      expect(result.stderr).toMatch(/not found on PATH/i);
     } finally {
       if (originalPath === undefined) delete process.env.PATH;
       else process.env.PATH = originalPath;

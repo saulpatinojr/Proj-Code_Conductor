@@ -1,4 +1,5 @@
 import { assignmentProgress, displayedDecision, nextProgressExpiry, progressEvents, type ProgressEvent } from './run-monitor.js';
+import { packInventory, packInventoryText } from './pack-inventory.js';
 import { sameRepository } from './run-scope.js';
 import { stringify } from 'yaml';
 import { TaskLifecycle } from './task-lifecycle.js';
@@ -294,16 +295,26 @@ function gateNodes(root: string): Node[] {
 }
 
 function packNodes(root: string): Node[] {
-  const manifest = loadYaml<{ targets?: string[]; dependencies?: { apm?: unknown[] } }>(root, 'apm.yml');
-  const lock = existsSync(join(root, 'apm.lock.yaml'));
-  const dependencies = Array.isArray(manifest?.dependencies?.apm) ? manifest.dependencies.apm.length : 0;
-  const skills = existsSync(join(root, '.apm', 'skills')) ? readdirSync(join(root, '.apm', 'skills'), { withFileTypes: true }).filter((x) => x.isDirectory()).length : 0;
-  if (!manifest && !lock) return [{ label: 'No APM packaging', description: 'optional', tooltip: 'This repository declares no agent packs. Code Conductor works without them; packs come from an APM package source such as Agent Packs.', icon: 'package', color: 'disabledForeground' }];
+  const inventory = packInventory(root);
+  const inspect: vscode.Command = { command: 'codeConductor.inspectPacks', title: 'Inspect pack provenance' };
+  if (!inventory.manifestSha256 && !inventory.lockSha256 && !inventory.diagnostics.length) return [{ label: 'No APM packaging', description: 'optional', tooltip: 'Basic handoffs work without APM. Click for packaging requirements.', icon: 'package', command: inspect }];
+  let ownSkills: number | undefined;
+  try {
+    const parent = lstatSync(join(root, '.apm'), { throwIfNoEntry: false });
+    if (!parent) ownSkills = 0;
+    else if (parent.isDirectory() && !parent.isSymbolicLink()) {
+      const folder = lstatSync(join(root, '.apm/skills'), { throwIfNoEntry: false });
+      if (!folder) ownSkills = 0;
+      else if (folder.isDirectory() && !folder.isSymbolicLink()) ownSkills = readdirSync(join(root, '.apm/skills'), { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.isSymbolicLink()).length;
+    }
+  } catch { /* unavailable is distinct from zero */ }
   return [
-    { label: 'Pack dependencies', description: String(dependencies), tooltip: 'Packs declared in apm.yml, installed with `apm install` at a pinned reference. Click to open apm.yml.', icon: 'package', command: openFile(root, 'apm.yml', 'Open apm.yml') },
-    { label: 'Lock', description: lock ? 'present' : 'missing', tooltip: lock ? 'apm.lock.yaml pins what was installed. Click to open it.' : 'No apm.lock.yaml: run `apm install`.', icon: lock ? 'lock' : 'warning', color: lock ? undefined : 'charts.yellow', ...(lock ? { command: openFile(root, 'apm.lock.yaml', 'Open apm.lock.yaml') } : {}) },
-    { label: 'Own skills', description: String(skills), tooltip: 'Skills this repository itself publishes from .apm/skills.', icon: 'extensions', ...(skills ? { command: openFile(root, '.apm/skills', 'Open .apm/skills') } : {}) },
-    { label: 'Targets', description: manifest?.targets?.join(', ') ?? 'none', tooltip: 'Clients APM projects the packs into.', icon: 'symbol-array', command: openFile(root, 'apm.yml', 'Open apm.yml') },
+    { label: 'Own skills', description: ownSkills === undefined ? 'unavailable' : String(ownSkills), tooltip: 'Repository-authored skill directories; not an audit or trust claim.', icon: 'extensions', command: inspect },
+    ...inventory.packs.map((pack): Node => ({ label: printable(pack.name, 80, false), description: `${pack.state} · ${pack.commit?.slice(0, 12) ?? 'no locked commit'}`, tooltip: `Declared: ${printable(pack.reference, 300, false)}. Lock association only; audit unknown.`, icon: pack.state === 'mismatch' || pack.state === 'unsupported' ? 'warning' : 'package', command: inspect })),
+    { label: 'Targets', description: inventory.targets.map((target) => printable(target, 40)).join(', ') || 'none', icon: 'symbol-array', command: openFile(root, 'apm.yml', 'Open apm.yml') },
+    { label: 'Audit', description: 'unknown · run explicitly', tooltip: 'Run the existing bounded APM audit in a terminal. Audit does not install packs or authorize providers.', icon: 'shield', command: { command: 'codeConductor.auditPacks', title: 'Audit packs' } },
+    ...inventory.diagnostics.map((message): Node => ({ label: 'APM metadata needs attention', tooltip: printable(message, 500, false), icon: 'warning', command: inspect })),
+    { label: 'Pack provenance', description: 'read-only', icon: 'info', command: inspect },
   ];
 }
 
@@ -553,6 +564,20 @@ async function initializeStartup(context: vscode.ExtensionContext): Promise<vsco
   return status;
 }
 
+class PackInventoryProvider implements vscode.TextDocumentContentProvider {
+  private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  readonly onDidChange = this.changed.event;
+  refresh(): void {
+    for (const document of vscode.workspace.textDocuments) {
+      if (document.uri.scheme === 'code-conductor-packs') this.changed.fire(document.uri);
+    }
+  }
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    if (!vscode.workspace.workspaceFolders?.some((folder) => folder.uri.fsPath === uri.query)) return 'Repository is no longer open.';
+    return packInventoryText(uri.query);
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const root = () => workspaceRoot();
   let startupStatus = await initializeStartup(context);
@@ -562,6 +587,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const configurations = new ConfigurationProvider();
   let runRows = runNodes();
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  const packs = new PackInventoryProvider();
   const providers = {
     runs: new ConductorProvider(() => runRows),
     workstation: new ConductorProvider(() => workstationNodes(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY))),
@@ -572,6 +598,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerTreeDataProvider('codeConductor.workstation', providers.workstation),
     vscode.window.registerTreeDataProvider('codeConductor.policy', providers.policy),
     vscode.workspace.registerTextDocumentContentProvider(RUN_SCHEME, summaries),
+    vscode.workspace.registerTextDocumentContentProvider('code-conductor-packs', packs),
     vscode.workspace.registerTextDocumentContentProvider('code-conductor-config', configurations),
   );
   await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runRows.some((node) => node.contextValue === 'run'));
@@ -583,6 +610,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     expiryTimer = expiries.length ? setTimeout(() => { expiryTimer = undefined; void refreshViews(); }, Math.max(1, Math.min(...expiries) - Date.now() + 1)) : undefined;
     summaries.refresh();
     configurations.refresh();
+    packs.refresh();
     Object.values(providers).forEach((provider) => provider.refresh());
     await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runRows.some((node) => node.contextValue === 'run'));
   };
@@ -637,6 +665,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { void vscode.commands.executeCommand('codeConductor.refresh'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.refreshRuns', refreshViews));
   context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { void vscode.commands.executeCommand('codeConductor.refresh'); }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.inspectPacks', async () => {
+    const r = root(); if (!r) return;
+    const uri = vscode.Uri.from({ scheme: 'code-conductor-packs', path: '/inventory.txt', query: r });
+    const document = await vscode.workspace.openTextDocument(uri);
+    packs.refresh();
+    // Regenerate a new snapshot on each request; never claim an old audit or live state.
+    await vscode.window.showTextDocument(document, { preview: true });
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.auditPacks', async () => {
+    const r = root(); if (r) await runCli(context, r, ['apm-audit', '.'], 'Code Conductor APM Audit');
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.doctor', async () => { const r = root(); if (r) await runCli(context, r, ['doctor', '.'], 'Code Conductor Doctor'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.validate', async () => { const r = root(); if (r) await runCli(context, r, ['workspace-validate', '.'], 'Code Conductor Validate'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.plan', async () => {

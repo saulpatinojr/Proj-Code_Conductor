@@ -1,3 +1,4 @@
+import { absolutePathEnvironment, resolveExecutable } from '@code-conductor/core/processes';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,8 +30,10 @@ function bounded(value: number, maximum: number, name: string): number {
 function run(root: string, args: string[], options: ApmRunOptions = {}): ApmCommandResult {
   const timeout = bounded(options.timeoutMs ?? 120000, 900000, 'APM timeoutMs');
   const maxBuffer = bounded(options.maxBufferBytes ?? 4 * 1024 * 1024, 16 * 1024 * 1024, 'APM maxBufferBytes');
-  const result = spawnSync('apm', args, {
-    cwd: root, encoding: 'utf8', shell: false, windowsHide: true,
+  const executable = resolveExecutable('apm');
+  if (!executable.path) return { ok: false, status: null, stdout: '', stderr: executable.problem ?? 'APM not found on an absolute PATH entry.', timedOut: false, outputLimitExceeded: false, errorCode: 'ENOENT' };
+  const result = spawnSync(executable.path, args, {
+    cwd: root, env: absolutePathEnvironment(), encoding: 'utf8', shell: false, windowsHide: true,
     timeout, maxBuffer, killSignal: 'SIGKILL',
   });
   const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
@@ -51,6 +54,10 @@ function run(root: string, args: string[], options: ApmRunOptions = {}): ApmComm
     outputLimitExceeded,
     ...(errorCode ? { errorCode } : {}),
   };
+}
+
+export function apmVersion(root: string): ApmCommandResult {
+  return run(root, ['--version'], { timeoutMs: 5000, maxBufferBytes: 4096 });
 }
 
 export function apmTargets(root: string, options?: ApmRunOptions): ApmCommandResult {
