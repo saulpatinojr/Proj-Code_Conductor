@@ -46,14 +46,16 @@ exports.run = async function () {
   await vscode.commands.executeCommand('codeConductor.refreshRuns');
   await new Promise(resolve => setTimeout(resolve, 250));
   assert.match(summary.getText(), /Native refreshed objective/); checks.push('open native run summary refreshed');
-  let listener;
+  let listener; let timer;
   const ended = new Promise((resolve, reject) => {
-   const timer = setTimeout(() => { listener.dispose(); reject(new Error('Native validation task did not complete in 45s')); }, 45000);
+   timer = setTimeout(() => { listener.dispose(); reject(new Error('Native validation task did not complete in 45s')); }, 45000);
    listener = vscode.tasks.onDidEndTaskProcess(event => {
     if (event.execution.task.definition.type === 'code-conductor' && event.execution.task.definition.operation === 'workspace-validate') { clearTimeout(timer); listener.dispose(); resolve(event.exitCode); }
    });
   });
-  await vscode.commands.executeCommand('codeConductor.validate'); assert.equal(await ended, 0); checks.push('bundled native ProcessExecution validation completed successfully');
+  try { await vscode.commands.executeCommand('codeConductor.validate'); assert.equal(await ended, 0); }
+  finally { clearTimeout(timer); listener?.dispose(); }
+  checks.push('bundled native ProcessExecution validation completed successfully');
   assert.deepEqual(fs.readdirSync(root), []); checks.push('unrelated workspace stayed empty');
   const reports = path.join(privateHome, 'reports'); fs.mkdirSync(reports, { recursive: true, mode: 0o700 });
   const report = path.join(reports, runId + '.json');
