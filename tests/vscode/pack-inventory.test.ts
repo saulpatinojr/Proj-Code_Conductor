@@ -49,7 +49,13 @@ describe('optional pack inventory', () => {
     const directory = root();
     try {
       writeFileSync(join(directory, 'apm.yml'), 'targets: !private-marker [codex]\n');
-      packInventory(directory);
+      expect(packInventory(directory).diagnostics).toHaveLength(1);
+      manifest(directory); lock(directory);
+      const path = join(directory, 'apm.lock.yaml');
+      writeFileSync(path, readFileSync(path, 'utf8').replace('resolved_commit: ', 'resolved_commit: !unsupported '));
+      const inventory = packInventory(directory);
+      expect(inventory.diagnostics).toHaveLength(1);
+      expect(inventory.packs.some((pack) => pack.state === 'locked')).toBe(false);
       expect(warn).not.toHaveBeenCalled();
     } finally { warn.mockRestore(); }
   });

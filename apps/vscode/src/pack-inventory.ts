@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse } from 'yaml';
+import { parseDocument } from 'yaml';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 
 export interface PackRecord { reference: string; name: string; commit?: string; version?: string; state: 'declared' | 'locked' | 'mismatch' | 'unsupported'; projections: string[] }
@@ -12,7 +12,9 @@ function document(root: string, name: string): { value: Record<string, unknown>;
   const path = join(root, name);
   if (!lstatSync(path, { throwIfNoEntry: false })) return undefined;
   const bytes = readBoundedFile(path, 1048576);
-  const value: unknown = parse(bytes.toString('utf8'), { maxAliasCount: 20, logLevel: 'error' });
+  const parsed = parseDocument(bytes.toString('utf8'), { logLevel: 'silent' });
+  if (parsed.errors.length || parsed.warnings.length) throw new Error('Unsupported YAML metadata.');
+  const value: unknown = parsed.toJS({ maxAliasCount: 20 });
   if (!object(value)) throw new Error(`${name} must contain an object.`);
   return { value, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
