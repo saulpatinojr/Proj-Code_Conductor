@@ -5,6 +5,12 @@ import { parse } from 'yaml';
 import { validateContract } from '../../packages/schemas/src/index.js';
 
 describe('contracts schema', () => {
+  it('keeps legacy gate records readable and validates explicit blocking policy', () => {
+    const gate = { gate: 'test', status: 'passed', evidenceIds: [] };
+    expect(validateContract('GateResult', gate).ok).toBe(true);
+    for (const blocking of [true, false]) expect(validateContract('GateResult', { ...gate, blocking }).ok).toBe(true);
+    for (const blocking of ['false', null, 1]) expect(validateContract('GateResult', { ...gate, blocking }).ok).toBe(false);
+  });
   it('contains every required v0.1 contract', () => {
     const schema = JSON.parse(readFileSync(resolve('packages/schemas/schema/contracts.schema.json'), 'utf8')) as { $defs?: Record<string, unknown> };
     for (const name of ['TaskEnvelope', 'AgentAssignment', 'AgentResult', 'Evidence', 'Finding', 'GateResult', 'ReviewResult', 'MergeDecision', 'RunManifest', 'GateCatalog']) expect(schema.$defs?.[name]).toBeDefined();

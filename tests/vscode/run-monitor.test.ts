@@ -30,16 +30,19 @@ describe('stored execution overview', () => {
     expect(progressEvents('{bad}\n', run.runId)).toEqual([]);
   });
   it('does not display ready for missing results, rejected approval or failed gates', () => {
-    const completed: RunManifest = { ...run, results: run.assignments.map((assignment) => ({ ...assignment, assignmentId: assignment.id, status: 'completed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: 'ready' })), gates: [{ gate: 'test', status: 'passed', evidenceIds: [] }], mergeDecision: { decision: 'ready', rationale: 'recorded', evidenceIds: [] } };
+    const completed: RunManifest = { ...run, results: run.assignments.map((assignment) => ({ ...assignment, assignmentId: assignment.id, status: 'completed', changes: [], tests: [], evidence: [], findings: [], risks: [], blockers: [], recommendation: 'ready' })), gates: [{ blocking: true, gate: 'test', status: 'passed', evidenceIds: [] }], mergeDecision: { decision: 'ready', rationale: 'recorded', evidenceIds: [] } };
     expect(displayedDecision(completed)).toBe('ready');
-    expect(displayedDecision({ ...completed, gates: [...completed.gates, { gate: 'advisory', status: 'failed', evidenceIds: [] }] })).toBe('ready');
+    expect(displayedDecision({ ...completed, gates: [{ gate: 'legacy', status: 'passed', evidenceIds: [] }] })).toBe('human_required');
+    expect(displayedDecision({ ...completed, gates: [{ blocking: false, gate: 'advisory', status: 'passed', evidenceIds: [] }] })).toBe('changes_required');
+    expect(displayedDecision({ ...completed, gates: [...completed.gates, { blocking: true, gate: 'other', status: 'failed', evidenceIds: [] }] })).toBe('changes_required');
+    expect(displayedDecision({ ...completed, gates: [...completed.gates, { blocking: false, gate: 'advisory', status: 'failed', evidenceIds: [] }] })).toBe('ready');
     expect(displayedDecision({ ...completed, task: { ...completed.task, risk: 'R3' } })).toBe('human_required');
     const rejected = structuredClone(completed); rejected.results[0]!.recommendation = 'changes_required';
     expect(displayedDecision(rejected)).toBe('changes_required');
     expect(displayedDecision({ ...completed, results: [] })).toBe('human_required');
     expect(displayedDecision({ ...completed, approvals: [{ status: 'denied' } as never] })).toBe('human_required');
     expect(displayedDecision({ ...completed, gates: [] })).toBe('changes_required');
-    expect(displayedDecision({ ...completed, gates: [{ gate: 'test', status: 'failed', evidenceIds: [] }] })).toBe('changes_required');
+    expect(displayedDecision({ ...completed, gates: [{ blocking: true, gate: 'test', status: 'failed', evidenceIds: [] }] })).toBe('changes_required');
     const blocked = structuredClone(completed); blocked.results[0]!.findings.push({ id: 'F', severity: 'high', summary: 'defect', blocking: true, evidenceIds: [] });
     expect(displayedDecision(blocked)).toBe('changes_required');
   });

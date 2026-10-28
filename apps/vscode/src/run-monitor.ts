@@ -46,7 +46,11 @@ export function displayedDecision(manifest: RunManifest, events: readonly Progre
   if (manifest.approvals?.some((item) => item.status !== 'approved')) return 'human_required';
   if (!manifest.assignments.length || manifest.assignments.some((assignment) => !manifest.results.some((item) => item.assignmentId === assignment.id && item.status === 'completed')) || manifest.results.some((item) => item.recommendation === 'human_required')) return 'human_required';
   if (manifest.results.some((item) => item.recommendation === 'changes_required')) return 'changes_required';
-  if (manifest.results.some((item) => item.findings.some((finding) => finding.blocking)) || !manifest.gates.some((gate) => gate.status === 'passed')) return 'changes_required';
+  if (manifest.results.some((item) => item.findings.some((finding) => finding.blocking)) || !manifest.gates.length || manifest.gates.some((gate) => gate.blocking === true && gate.status !== 'passed')) return 'changes_required';
+  // Legacy records lack the native gate-policy distinction. Do not infer it
+  // from a gate name or an advisory pass, even if the stored decision is ready.
+  if (manifest.gates.some((gate) => typeof gate.blocking !== 'boolean')) return 'human_required';
+  if (!manifest.gates.some((gate) => gate.blocking === true && gate.status === 'passed')) return 'changes_required';
   return 'ready';
 }
 
