@@ -25,6 +25,15 @@ main. The full workstreams and release validation are not complete.**
 
 ## Merged knowledge implementation
 
+Prepared separately in [PR #151](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/151):
+manifest-bound gate-output recovery and repository/trust-scoped evidence documents,
+with capture-file invalidation and cached-document revalidation. Strong recovery
+rejects altered, ambiguous, truncated and legacy combined captures; it preserves
+original files. Local validation: **73 files, 661 passed / 33 skipped**, typecheck,
+repository/bundle/default/package checks, plus **12 real installed-VSIX Linux
+checks**. Independent review found no remaining blockers; GitHub review/required
+CI and merge remain pending. See the [native evidence retest](validation/2026-10-28-evidence-recovery-smoke.md).
+
 PR #147 adds explicit existing-vault/folder selection,
 repository-bound typed metadata, local source hashes, stale/broken states,
 click-time invalidation and native editor/Obsidian navigation. It creates no

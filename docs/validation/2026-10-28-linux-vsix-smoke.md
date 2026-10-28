@@ -47,6 +47,9 @@ click-through acceptance remain outstanding.
 
 ## Repeat against an installed VSIX
 
+The current runner additionally tests manifest-bound capture recovery and native
+evidence-document invalidation. See the [12-check evidence retest](2026-10-28-evidence-recovery-smoke.md).
+
 Use an existing native VS Code installation and a disposable empty repository,
 profile, extensions folder and Code Conductor home. On headless Linux provide an
 X display (this run used Xvfb); do not run this against a customer work folder.
