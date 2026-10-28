@@ -1,6 +1,6 @@
 # ADR 0018 — Approve and deploy exact native APM artifacts
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-28
 - **Scope:** remaining #142 selection/install/update/removal workflow
 - **Related:** ADR 0013, ADR 0015, ADR 0017; D-004, D-059, D-060, D-077
@@ -29,7 +29,7 @@ resolution, manifest edits, lock generation, projections and audit ownership.
 
 ## Decision
 
-This proposal amends D-060 only for an explicitly selected, trusted local Linux
+This ADR amends D-060 only for an explicitly selected, trusted local Linux
 APM management command. The extension may launch the bounded bundled terminal
 workflow; customer-file changes additionally require D-059's live, single-use
 digest-bound approval inside that terminal. Starting the command, selecting
@@ -165,12 +165,24 @@ LF/CRLF/ident/declared-encoding bytes, and stale full-preimage rejection for bot
 replacement and deletion. Both literal and native delta records were reproduced.
 Applying with `--attr-source` crashed, so that apply configuration is excluded;
 controlled private attribute overrides worked. These findings validate the design
-choice, not an implemented customer deployment workflow. Six-target generation
-and each target's exact file allowlist still require native fixture evidence.
+choice, not an implemented customer deployment workflow. Four native symlink
+fixtures (final/intermediate, inside/outside target root, matching preimage)
+were refused by check/apply without changing sentinel files.
 
-Before acceptance/implementation, independent architecture/security review must
-challenge file ownership, Git path handling, executable/secret boundaries,
-approval binding, cold audit and interruption claims against official sources.
+Six-target native generation with both reviewed packs and three own Markdown
+skills passed all 31 audit checks with no drift or symlinks. It produced 235
+projections plus four metadata files: `.agents/skills` Markdown; Claude agents,
+commands, rules and skills Markdown; Codex agent TOML; GitHub agents,
+instructions and prompts Markdown; Kiro agents, skills and steering Markdown.
+The implementation must validate each exact native path/extension and retain
+warnings: native generation dropped unsupported Claude command `agent`
+frontmatter, so audit success is not proof of perfect cross-client semantics.
+
+Independent architecture/security review challenged file ownership, Git path
+handling, executable/secret boundaries, approval binding, cold audit and
+interruption claims against official sources. No architecture blockers remained
+after the configuration/filter, preimage, mode and identity corrections above.
+Acceptance establishes the design, not implemented deployment or release evidence.
 Implementation tests must cover fresh unrelated repositories, selected targets,
 native provenance/lock generation, same-version idempotence, version change,
 removal, shared/unowned/modified descendants, unsupported/missing hashes,
