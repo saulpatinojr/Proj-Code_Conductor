@@ -90,9 +90,166 @@
       "type": "object", "additionalProperties": false, "required": ["assignmentId", "path", "branch", "baseSha"],
       "properties": { "assignmentId": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 }, "branch": { "type": "string", "minLength": 1 }, "baseSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" } }
     },
+    "PlanReviewSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "capturedAt",
+        "specializations",
+        "providers",
+        "checks"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "specializations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "values"
+          ],
+          "properties": {
+            "source": {
+              "enum": [
+                "requested",
+                "objective_signals",
+                "none"
+              ]
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "harness",
+              "provider",
+              "surface",
+              "localClientRequired",
+              "inventory"
+            ],
+            "properties": {
+              "harness": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "surface": {
+                "type": "string"
+              },
+              "localClientRequired": {
+                "type": "boolean"
+              },
+              "inventory": {
+                "enum": [
+                  "present",
+                  "absent",
+                  "not_checked"
+                ]
+              }
+            }
+          }
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "selection",
+            "gates"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "recorded",
+                "unavailable"
+              ]
+            },
+            "selection": {
+              "enum": [
+                "explicit",
+                "detected"
+              ]
+            },
+            "gates": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "profile",
+                  "id",
+                  "command",
+                  "args",
+                  "configuredBlocking",
+                  "timeoutMs",
+                  "missing"
+                ],
+                "properties": {
+                  "profile": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "timeoutMs": {
+                    "$ref": "#/$defs/TimeoutMs"
+                  },
+                  "missing": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "executable": {
+                    "type": "string"
+                  },
+                  "prefixArgs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "configuredBlocking": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
     "RunManifest": {
       "type": "object", "additionalProperties": false, "required": ["runId", "task", "assignments", "results", "gates"],
-      "properties": { "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "worktrees": { "type": "array", "items": { "$ref": "#/$defs/WorktreeRecord" } }, "handoffs": { "type": "array", "items": { "$ref": "#/$defs/HandoffReference" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
+      "properties": { "planReview": { "$ref": "#/$defs/PlanReviewSnapshot" }, "runId": { "type": "string" }, "task": { "$ref": "#/$defs/TaskEnvelope" }, "assignments": { "type": "array", "items": { "$ref": "#/$defs/AgentAssignment" } }, "results": { "type": "array", "items": { "$ref": "#/$defs/AgentResult" } }, "gates": { "type": "array", "items": { "$ref": "#/$defs/GateResult" } }, "approvals": { "type": "array", "items": { "$ref": "#/$defs/ApprovalRecord" } }, "worktrees": { "type": "array", "items": { "$ref": "#/$defs/WorktreeRecord" } }, "handoffs": { "type": "array", "items": { "$ref": "#/$defs/HandoffReference" } }, "mergeDecision": { "$ref": "#/$defs/MergeDecision" } }
     },
     "TimeoutMs": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
     "PlainName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },

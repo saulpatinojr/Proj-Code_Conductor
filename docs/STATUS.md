@@ -150,3 +150,13 @@ explains action-specific approval boundaries while labeling absent historical
 command/readiness snapshots unknown. This presentation does not grant authority
 or complete the full #140 acceptance; future snapshot capture and desktop
 walkthroughs remain separate.
+
+## Prepared future-plan snapshots
+
+Branch `feat/plan-provenance-snapshot` adds optional version-1 planning provenance
+for future CLI plans and persisted runtime runs: actual requested/inferred routing
+hints, provided-inventory membership (not sign-in/trust), and non-executing gate
+command/prerequisite previews. Older manifests remain readable and unknown. A
+preview is provisional original-repository evidence; execution still resolves its
+worktree command plan and obtains fresh approvals. This does not enable a client,
+a gate, a package installation or deployment, and does not close #140.

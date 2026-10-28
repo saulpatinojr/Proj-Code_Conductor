@@ -3,6 +3,30 @@ import { resolve } from 'node:path';
 import { createTask, planTask } from '../../packages/runtime/src/index.js';
 
 describe('task planner', () => {
+  it('records routing provenance and inventory separately from trust without mutating the task', () => {
+    const task = createTask('Implement the AWS landing zone', 'R1', resolve('.'));
+    const before = structuredClone(task);
+    const plan = planTask(resolve('.'), task, { availableHarnesses: new Set(['codex', 'claude', 'kiro']) });
+    expect(task).toEqual(before);
+    expect(plan.planReview.version).toBe(1);
+    expect(plan.planReview.specializations.source).toBe('objective_signals');
+    expect(plan.planReview.specializations.values).toContain('aws');
+    expect(plan.planReview.providers.find((item) => item.harness === 'kiro')).toMatchObject({ inventory: 'present', localClientRequired: true });
+    expect(plan.planReview.providers.find((item) => item.harness === 'perplexity')).toMatchObject({ inventory: 'absent', localClientRequired: false });
+    expect(plan.planReview.checks.state).toBe('recorded');
+    expect(plan.planReview.checks.gates.length).toBeGreaterThan(0);
+    expect(plan.planReview.checks.gates.every((gate) => typeof gate.configuredBlocking === 'boolean' && Array.isArray(gate.missing))).toBe(true);
+    expect(planTask(resolve('.'), task).planReview.providers.every((item) => item.inventory === 'not_checked')).toBe(true);
+  });
+  it('records explicit hints and gate selection and leaves invalid preview unavailable', () => {
+    const task = createTask('GCP implementation', 'R1', resolve('.'), ['aws']);
+    const plan = planTask(resolve('.'), task, { gateProfiles: ['terraform-plan'] });
+    expect(plan.planReview.specializations).toEqual({ source: 'requested', values: ['aws'] });
+    expect(plan.planReview.checks.selection).toBe('explicit');
+    expect(plan.planReview.checks.gates.every((gate) => gate.profile === 'terraform-plan' && gate.configuredBlocking === false)).toBe(true);
+    const unavailable = planTask(resolve('.'), task, { gateProfiles: ['unknown'] });
+    expect(unavailable.planReview.checks).toEqual({ state: 'unavailable', selection: 'explicit', gates: [] });
+  });
   it('builds an R1 team with builder, reviewer, and validator', () => {
     const task = createTask('Implement a safe change', 'R1', resolve('.'));
     const plan = planTask(resolve('.'), task, { availableHarnesses: new Set(['codex', 'claude']) });

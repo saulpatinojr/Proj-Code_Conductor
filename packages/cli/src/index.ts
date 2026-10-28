@@ -209,7 +209,7 @@ function plan(args: string[]): number {
   if (!objective) { console.error('ERROR plan.objective_required: --objective is required.'); return 2; }
   if (!['R0', 'R1', 'R2', 'R3', 'R4'].includes(risk)) { console.error(`ERROR plan.invalid_risk: ${risk}`); return 2; }
   const task = createTask(objective, risk, root, listOption(args, '--specializations'));
-  console.log(JSON.stringify(planTask(root, task, { availableHarnesses: availableHarnesses() }), null, 2)); return 0;
+  console.log(JSON.stringify(planTask(root, task, { availableHarnesses: availableHarnesses(), ...(listOption(args, '--gate-profiles').length ? { gateProfiles: listOption(args, '--gate-profiles') } : {}) }), null, 2)); return 0;
 }
 
 async function run(args: string[]): Promise<number> {
