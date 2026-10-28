@@ -97,6 +97,11 @@
       {
         "command": "codeConductor.signIn",
         "title": "Code Conductor: Official Sign-in Guidance"
+      },
+      {
+        "command": "codeConductor.selectWorkspace",
+        "title": "Code Conductor: Select Repository",
+        "icon": "$(folder)"
       }
     ],
     "viewsContainers": {
@@ -157,6 +162,11 @@
           "command": "codeConductor.openDecisions",
           "when": "view == codeConductor.policy",
           "group": "navigation@1"
+        },
+        {
+          "command": "codeConductor.selectWorkspace",
+          "when": "view == codeConductor.runs",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -201,7 +211,7 @@
       },
       {
         "view": "codeConductor.runs",
-        "contents": "No runs yet. A run plans the roles a task needs, isolates the change in a worktree, has it reviewed, runs the deterministic gates and records the evidence.\n[Plan a Task](command:codeConductor.plan)\n\nExecuting a run happens in a terminal with `ccon run … --execute`, where each consequential step asks for your approval.",
+        "contents": "No runs yet. A run plans the roles a task needs, isolates the change in a worktree, has it reviewed, runs the deterministic gates and records the evidence.\n[Plan a Task](command:codeConductor.plan)\n\nExecuting a run happens in a terminal with `ccon run \u2026 --execute`, where each consequential step asks for your approval.",
         "when": "workbenchState != empty && !codeConductor.hasRuns"
       },
       {

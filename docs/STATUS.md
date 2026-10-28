@@ -126,3 +126,20 @@ installation,
 - Full product tests were run on the prepared branch; provider authentication,
   clean-profile workstation tests and published artifact attestations were not
   rerun.
+
+## Approved cockpit follow-up (2026-10-28)
+
+PR #136 is merged at `f9130e8`; the earlier prepared-change section records its
+pre-integration validation. Issues #139–#142 track the approved reliability,
+orchestration, APM and Obsidian workstreams; #137/#138 also capture Second Brain
+and sidebar requirements. These issues supersede the older open-work count.
+
+Branch `fix/cockpit-task-lifecycle` begins #139 with task-end refresh, refreshed
+open summaries, repository-scoped run navigation, explicit multi-root selection
+and effective read-only configuration. Local validation passed: typecheck, 65 test files (582 passed / 32 skipped),
+repository validation, standalone bundle smoke and VSIX packaging with a
+local-only test publisher ID. Independent focused read-only review found no
+remaining blockers after corrections. Extension bundle size is 648,167 bytes
+(previously about 335 KB), including schema validation for untrusted manifests. Installed Windows/Linux VSIX interaction
+validation remains outstanding. This is an implementation checkpoint, not issue
+completion, release approval or evidence that the other workstreams are done.

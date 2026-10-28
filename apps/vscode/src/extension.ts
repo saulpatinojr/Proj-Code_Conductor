@@ -1,8 +1,12 @@
+import { sameRepository } from './run-scope.js';
+import { stringify } from 'yaml';
+import { TaskLifecycle } from './task-lifecycle.js';
 import { discoveryInventory } from './discovery.js';
 import { loadConfiguration, type ConfigurationName } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { defaultWorktreeRoot } from '@code-conductor/git';
 import { nextActions, printable, type NextAction } from '@code-conductor/runtime/next-actions';
+import { validateContract } from '@code-conductor/schemas';
 import type { RunManifest } from '@code-conductor/schemas';
 import { nativeOperation, signInHint } from './native-actions.js';
 import { runStartedAt, runSummaryMarkdown, runTitle } from './run-summary.js';
@@ -10,6 +14,7 @@ import * as vscode from 'vscode';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import { startupSnapshot, type StartupMode } from './startup.js';
@@ -41,6 +46,9 @@ const STARTUP_FINGERPRINT_KEY = 'codeConductor.startupFingerprint';
 const STARTUP_MODE_KEY = 'codeConductor.startupMode';
 const STARTUP_DISCOVERY_KEY = 'codeConductor.startupDiscovery';
 const RUN_SCHEME = 'code-conductor-run';
+let taskLifecycle: TaskLifecycle<vscode.TaskExecution> | undefined;
+const taskOutcomes = new Map<string, string>();
+const launchedTasks = new Map<string, string>();
 
 class ConductorItem extends vscode.TreeItem {
   constructor(readonly node: Node) {
@@ -65,7 +73,12 @@ class ConductorProvider implements vscode.TreeDataProvider<ConductorItem> {
   }
 }
 
-function workspaceRoot(): string | undefined { return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath; }
+let selectedWorkspace: string | undefined;
+function workspaceRoot(): string | undefined {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (folders.length === 1) return folders[0]?.uri.fsPath;
+  return folders.find((folder) => folder.uri.fsPath === selectedWorkspace)?.uri.fsPath;
+}
 function loadYaml<T>(root: string, path: string): T | undefined {
   if (path.startsWith('config/') && path.endsWith('.yaml')) return loadConfiguration<T>(root, path.slice(7, -5) as ConfigurationName).document;
   try { return parse(readFileSync(join(root, path), 'utf8')) as T; } catch { return undefined; }
@@ -111,7 +124,7 @@ function runsDirectory(): string { return join(process.env.CODE_CONDUCTOR_HOME |
 function storedManifest(runId: string): RunManifest | undefined {
   try {
     const value = JSON.parse(readBoundedFile(join(runsDirectory(), runId, 'manifest.json'), 1048576).toString('utf8')) as Partial<RunManifest>;
-    return value && typeof value.runId === 'string' && value.task && Array.isArray(value.results) ? value as RunManifest : undefined;
+    return value.runId === runId && validateContract('RunManifest', value).ok ? value as RunManifest : undefined;
   } catch { return undefined; }
 }
 
@@ -181,8 +194,10 @@ function runNode(runId: string): Node {
 
 function runNodes(): Node[] {
   const runs = runsDirectory();
-  if (!existsSync(runs)) return [];
-  return readdirSync(runs, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().slice(0, 25).map(runNode);
+  if (!workspaceRoot()) return [{ label: 'Select a repository', icon: 'folder', command: { command: 'codeConductor.selectWorkspace', title: 'Select repository' } }];
+  const outcome = taskOutcomes.get(workspaceRoot()!);
+  const rows: Node[] = outcome ? [{ label: `Last task: ${outcome}`, icon: outcome === 'running' ? 'sync~spin' : outcome === 'succeeded' ? 'pass' : 'warning', tooltip: 'CLI process outcome; this is not a run readiness decision.' }] : [];
+  return [...rows, ...(existsSync(runs) ? readdirSync(runs, { withFileTypes: true }) : []).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().filter((id) => sameRepository(storedManifest(id)?.task.repository, workspaceRoot())).slice(0, 25).map(runNode)];
 }
 
 // ---------------------------------------------------------------- Workstation
@@ -364,19 +379,19 @@ function validRunId(runId: unknown): runId is string { return typeof runId === '
 async function showNextActions(context: vscode.ExtensionContext, runId: unknown): Promise<void> {
   if (!validRunId(runId)) return;
   const manifest = storedManifest(runId);
-  if (!manifest) { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`); return; }
+  if (!manifest || !sameRepository(manifest.task.repository, workspaceRoot())) { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`); return; }
   let actions: NextAction[];
   try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); }
   catch { await vscode.window.showWarningMessage(`Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`); return; }
   if (!actions.length) { await vscode.window.showInformationMessage(`${runId}: ${printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600, false)}`); return; }
   const picked = await vscode.window.showQuickPick(actions.map((action) => ({ label: printable(action.title, 200, false), detail: printable(action.detail, 600, false), description: action.surface.replace('_', ' '), action })), { placeHolder: `${runId}: ${printable(manifest.mergeDecision?.decision ?? 'planned', 40)}`, matchOnDetail: true });
-  if (picked) await performNextAction(context, picked.action);
+  if (picked && sameRepository(manifest.task.repository, workspaceRoot())) await performNextAction(context, picked.action);
 }
 
 async function performRunAction(context: vscode.ExtensionContext, runId: unknown, index: unknown): Promise<void> {
   if (!validRunId(runId) || typeof index !== 'number' || !Number.isInteger(index) || index < 0) return;
   const manifest = storedManifest(runId);
-  if (!manifest) return;
+  if (!manifest || !sameRepository(manifest.task.repository, workspaceRoot())) return;
   let actions: NextAction[];
   try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { return; }
   const action = actions[index];
@@ -385,6 +400,7 @@ async function performRunAction(context: vscode.ExtensionContext, runId: unknown
 
 async function openRunSummary(runId: unknown): Promise<void> {
   if (!validRunId(runId)) return;
+  if (!sameRepository(storedManifest(runId)?.task.repository, workspaceRoot())) return;
   const uri = vscode.Uri.parse(`${RUN_SCHEME}:/${runId}.md`);
   const document = await vscode.workspace.openTextDocument(uri);
   await vscode.window.showTextDocument(document, { preview: true });
@@ -395,12 +411,16 @@ async function openRunSummary(runId: unknown): Promise<void> {
 class RunSummaryProvider implements vscode.TextDocumentContentProvider {
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
-  refresh(): void { /* documents are regenerated on open */ }
+  refresh(): void {
+    for (const document of vscode.workspace.textDocuments) {
+      if (document.uri.scheme === RUN_SCHEME) this.changed.fire(document.uri);
+    }
+  }
   provideTextDocumentContent(uri: vscode.Uri): string {
     const runId = uri.path.replace(/^\//, '').replace(/\.md$/, '');
     if (!validRunId(runId)) return 'Not a run.';
     const manifest = storedManifest(runId);
-    if (!manifest) return `Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`;
+    if (!manifest || !sameRepository(manifest.task.repository, workspaceRoot())) return `Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`;
     let actions: NextAction[] = [];
     try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { /* summary without next actions */ }
     return runSummaryMarkdown(manifest, actions);
@@ -419,9 +439,33 @@ async function showSignIn(root: string | undefined, harnessId: unknown): Promise
   if (choice === 'Run Doctor') await vscode.commands.executeCommand('codeConductor.doctor');
 }
 
+export class ConfigurationProvider implements vscode.TextDocumentContentProvider {
+  private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  readonly onDidChange = this.changed.event;
+  refresh(): void {
+    for (const document of vscode.workspace.textDocuments) {
+      if (document.uri.scheme === 'code-conductor-config') this.changed.fire(document.uri);
+    }
+  }
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    const name = uri.path.replace(/^\//, '').replace(/\.yaml$/, '') as ConfigurationName;
+    if (!['roles', 'risk', 'capabilities', 'authorities', 'gates', 'mcp-catalog', 'references'].includes(name)) return 'Unsupported configuration.';
+    const root = uri.query;
+    if (!vscode.workspace.workspaceFolders?.some((folder) => folder.uri.fsPath === root)) return 'Repository is no longer open.';
+    try {
+      const loaded = loadConfiguration(root, name, { workspaceOverrides: vscode.workspace.isTrusted });
+      return loaded.sources.map((source) => `# ${source.source}: ${source.path} (SHA-256 ${source.sha256})`).join('\n') + '\n# Effective configuration (read-only)\n' + stringify(loaded.document);
+    } catch (error) { return `# Configuration unavailable: ${String(error).replace(/[\r\n]/g, ' ')}`; }
+  }
+}
 async function openWorkspaceFile(path: unknown, relative: unknown): Promise<void> {
+  if (typeof relative === 'string' && /^config\/(roles|risk|capabilities|authorities|gates|mcp-catalog|references)\.yaml$/.test(relative)) {
+    const uri = vscode.Uri.from({ scheme: 'code-conductor-config', path: `/${relative.slice(7)}`, query: workspaceRoot() ?? '' });
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true });
+    return;
+  }
   if (typeof path === 'string' && existsSync(path)) { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path)); return; }
-  await vscode.window.showInformationMessage(`${typeof relative === 'string' ? relative : 'That file'} is not in this workspace; Code Conductor is using its packaged default.`);
+  await vscode.window.showInformationMessage(`${typeof relative === 'string' ? relative : 'That file'} is absent. Check repository setup; optional APM files require explicit installation.`);
 }
 
 async function runCli(context: vscode.ExtensionContext, root: string, args: string[], title: string): Promise<void> {
@@ -434,9 +478,12 @@ async function runCli(context: vscode.ExtensionContext, root: string, args: stri
     const spec = cliProcessSpec(root, runtime, args, vscode.workspace.isTrusted);
     const execution = new vscode.ProcessExecution(spec.executable, spec.args, { cwd: spec.cwd });
     const folder = vscode.workspace.workspaceFolders?.find((item) => item.uri.fsPath === root);
-    const task = new vscode.Task({ type: 'code-conductor', operation: args[0] ?? 'unknown' }, folder ?? vscode.TaskScope.Workspace, title, 'Code Conductor', execution);
+    const launchId = randomUUID();
+    const task = new vscode.Task({ type: 'code-conductor', operation: args[0] ?? 'unknown', launchId }, folder ?? vscode.TaskScope.Workspace, title, 'Code Conductor', execution);
     task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Dedicated, echo: false };
-    await vscode.tasks.executeTask(task);
+    launchedTasks.set(launchId, root);
+    try { await vscode.tasks.executeTask(task); }
+    catch (error) { launchedTasks.delete(launchId); throw error; }
   } catch (error) {
     await vscode.window.showErrorMessage(error instanceof Error ? error.message : 'Code Conductor command failed to start.');
   }
@@ -484,6 +531,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let startupStatus = await initializeStartup(context);
   context.subscriptions.push({ dispose: () => startupStatus.dispose() });
 
+  const summaries = new RunSummaryProvider();
+  const configurations = new ConfigurationProvider();
   const providers = {
     runs: new ConductorProvider(runNodes),
     workstation: new ConductorProvider(() => workstationNodes(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY))),
@@ -493,14 +542,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerTreeDataProvider('codeConductor.runs', providers.runs),
     vscode.window.registerTreeDataProvider('codeConductor.workstation', providers.workstation),
     vscode.window.registerTreeDataProvider('codeConductor.policy', providers.policy),
-    vscode.workspace.registerTextDocumentContentProvider(RUN_SCHEME, new RunSummaryProvider()),
+    vscode.workspace.registerTextDocumentContentProvider(RUN_SCHEME, summaries),
+    vscode.workspace.registerTextDocumentContentProvider('code-conductor-config', configurations),
   );
-  await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().length > 0);
+  await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().some((node) => node.contextValue === 'run'));
 
   const refreshViews = async (): Promise<void> => {
+    summaries.refresh();
+    configurations.refresh();
     Object.values(providers).forEach((provider) => provider.refresh());
-    await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().length > 0);
+    await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().some((node) => node.contextValue === 'run'));
   };
+  taskLifecycle = new TaskLifecycle((taskRoot, outcome) => {
+    taskOutcomes.set(taskRoot, outcome);
+    void refreshViews();
+    if (outcome === 'failed') void vscode.window.showWarningMessage('Code Conductor task failed. See its terminal output for diagnostics.');
+    if (outcome === 'cancelled') void vscode.window.showInformationMessage('Code Conductor task ended without an exit status; completion is unverified.');
+  });
+  context.subscriptions.push(
+    vscode.tasks.onDidStartTask((event) => {
+      const launchId: unknown = event.execution.task.definition.launchId;
+      if (typeof launchId !== 'string') return;
+      const taskRoot = launchedTasks.get(launchId);
+      launchedTasks.delete(launchId);
+      if (taskRoot) taskLifecycle?.start(event.execution, taskRoot);
+    }),
+    vscode.tasks.onDidEndTaskProcess((event) => taskLifecycle?.end(event.execution, event.exitCode)),
+    vscode.tasks.onDidEndTask((event) => taskLifecycle?.end(event.execution, undefined)),
+    { dispose: () => { taskLifecycle = undefined; } },
+  );
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.refresh', async () => {
     const r = root();
     if (r && vscode.workspace.isTrusted) {
@@ -512,6 +582,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     startupStatus = await initializeStartup(context);
     await refreshViews();
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.selectWorkspace', async () => {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const picked = await vscode.window.showQuickPick(folders.map((folder) => ({ label: folder.name, description: folder.uri.fsPath })), { placeHolder: 'Select the repository for Code Conductor' });
+    if (!picked) return;
+    selectedWorkspace = picked.description;
+    await vscode.commands.executeCommand('codeConductor.refresh');
+  }));
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { void vscode.commands.executeCommand('codeConductor.refresh'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.refreshRuns', refreshViews));
   context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { void vscode.commands.executeCommand('codeConductor.refresh'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.doctor', async () => { const r = root(); if (r) await runCli(context, r, ['doctor', '.'], 'Code Conductor Doctor'); }));
@@ -525,6 +603,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       { label: 'R3', description: 'high impact: research, spec, build, challenge, security, gates, GitHub, finalizer, human approval' },
       { label: 'R4', description: 'destructive or production: R3 plus approval before any side effect' },
     ], { placeHolder: 'Risk class' }); if (!risk) return;
+    if (r !== root()) { await vscode.window.showWarningMessage('Repository selection changed. Start planning again for the selected repository.'); return; }
     await runCli(context, r, ['plan', '--repo', '.', '--risk', risk.label, '--objective', objective], 'Code Conductor Plan');
     await refreshViews();
   }));
