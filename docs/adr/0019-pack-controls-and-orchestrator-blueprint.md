@@ -31,6 +31,13 @@ its illustrative instructions as higher-priority execution policy.
    name/version/source compatibility and pass the selection through ADR 0018's
    exact native artifact preview/approval/application/audit flow. Do not install
    the whole catalog or start an AI/provider merely to populate the picker.
+   Installed-version identity is mirror + virtual package path + declared version
+   + resolved commit; many different current packs share one commit, so a commit
+   alone must never hide another pack. Bind the catalog revision/hash, tag-to-
+   commit resolution and package name/version/target metadata at that commit.
+   Root catalog entries identify packs/current releases; query validated version
+   tags for historical versions. Declared targets are not verified runtime/native
+   agent capabilities and cannot activate a deferred adapter.
 2. **−** enters scoped removal editing. **×** toggles pending removal with undo;
    Cancel discards the draft. Pending selections bind the original repository
    and installed pack/version digest. External pack changes invalidate the draft
@@ -85,7 +92,7 @@ specialist definitions, whose single source remains Agent Packs (D-076).
 | `.agent/INSTRUCTIONS.md` | Rendered first-party collaboration/handoff protocol, subordinate to governing policy. |
 | `.agent/GUARDRAILS.md` | Current policy summary/source links; cannot grant or weaken permissions. |
 | `.agent/SKILLS.md` | Index of actual APM skills and source versions; no copied specialist instruction forks. |
-| `.agent/TOOLS.md` | Actual tools, available surfaces and distinct discovered/authenticated/trusted states. |
+| `.agent/TOOLS.md` | Nonsecret declared tools/surfaces and provenance; current operational readiness remains a private runtime check. |
 | `.agent/CONTEXT.md` | Current project/phase/task facts with provenance; unknowns labeled. |
 | `.agent/MEMORY.md` | Durable confirmed preferences/decisions/lessons and citations; preserve human prose. |
 | `.agent/KNOWLEDGE.md` | Curated source links/ADRs; optional verified knowledge references. |
@@ -108,7 +115,7 @@ conflicts require an explicit merge/export proposal, not overwrite. Apply the
 whole approved before/after file digest through ADR 0018's guarded artifact path;
 file types/modes/absence and fresh context still bind the decision.
 
-No credentials, native auth state, private run transcripts or automatic vault sync
+No credentials, account/session/authentication/trust observations, private run transcripts or automatic vault sync
 enter these files. Memory is curated context, not perfect recall or execution
 authority. Per-run private evidence/HandoffPackets stay in their existing store.
 
@@ -151,12 +158,25 @@ and available roles, native surfaces and authority. It cannot remove risk-requir
 reviewers/validators or bypass current harness trust/approval checks.
 
 Verify the blueprint's pack/source digest against current installation and validate
-its schema before use. A stale/invalid blueprint cannot route to removed or
+its schema before use. Machine-blueprint and managed-template content hashes must
+also match the repository-bound owner-private accepted review/application receipt,
+including relevant policy/source inputs. A schema-valid hand edit or checked-in
+blueprint is not accepted merely because its pins match. Missing/mismatched
+receipts trigger pending review/fallback; they never replay an old approval.
+Human memory/context remain subordinate data, and material changes invalidate
+any cached analysis that used them. A stale/invalid blueprint cannot route to removed or
 unsupported agents. Show the pending state and use only an honest permitted
 generic/manual fallback, or block when a required specialist is unavailable.
 Read relevant SOUL/context/memory data losslessly under existing safe-read and
 source-disclosure rules. Native invocation must be verified for the actual client;
 unsupported binding remains manual/unavailable rather than pretending an agent ran.
+
+Current generic `${role}-${harness}` assignments do not prove that a named
+specialist ran. Implement and validate version-specific native binding before
+making that claim; preserve existing client-setting restrictions (for example
+Claude's user-only setting sources) instead of enabling project hooks/config to
+load agents implicitly. A verified binding or explicit manual handoff must identify
+the actual specialist/source; generic client execution is labeled generic.
 
 ## Consequences
 

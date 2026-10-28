@@ -37,6 +37,18 @@ packs, Workspace Trust, prior chat approval and audit success are not installati
 approval. No provider, MCP, hook, paid API, sign-in, commit, push or PR permission
 is conferred.
 
+For the new management workflow only, it also supersedes ADR 0017/D-079's fixed
+two-pack source restriction with validated on-demand canonical-catalog selection.
+The existing two-pack preview remains restricted until the new path is implemented
+and validated. Discovery yields an untrusted candidate, not reviewed provenance
+or compatibility. A full commit proves immutability only. Require canonical catalog
+membership/provenance, matching package/version/target metadata, native policy/
+integrity checks, secret/executable/path screening and explicit exact-artifact
+review/approval before materialization is accepted. Named runtime eligibility
+additionally requires ADR 0019's approved team review, deterministic validation
+and matching private acceptance receipt. Materialized files alone do not certify
+a specialist or authorize native execution.
+
 1. **Bounded supported inputs.** The owner's clarified **+** action discovers
    pack versions on demand from the canonical mirror's catalog. Validate catalog
    provenance and package/version metadata, then resolve each selected version
