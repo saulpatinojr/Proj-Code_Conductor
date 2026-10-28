@@ -155,3 +155,13 @@ write workflow. Local validation passed: typecheck, **78 files / 703 passed /
 Independent read-only review found no blockers; installed Obsidian/desktop and
 whole-workstream acceptance remain separate. The associated PR records packaging
 and GitHub gate evidence.
+
+## Prepared plan-review details
+
+Branch `feat/plan-review-details` adds a read-only plan-detail entry and summary
+fields for stored requested specializations, acceptance criteria/constraints,
+stance, billing lane and chosen versus result-reported provider identities. It
+explains action-specific approval boundaries while labeling absent historical
+command/readiness snapshots unknown. This presentation does not grant authority
+or complete the full #140 acceptance; future snapshot capture and desktop
+walkthroughs remain separate.
