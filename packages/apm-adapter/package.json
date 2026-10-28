@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "yaml": "^2.9.1",
-    "@code-conductor/core": "0.1.0"
+    "@code-conductor/core": "0.1.0",
+    "@code-conductor/context-optimizer": "0.1.0"
   }
 }

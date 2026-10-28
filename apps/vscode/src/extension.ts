@@ -315,6 +315,7 @@ function packNodes(root: string): Node[] {
     { label: 'Own skills', description: ownSkills === undefined ? 'unavailable' : String(ownSkills), tooltip: 'Repository-authored skill directories; not an audit or trust claim.', icon: 'extensions', command: inspect },
     ...inventory.packs.map((pack): Node => ({ label: printable(pack.name, 80, false), description: `${pack.state} · ${pack.commit?.slice(0, 12) ?? 'no locked commit'}`, tooltip: `Declared: ${printable(pack.reference, 300, false)}. Lock association only; audit unknown.`, icon: pack.state === 'mismatch' || pack.state === 'unsupported' ? 'warning' : 'package', command: inspect })),
     { label: 'Targets', description: inventory.targets.map((target) => printable(target, 40)).join(', ') || 'none', icon: 'symbol-array', command: openFile(root, 'apm.yml', 'Open apm.yml') },
+    { label: 'Preview pack projections', description: 'optional · Codex · Linux', tooltip: 'Select reviewed public packs and compare their staged Codex projections. Downloads happen only on request. Repository files are unchanged; installation is separate.', icon: 'diff', command: { command: 'codeConductor.previewPacks', title: 'Preview pack projections' } },
     { label: 'Audit', description: 'unknown · run explicitly', tooltip: 'Run the existing bounded APM audit in a terminal. Audit does not install packs or authorize providers.', icon: 'shield', command: { command: 'codeConductor.auditPacks', title: 'Audit packs' } },
     ...inventory.diagnostics.map((message): Node => ({ label: 'APM metadata needs attention', tooltip: printable(message, 500, false), icon: 'warning', command: inspect })),
     { label: 'Pack provenance', description: 'read-only', icon: 'info', command: inspect },
@@ -723,6 +724,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     packs.refresh();
     // Regenerate a new snapshot on each request; never claim an old audit or live state.
     await vscode.window.showTextDocument(document, { preview: true });
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.previewPacks', async () => {
+    const r = root(); if (!r) return;
+    if (!vscode.workspace.isTrusted || vscode.env.remoteName || process.platform !== 'linux') { await vscode.window.showWarningMessage('Pack preview requires a trusted local Linux workspace, APM 0.33.0 and bubblewrap.'); return; }
+    const selected = await vscode.window.showQuickPick([
+      { label: 'TypeScript distinguished engineer', pack: 'typescript-distinguished-engineer-pack', description: 'Reviewed mirror · 16f41836d65c · Codex projections' },
+      { label: 'GitHub expert engineer', pack: 'github-expert-engineer-pack', description: 'Reviewed mirror · 16f41836d65c · Codex projections' },
+    ], { canPickMany: true, title: 'Preview public pack downloads; repository files stay unchanged', ignoreFocusOut: true });
+    if (!selected?.length || !sameRepository(root(), r) || !vscode.workspace.isTrusted || vscode.env.remoteName) return;
+    await runCli(context, r, ['apm-preview', '--repo', r, '--packs', selected.map((item) => item.pack).join(',')], 'Code Conductor Pack Projection Preview');
   }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.auditPacks', async () => {
     const r = root(); if (r) await runCli(context, r, ['apm-audit', '.'], 'Code Conductor APM Audit');

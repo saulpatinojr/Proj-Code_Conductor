@@ -87,3 +87,5 @@ export {
   type NativeKind,
   type NativeScope,
 } from './inventory.js';
+
+export { PREVIEW_PACKS, previewPacks, comparePackProjections, type PreviewPack, type ProjectionPreview, type ProjectionChange } from './projection-preview.js';

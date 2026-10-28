@@ -29,3 +29,5 @@ Each ADR should include:
 An accepted ADR that changes a locked baseline must update `docs/DECISIONS.md` in the same PR. Also update `AGENTS.md`, configuration, tests, `STARTER.md`, or implementation docs when they become inaccurate.
 
 Do not use an ADR to justify bypassing a failing deterministic gate. Fix the problem or explicitly redesign the gate with evidence.
+
+- [ADR 0017 — Write-isolated selected-pack projection previews](0017-write-isolated-pack-projection-preview.md)

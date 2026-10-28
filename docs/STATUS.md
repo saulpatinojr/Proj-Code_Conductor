@@ -48,6 +48,16 @@ is not validated here.
 
 ## APM evidence and remaining lifecycle
 
+Prepared on `feat/apm-exact-preview`: explicit fixed-catalog Codex projection
+comparison in a Linux bubblewrap write boundary (ADR 0017). The pinned native APM
+run passed staged audit and compared **54 unchanged files** for both reviewed
+packs against this repository. Local validation: **72 files, 645 passed / 33
+skipped**, typecheck, repository validation, standalone bundle/default smoke and
+test-publisher VSIX packaging passed. Independent critical review found and
+verified fixes for shared legacy ownership and pre-creation staging containment.
+GitHub review/required CI and merge are still pending for this prepared slice.
+This is not an installed-VSIX desktop walkthrough or a repository installation.
+
 The official APM 0.33.0 Linux archive was checked against its published SHA-256.
 `apm targets`, native audit and the built CLI audit passed all 31 checks with no
 drift against this repository's unchanged package source/projections.
@@ -55,9 +65,11 @@ drift against this repository's unchanged package source/projections.
 A disposable single-pack Codex fixture confirmed that native installation creates
 agent/skill projections, a lock and `.gitignore`. Native `install --dry-run` lists
 packages but explicitly omits per-package stale-file cleanup; it is not an exact
-projected-file diff. Selection, isolated exact-diff generation, conflict/ownership
-checks, action-bound install approval, deployment-correlated audit evidence and
-safe update/removal remain required under #142. See [APM workflows](APM-WORKFLOWS.md).
+projected-file diff. The prepared comparison adds fixed-catalog selection and
+exact selected Codex projection/conflict evidence. Full native diffs including
+manifest/lock/local-source/all-target merging, action-bound install approval,
+deployment-correlated audit evidence and safe update/removal remain required
+under #142. See [APM workflows](APM-WORKFLOWS.md).
 
 ## Active delivery work
 

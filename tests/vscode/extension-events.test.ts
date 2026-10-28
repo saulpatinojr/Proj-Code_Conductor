@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const host = vi.hoisted(() => ({
-  trusted: true, remoteName: undefined as string | undefined, dialogs: [] as any[], picks: [] as any[], opened: [] as any[], folders: [] as any[], commands: new Map<string, (...args: any[]) => any>(), trees: new Map<string, any>(), listeners: new Map<string, (event: any) => any>(), changes: [] as any[],
+  trusted: true, remoteName: undefined as string | undefined, dialogs: [] as any[], picks: [] as any[], opened: [] as any[], tasks: [] as any[], folders: [] as any[], commands: new Map<string, (...args: any[]) => any>(), trees: new Map<string, any>(), listeners: new Map<string, (event: any) => any>(), changes: [] as any[],
 }));
 vi.mock('vscode', async () => {
   const { URI } = await import('vscode-uri');
@@ -29,7 +29,7 @@ vi.mock('vscode', async () => {
       createStatusBarItem: () => ({ show() {}, dispose() {} }),
       registerTreeDataProvider: (id: string, tree: any) => { host.trees.set(id, tree); return disposable(); },
       showOpenDialog: async () => host.dialogs.shift(),
-      showQuickPick: async (items: any[]) => { const value = host.picks.shift(); return value === 'first' ? items[0] : value; },
+      showQuickPick: async (items: any[]) => { const value = host.picks.shift(); return typeof value === 'function' ? value(items) : value === 'first' ? items[0] : value; },
       showTextDocument: async () => {},
       showErrorMessage: vi.fn(), showWarningMessage: vi.fn(), showInformationMessage: vi.fn(),
     },
@@ -40,6 +40,7 @@ vi.mock('vscode', async () => {
     tasks: {
       onDidStartTask: listen('start'), onDidEndTaskProcess: listen('processEnd'), onDidEndTask: listen('end'),
       executeTask: async (task: any) => {
+        host.tasks.push(task);
         // VS Code may clone the Task over RPC. Events can arrive before this promise resolves.
         const execution = { task: { definition: { ...task.definition } } };
         host.listeners.get('start')!({ execution });
@@ -58,7 +59,7 @@ afterEach(() => {
   for (const item of subscriptions) item.dispose(); subscriptions = [];
   if (temp) rmSync(temp, { recursive: true, force: true });
   host.folders = []; host.commands.clear(); host.trees.clear(); host.listeners.clear(); host.changes = [];
-  host.trusted = true; host.remoteName = undefined; host.dialogs = []; host.picks = []; host.opened = [];
+  host.trusted = true; host.remoteName = undefined; host.dialogs = []; host.picks = []; host.opened = []; host.tasks = [];
   vi.restoreAllMocks();
   vi.unstubAllEnvs(); vi.useRealTimers();
 });
@@ -79,6 +80,26 @@ async function setup(withStart: boolean) {
 }
 function rows() { return host.trees.get('codeConductor.runs').getChildren().map((item: any) => item.node); }
 describe('extension task, evidence and knowledge events', () => {
+
+  it.skipIf(process.platform !== 'linux')('starts pack preview only after explicit selection and rechecks trust/scope after selection', async () => {
+    await setup(false); expect(host.tasks).toHaveLength(0);
+    await host.commands.get('codeConductor.previewPacks')!(); expect(host.tasks).toHaveLength(0);
+    host.picks = [(items: any[]) => { host.trusted = false; return [items[0]]; }];
+    await host.commands.get('codeConductor.previewPacks')!(); expect(host.tasks).toHaveLength(0);
+    host.trusted = true;
+    host.picks = [(items: any[]) => { host.folders = []; return [items[0]]; }];
+    await host.commands.get('codeConductor.previewPacks')!(); expect(host.tasks).toHaveLength(0);
+  });
+  it.skipIf(process.platform !== 'linux')('launches one preview task for the selected reviewed packs', async () => {
+    await setup(false); host.picks = [(items: any[]) => [items[1]]];
+    await host.commands.get('codeConductor.previewPacks')!(); expect(host.tasks).toHaveLength(1);
+  });
+  it('blocks pack preview in Restricted Mode and on remote hosts', async () => {
+    await setup(false); host.trusted = false;
+    await host.commands.get('codeConductor.previewPacks')!();
+    host.trusted = true; host.remoteName = 'ssh-remote';
+    await host.commands.get('codeConductor.previewPacks')!(); expect(host.tasks).toHaveLength(0);
+  });
 
   it.skipIf(process.platform !== 'linux')('connects without scanning, falls back to the editor, and disconnects without deleting notes', async () => {
     const scan = vi.spyOn(knowledge, 'indexVault');
