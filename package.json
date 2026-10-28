@@ -24,6 +24,11 @@
     "package:vscode": "npm run build && node scripts/package-vscode.mjs",
     "defaults:package": "node scripts/package-defaults.mjs"
   },
+  "overrides": {
+    "@azure/identity": {
+      "@azure/msal-node": "7.1.2"
+    }
+  },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
