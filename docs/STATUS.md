@@ -180,3 +180,7 @@ APM inventory local validation before integration: 66 test files, 588 passed /
 32 skipped; typecheck, repository validation, standalone bundle smoke and local
 VSIX packaging passed. Focused independent review found no remaining blockers.
 Integration with merged PR #144 requires fresh validation.
+
+After integration with PR #144: 68 test files, 597 passed / 32 skipped;
+typecheck, repository validation and standalone bundle smoke passed. The source
+conflicts preserved both execution-monitor and pack-inventory behavior.
