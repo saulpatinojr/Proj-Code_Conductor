@@ -1,17 +1,18 @@
+import { providerReadinessProblem } from './provider-readiness.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AgentAssignment, AgentResult, ApprovalRecord, ApprovalRequest, HandoffPacket, MergeDecision, RunManifest, TaskEnvelope } from '@code-conductor/schemas';
 import { buildHandoffPacket, describeHandoff, handoffExpired, renderHandoff, validHandoffTtl } from './handoff.js';
-import type { ClientAuthStatus, HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
-import { configurationInsideRepository, createBuiltinAdapters, processEnding, processSucceeded } from '@code-conductor/adapters';
+import type { HarnessAdapter, HarnessExecutionRequest } from '@code-conductor/adapters';
+import { createBuiltinAdapters, processEnding, processSucceeded } from '@code-conductor/adapters';
 import { RunStore } from '@code-conductor/evidence';
 import { blockingGateFailure, detectGateProfiles, executeGatePlan, planGates, type CommandExecutor, type GateExecution, type PlannedGate } from '@code-conductor/gates';
 import { assertAgentWorktree, assertSafeChangedPaths, commitAgentChanges, commitsSince, controlStateChanges, gitControlState, headTree, isAncestor, isSensitiveRepositoryPath, MAX_SCAN_BYTES, newGitlinks, redactSecrets, removeCleanAgentWorktree, scanForNewSecrets, scanHistoryForNewSecrets, treeChangedFiles, workingTreeState, WorktreeManager, worktreeTips, type GitControlState, type WorktreeHandle, type WorktreeTips } from '@code-conductor/git';
 import { ApprovalGate, approvalBlocker, type Approver } from '@code-conductor/policy';
 import { externalAwaitingResult, parseAgentResult } from './result.js';
 import { planTask, roleInstructions, type TaskPlan } from './planner.js';
-import { CLIENT_BILLS_SEPARATELY, CLIENT_NOT_SIGNED_IN, GIT_CONTROL_CHANGED } from './next-actions.js';
+import { GIT_CONTROL_CHANGED } from './next-actions.js';
 import { shortList, summarizeFiles } from './change-summary.js';
 import { gateOutputRenderer, type ToolOutputMode } from './tool-output.js';
 
@@ -354,39 +355,9 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
         manifest.results.push(result); pendingExternal.push(assignment); save(); continue;
       }
 
-      if (assignment.surface && adapter.executionSurface !== assignment.surface) {
-        manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} is configured for ${assignment.surface}, but the installed adapter exposes ${adapter.executionSurface}.`), status: 'blocked', recommendation: 'changes_required' });
-        save();
-        continue;
-      }
-
-      const trustMode = assignment.authority.includes('modify_worktree') ? 'modify' : 'read';
-      const clientVersion = adapter.version();
-      if (!options.isHarnessTrusted?.(assignment.harness, trustMode, assignment.surface ?? adapter.executionSurface, clientVersion)) {
-        manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} surface ${assignment.surface ?? adapter.executionSurface} has not passed Code Conductor workstation ${trustMode} smoke validation${clientVersion ? ` for its installed version (${clientVersion})` : ''}.`), status: 'blocked', recommendation: 'changes_required' });
-        save(); continue;
-      }
-      // A client whose user configuration lives in the repository would take the
-      // repository's hooks, env block and credential helper as "user" settings, which the
-      // sign-in probe cannot see.
-      const inside = configurationInsideRepository(assignment.harness, root);
-      if (inside.length) {
-        manifest.results.push({ ...externalAwaitingResult(assignment, `Harness ${assignment.harness} would read its user configuration from inside the repository: ${inside.join(', ')}. The repository could then supply the client's settings (hooks, environment, credential helper) after the sign-in check. Point it outside the repository. The provider was not started.`), status: 'blocked', recommendation: 'changes_required' });
-        save(); continue;
-      }
-      // Installed and trusted is not signed in: ask the official client, before any
-      // worktree or approval, and never start a provider that is not signed in or would
-      // bill an assignment meant for a subscription separately.
-      const signInProblem = adapter.authStatus ? await (async () => {
-        let auth: ClientAuthStatus;
-        try { auth = await adapter.authStatus!(); } catch { auth = { state: 'unknown', billing: 'unknown', command: [adapter.command ?? assignment.harness] }; }
-        const command = `\`${auth.command.join(' ')}\``;
-        if (auth.state !== 'authenticated') return `Harness ${assignment.harness} ${CLIENT_NOT_SIGNED_IN}: ${command} ${auth.state === 'unauthenticated' ? 'reports that it is not signed in' : 'did not report a sign-in state Code Conductor recognises'}. Sign in with the official client (\`ccon doctor\` shows how), then run the task again. The provider was not started.`;
-        if (assignment.billingChannel === 'subscription' && auth.billing !== 'subscription') return `Harness ${assignment.harness} ${auth.billing === 'separately_billed' ? 'would use' : 'may use'} ${CLIENT_BILLS_SEPARATELY} (${auth.method ?? 'unrecognised method'}, from ${command}) for an assignment billed to the subscription (subscription_first). Sign in with your subscription in the official client, or remove that credential from the client's own configuration. The provider was not started.`;
-        return undefined;
-      })() : undefined;
-      if (signInProblem) {
-        manifest.results.push({ ...externalAwaitingResult(assignment, signInProblem), status: 'blocked', recommendation: 'changes_required' });
+      const readinessProblem = await providerReadinessProblem(root, assignment, adapter, options.isHarnessTrusted);
+      if (readinessProblem) {
+        manifest.results.push({ ...externalAwaitingResult(assignment, readinessProblem), status: 'blocked', recommendation: 'changes_required' });
         save(); continue;
       }
 
