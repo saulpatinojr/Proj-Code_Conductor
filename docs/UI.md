@@ -67,9 +67,13 @@ coalesced refresh, including runs initiated outside the extension.
 
 A partial execution with no final decision is incomplete. The cockpit refuses a
 green display when results, mandatory human approval or blocking findings
-contradict a stored ready claim. Failed advisory gates alone do not override the
-runtime decision: legacy gate records do not carry the blocking flag. Recorded
-approvals are historical evidence and never authorize a new action.
+contradict a stored ready claim. New native gate results retain their effective
+blocking/advisory policy. A green display requires a passed blocking gate and no
+failed or skipped blocking gate; failed advisory gates alone do not override it.
+Legacy records remain readable, but unknown blocking policy displays
+`human_required` instead of inferring readiness from a name or a passing advisory
+check. Gate rows in the summary label this distinction. Recorded approvals are
+historical evidence and never authorize a new action.
 
 Run enumeration reads at most the latest 1,000 record directories per refresh
 and displays up to 25 matching runs. A visible limit notice explains older-record

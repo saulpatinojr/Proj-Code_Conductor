@@ -14,7 +14,7 @@ const manifest: RunManifest = {
     { taskId: 'T-1', assignmentId: 'A-1', agentId: 'builder-codex', role: 'builder', stance: 'constructive', provider: 'openai', harness: 'codex', billingChannel: 'subscription', status: 'completed', changes: ['tests/x.test.ts'], tests: [], evidence: [], findings: [], risks: ['Full validation incomplete in the sandbox'], blockers: [], recommendation: 'review', notVerified: ['VS Code bundle build'] },
     { taskId: 'T-1', assignmentId: 'A-2', agentId: 'reviewer-claude', role: 'reviewer', stance: 'critical', provider: 'anthropic', harness: 'claude', billingChannel: 'subscription', status: 'completed', changes: [], tests: [], evidence: [], findings: [{ id: 'F-1', severity: 'low', summary: 'No boundary case at ten entries\u001b[2J', evidenceIds: [], blocking: false }], risks: [], blockers: [], recommendation: 'ready' },
   ],
-  gates: [{ gate: 'unit-tests', status: 'passed', evidenceIds: ['E-1'], summary: 'npm test passed.' }, { gate: 'typecheck', status: 'failed', evidenceIds: ['E-2'] }],
+  gates: [{ blocking: true, gate: 'unit-tests', status: 'passed', evidenceIds: ['E-1'], summary: 'npm test passed.' }, { blocking: false, gate: 'typecheck', status: 'failed', evidenceIds: ['E-2'] }],
   approvals: [{ requestDigest: 'a'.repeat(64), action: 'commit', runId: 'CC-20261020054327-50bb27f7', taskId: 'T-1', assignmentId: 'A-1', recipient: 'git:cc/T-1/builder-codex', revision: 'b'.repeat(40), status: 'approved', approver: 'interactive-terminal', requestedAt: '2026-10-20T05:50:00Z', decidedAt: '2026-10-20T05:50:04Z', expiresAt: '2026-10-20T06:50:00Z', summary: 'Commit on cc/T-1/builder-codex' }],
   worktrees: [{ assignmentId: 'A-1', path: 'C:\\w\\builder-codex', branch: 'cc/T-1/builder-codex', baseSha: 'c'.repeat(40) }],
   mergeDecision: { decision: 'ready', rationale: 'Required assignments completed and blocking deterministic gates passed.', evidenceIds: ['E-1'] },
@@ -35,7 +35,7 @@ describe('run summary document', () => {
     expect(text).toContain('**Decision:** `ready`');
     expect(text).toContain('| builder | builder-codex | completed | review |');
     expect(text).toContain('| reviewer | reviewer-claude | completed | ready |');
-    expect(text).toContain('✅ `unit-tests` passed — npm test passed.');
+    expect(text).toContain('✅ `unit-tests` passed (blocking) — npm test passed.');
     expect(text).toContain('❌ `typecheck` failed');
     expect(text).toContain('**Open a draft pull request** — ccon pr previews the branch');
     expect(text).toContain('`ccon pr --run CC-20261020054327-50bb27f7 --assignment A-1`');

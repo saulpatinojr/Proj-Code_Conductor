@@ -97,8 +97,9 @@ describe('declarative gate profiles', () => {
     const advisoryRan = await executeGatePlan(root, [{ ...planned({ id: 'plan', command: process.execPath, args: ['-e', ''], blocking: false }) }]);
     expect(advisoryRan.map((item) => item.result.gate)).toEqual(['plan', 'no-blocking-gate-passed']);
     expect(blockingGateFailure(advisoryRan)).toBe(true);
+    expect(advisoryRan.map((item) => item.result.blocking)).toEqual([false, true]);
     const advisoryMissing = await executeGatePlan(root, [planned({ id: 'plan', command: 'terraform', args: ['plan'], blocking: false }, ['.terraform not present'])]);
-    expect(advisoryMissing[0]).toMatchObject({ blocking: true, result: { status: 'failed' } });
+    expect(advisoryMissing[0]).toMatchObject({ blocking: true, result: { blocking: true, status: 'failed' } });
     expect(blockingGateFailure(advisoryMissing)).toBe(true);
   });
 

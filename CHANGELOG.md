@@ -4,6 +4,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Preserve effective blocking policy in native gate results. The cockpit requires
+  a passed blocking gate and no unsuccessful blocking gate before displaying ready;
+  older records with unknown gate policy remain readable and require review.
+
 - Discover the canonical public pack catalog and tagged versions explicitly with
   `ccon apm-catalog`; resolve selected metadata by full commit and distinguish
   installed exact versions by source, package, version and commit. All entries
