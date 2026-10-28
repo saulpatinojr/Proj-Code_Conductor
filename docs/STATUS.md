@@ -17,9 +17,22 @@ main. The full workstreams and release validation are not complete.**
 | Initial cockpit reliability | [#143](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/143) merged at `e3a145c`: task-end refresh, repository-scoped runs, multi-root selection and effective read-only configuration. |
 | Stored execution overview | [#144](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/144) merged at `04ad126`: approved start observations, dependency/provider/authority details, evidence refresh, one-shot stale expiry and inert summary text. No new scheduler. |
 | Optional APM inventory/audit | [#145](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/145) merged at `8e2b2cb`: pinned source metadata, mismatch diagnostics, explicit bounded audit and absolute executable resolution. Installation lifecycle remains open. |
+| Selected pack preview | [#149](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/149) merged at `8c4ab4f`: reviewed fixed-catalog Codex projection comparisons in a Linux write boundary, conflict checks and staged audit. Full installation lifecycle remains open. |
+| Native cockpit smoke | [#150](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/150) merged at `25c3524`: repeatable installed-VSIX Linux command/document/task evidence and exact bundle hashes. |
 | Knowledge implementation | [#147](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/147) merged at `599b03a`: bounded local knowledge navigation and source provenance, initially trusted local Linux only. |
 | Knowledge architecture | [#146](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/146) merged at `5cf27ea`: accepted ADR 0016/D-078, optional bounded read-only navigation with no cloud activation. |
 | Workstation evidence | #4 is closed with recorded 0.1.1 Windows evidence: provider smoke tests, activation, R1/R2 and GitHub review. That is not clean-machine validation of 0.1.2 or current source. |
+
+## Prepared evidence recovery
+
+Prepared separately in [PR #151](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/151):
+manifest-bound gate-output recovery and repository/trust-scoped evidence documents,
+with capture-file invalidation and cached-document revalidation. Strong recovery
+rejects altered, ambiguous, truncated and legacy combined captures; it preserves
+original files. Local validation: **73 files, 661 passed / 33 skipped**, typecheck,
+repository/bundle/default/package checks, plus **12 real installed-VSIX Linux
+checks**. Independent review found no remaining blockers; GitHub review/required
+CI and merge remain pending. See the [native evidence retest](validation/2026-10-28-evidence-recovery-smoke.md).
 
 ## Merged knowledge implementation
 

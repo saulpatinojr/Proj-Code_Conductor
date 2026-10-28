@@ -120,9 +120,9 @@ export function safeRunDirectoryName(runId: string): string {
 export class RunStore {
   readonly root: string;
 
-  constructor(root = join(conductorHome(), 'runs')) {
+  constructor(root = join(conductorHome(), 'runs'), options: { initializeRoot?: boolean } = {}) {
     this.root = root;
-    ensurePrivateDirectory(root);
+    if (options.initializeRoot !== false) ensurePrivateDirectory(root);
   }
 
   runDirectory(runId: string): string {
@@ -192,23 +192,11 @@ export class RunStore {
   /**
    * Read a stored tool output back and say what the read established: whether the
    * streams still match the digests stored with them, and whether they reproduce the
-   * evidence digest (unknowable when the capture was truncated).
+   * capture header's claimed evidence digest (unknowable when truncated). This low-level
+   * check does not bind the header to a manifest; use readManifestToolOutput for recovery.
    */
   readToolOutput(runId: string, evidenceId: string): { record: ToolOutputRecord; verification: ToolOutputVerification } {
-    if (!EVIDENCE_ID.test(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`);
-    const directory = join(this.root, safeRunDirectoryName(runId), 'tool-output');
-    const header = JSON.parse(readStoredText(join(directory, `${evidenceId}.json`), 1024 * 1024, `Tool output record ${evidenceId}`)) as Partial<ToolOutputRecord> & { runId?: string; stdoutSha256?: string; stderrSha256?: string };
-    if (header.evidenceId !== evidenceId || header.runId !== runId) throw new Error(`Tool output record ${evidenceId} does not belong to run ${runId}.`);
-    const stdout = readStoredText(join(directory, `${evidenceId}.stdout`), MAX_TOOL_OUTPUT_BYTES, `Tool output ${evidenceId} stdout`);
-    const stderr = readStoredText(join(directory, `${evidenceId}.stderr`), MAX_TOOL_OUTPUT_BYTES, `Tool output ${evidenceId} stderr`);
-    const digest = (text: string): string => createHash('sha256').update(text).digest('hex');
-    const storedIntact = digest(stdout) === header.stdoutSha256 && digest(stderr) === header.stderrSha256;
-    const record: ToolOutputRecord = {
-      evidenceId, source: String(header.source ?? ''), status: typeof header.status === 'number' ? header.status : null, timedOut: header.timedOut === true, truncated: header.truncated === true,
-      stdout, stderr, sha256: String(header.sha256 ?? ''), digestMethod: header.digestMethod === 'combined' ? 'combined' : 'streams',
-    };
-    const matchesEvidence = record.truncated ? undefined : (record.digestMethod === 'combined' ? combinedDigest(stdout, stderr) : streamsDigest(stdout, stderr)) === record.sha256;
-    return { record, verification: { storedIntact, matchesEvidence } };
+    return readCapturedOutput(this.root, runId, evidenceId);
   }
 
   /** Age of a stored run (from its manifest) in milliseconds; undefined when it cannot be read. */
@@ -271,4 +259,47 @@ export class RunStore {
     chmodSync(target, 0o600);
     return target;
   }
+}
+
+/** Read-only low-level capture reader; its hashes alone are not manifest provenance. */
+function readCapturedOutput(root: string, runId: string, evidenceId: string): { record: ToolOutputRecord; verification: ToolOutputVerification } {
+  if (!EVIDENCE_ID.test(evidenceId)) throw new Error(`Invalid evidence id: ${evidenceId}`);
+  const directory = join(root, safeRunDirectoryName(runId), 'tool-output');
+  const header = JSON.parse(readStoredText(join(directory, `${evidenceId}.json`), 1024 * 1024, `Tool output record ${evidenceId}`)) as Partial<ToolOutputRecord> & { runId?: string; stdoutSha256?: string; stderrSha256?: string };
+  if (header.evidenceId !== evidenceId || header.runId !== runId) throw new Error(`Tool output record ${evidenceId} does not belong to run ${runId}.`);
+  const stdout = readStoredText(join(directory, `${evidenceId}.stdout`), MAX_TOOL_OUTPUT_BYTES, `Tool output ${evidenceId} stdout`);
+  const stderr = readStoredText(join(directory, `${evidenceId}.stderr`), MAX_TOOL_OUTPUT_BYTES, `Tool output ${evidenceId} stderr`);
+  const digest = (text: string): string => createHash('sha256').update(text).digest('hex');
+  const storedIntact = digest(stdout) === header.stdoutSha256 && digest(stderr) === header.stderrSha256;
+  const record: ToolOutputRecord = {
+    evidenceId, source: String(header.source ?? ''), status: typeof header.status === 'number' ? header.status : null, timedOut: header.timedOut === true, truncated: header.truncated === true,
+    stdout, stderr, sha256: String(header.sha256 ?? ''), digestMethod: header.digestMethod === 'combined' ? 'combined' : 'streams',
+  };
+  const matchesEvidence = record.truncated ? undefined : (record.digestMethod === 'combined' ? combinedDigest(stdout, stderr) : streamsDigest(stdout, stderr)) === record.sha256;
+  return { record, verification: { storedIntact, matchesEvidence } };
+}
+
+export class ToolOutputIntegrityError extends Error {}
+
+/** Recover only a capture anchored to the selected validated manifest; no paths from evidence URIs are followed. */
+export function readManifestToolOutput(root: string, manifest: RunManifest, evidenceId: string): { record: ToolOutputRecord; verification: ToolOutputVerification } {
+  if (safeRunDirectoryName(manifest.runId) !== manifest.runId || !EVIDENCE_ID.test(evidenceId)) throw new Error('Invalid run or evidence identity.');
+  const matches = manifest.results.flatMap((result) => result.evidence).filter((item) => item.id === evidenceId);
+  const evidence = matches[0];
+  if (matches.length !== 1 || !evidence || !['test', 'tool'].includes(evidence.kind) || !evidence.sha256 || !/^[a-f0-9]{64}$/.test(evidence.sha256)) throw new Error('No unique digest-bound tool evidence in this manifest.');
+  for (const folder of [root, join(root, manifest.runId), join(root, manifest.runId, 'tool-output')]) {
+    const stat = lstatSync(folder);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Unsafe capture directory.');
+  }
+  for (const suffix of ['json', 'stdout', 'stderr']) {
+    const stat = lstatSync(join(root, manifest.runId, 'tool-output', `${evidenceId}.${suffix}`));
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1) throw new Error('Unsafe capture file.');
+  }
+  let stored: ReturnType<typeof readCapturedOutput>;
+  try { stored = readCapturedOutput(root, manifest.runId, evidenceId); }
+  catch { throw new Error('Capture unavailable; check stored metadata, paths and file limits.'); }
+  if (stored.record.sha256 !== evidence.sha256 || stored.record.source !== evidence.source) throw new ToolOutputIntegrityError('Capture metadata differs from the run manifest.');
+  if (stored.record.digestMethod !== 'streams') throw new ToolOutputIntegrityError('Legacy combined digests cannot verify exact captured bytes and stream identity. Original stored evidence was preserved.');
+  if (!stored.verification.storedIntact || stored.verification.matchesEvidence !== true) throw new ToolOutputIntegrityError('Capture cannot be verified against the manifest digest (changed or truncated output).');
+  return stored;
 }
