@@ -83,6 +83,42 @@ its read-only virtual document; nothing writes into the repository.
 
 ## Remaining installation workflow (#142)
 
+### Approved interaction
+
+The owner's clarified UX is the implementation target, not the current static
+inventory UI:
+
+- **+** fetches the canonical mirror's available pack/version catalog on demand.
+  Exclude already installed exact versions; distinguish an available update from
+  another copy. Resolve selection to immutable full commits and show provenance.
+  Fetching a catalog installs nothing and starts no model.
+- **−** enters removal editing. **×** marks individual packs for removal, with
+  undo/cancel. No package or project file changes while marking removals.
+- **Save** is the removal commit trigger. It submits the whole pending selection,
+  stages removals and orchestrator reevaluation as one workflow, and applies only
+  the reviewed, freshly approved change set. Failure retains an explicit pending/
+  repair state; it never reports a partially verified operation as saved.
+- Successful additions illuminate an **Orchestrator** button. The user presses
+  it to rebuild the team blueprint/handoffs. Removals invoke that reevaluation
+  through **Save**, without requiring a separate Orchestrator click.
+- The rebuilt system includes `SOUL.md`, `MEMORY.md` and correlated orchestration/
+  handoff files. Preserve human-owned content and annotations. Generated routing
+  and handoff contracts must be validated and consumed by the existing runtime;
+  creating disconnected documentation is insufficient.
+
+The owner chose **metadata validation plus approved AI review**, with quickness
+and quality both required. Build a deterministic candidate first, batch related
+changes and review the affected team/dependency/handoff delta once. Reuse a prior
+validated analysis only when its complete relevant input hashes match. Validation
+receipts are not approval: provider/context and file-application permissions remain
+fresh action-bound decisions. Deterministic checks run over the complete resulting
+graph for missing/unsupported agents, dependencies, cycles, roles and handoffs.
+SOUL/MEMORY content cannot grant runtime authority or contain credentials.
+
+Catalog expansion and orchestration-file ownership/runtime integration require the
+reviewed boundaries in [ADR 0018](adr/0018-approved-apm-artifact-deployment.md) and
+the proposed [ADR 0019](adr/0019-pack-controls-and-orchestrator-blueprint.md).
+
 [ADR 0018](adr/0018-approved-apm-artifact-deployment.md) defines the remaining
 preview/approval/artifact-application boundary. Native fixture testing reproduced
 unowned-file deletion and annotated-skill overwrite during same-version reinstall
