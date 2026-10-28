@@ -36,7 +36,7 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
     `- **Objective:** ${p(manifest.task.objective)}`,
     `- **Risk:** ${p(manifest.task.risk, 8)}${manifest.task.repository ? `  **Repository:** ${code(manifest.task.repository, 300)}` : ''}`,
     `- **Started:** ${runStartedAt(manifest.runId)}`,
-    `- **Decision:** ${decision ? `\`${p(shownDecision, 40)}\` — ${p(decision.rationale)}${shownDecision !== decision.decision ? ` (Recorded decision: ${p(decision.decision, 40)}; contradictory evidence requires review.)` : ''}` : shownDecision === 'planned' ? '`planned` — nothing was executed' : '`incomplete` — execution observed; no final decision recorded'}`,
+    `- **Decision:** ${decision ? `\`${p(shownDecision, 40)}\` — ${p(decision.rationale)}${shownDecision !== decision.decision ? ` (Recorded decision: ${p(decision.decision, 40)}; incomplete or contradictory evidence requires review.)` : ''}` : shownDecision === 'planned' ? '`planned` — nothing was executed' : '`incomplete` — execution observed; no final decision recorded'}`,
     '',
     '## Assignments',
     '',
@@ -55,7 +55,7 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
   lines.push('', 'States reflect stored results and local journal observations. A start event is not a heartbeat; liveness is unverified. Starts older than five minutes are unknown. Historical approvals never authorize another action.', '');
   if (manifest.gates.length) {
     lines.push('', '## Deterministic gates', '');
-    for (const gate of manifest.gates) lines.push(`- ${gate.status === 'passed' ? '✅' : gate.status === 'skipped' ? '⏭️' : '❌'} \`${p(gate.gate, 60)}\` ${p(gate.status, 20)}${gate.summary ? ` — ${p(gate.summary, 300)}` : ''}`);
+    for (const gate of manifest.gates) lines.push(`- ${gate.status === 'passed' ? '✅' : gate.status === 'skipped' ? '⏭️' : '❌'} \`${p(gate.gate, 60)}\` ${p(gate.status, 20)} (${gate.blocking === true ? 'blocking' : gate.blocking === false ? 'advisory' : 'blocking policy unknown'})${gate.summary ? ` — ${p(gate.summary, 300)}` : ''}`);
   }
   if (actions.length) {
     lines.push('', '## Next actions', '');
