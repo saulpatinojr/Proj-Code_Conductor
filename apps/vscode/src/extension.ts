@@ -1,4 +1,5 @@
 import { evidenceText, isCaptureId } from './evidence.js';
+import { runInterview } from './interview.js';
 import { assignmentProgress, displayedDecision, nextProgressExpiry, progressEvents, type ProgressEvent } from './run-monitor.js';
 import { indexVault, obsidianOpenUri, resolveKnowledgeNote, validateConnection, type VaultConnection } from './knowledge.js';
 import { relative } from 'node:path';
@@ -749,6 +750,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     packs.refresh();
     // Regenerate a new snapshot on each request; never claim an old audit or live state.
     await vscode.window.showTextDocument(document, { preview: true });
+  }));
+  let interviewOpen = false;
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.setupOrchestrator', async () => {
+    const r = root();
+    if (!r) { await vscode.window.showWarningMessage('Select an open repository for orchestrator setup.'); return; }
+    if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Orchestrator setup requires a trusted workspace.'); return; }
+    if (interviewOpen) { await vscode.window.showInformationMessage('Orchestrator setup is already open.'); return; }
+    interviewOpen = true;
+    try { await runInterview(context, r, () => vscode.workspace.isTrusted && root() === r); }
+    catch { await vscode.window.showWarningMessage('Orchestrator setup could not complete. Saved answers were not replaced by an invalid draft. Reopen setup to retry.'); }
+    finally { interviewOpen = false; }
   }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.previewPacks', async () => {
     const r = root(); if (!r) return;
