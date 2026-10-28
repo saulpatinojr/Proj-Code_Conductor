@@ -48,4 +48,14 @@ describe('blueprint update preview', () => {
     files.set('.agent/handoffs/build.md', files.get('.agent/handoffs/build.md')! + 'Human annotation\n');
     expect(planBlueprintUpdate(next, files, old).status).toBe('conflict');
   });
+  it('preserves edited machine JSON as a conflict even when the desired content is otherwise unchanged', () => {
+    const old = blueprint(); const files = actual(old);
+    const path = '.agent/orchestration.json';
+    const changed = JSON.parse(files.get(path)!);
+    changed.assignments[0].dependsOn = ['unreviewed'];
+    files.set(path, JSON.stringify(changed));
+    const result = planBlueprintUpdate(old, files, old);
+    expect(result.status).toBe('conflict'); expect(result.changes).toEqual([]);
+    expect(result.conflicts).toContainEqual({ path, reason: 'Human changes prevent replacement or removal.' });
+  });
 });
