@@ -38,6 +38,30 @@ grants denied. It is not a confidential-read or network sandbox. An APM executab
 inside the hidden home may be unavailable; unsupported hosts/namespace setup fail
 explicitly. No prerequisite is installed automatically. See [ADR 0017](adr/0017-write-isolated-pack-projection-preview.md).
 
+## On-demand catalog discovery
+
+`ccon apm-catalog --repo /absolute/repository` fetches the canonical mirror's
+catalog and release tags explicitly. Each candidate records its virtual package,
+declared version and immutable full commit; packs sharing a commit stay distinct.
+`locallyPresent` marks exact source-associated versions whose recorded projections
+are present as safe regular files/directories (hashed entries must be files).
+It does not verify their contents or establish an
+audit pass. Missing/incomplete local metadata leaves versions visible with a
+diagnostic. Consumers can hide present versions and offer other releases.
+
+Pass `--select '<id>'` using a returned compound ID to refetch authoritative
+membership and check the selected package's name, version and declared targets
+at its exact commit. The response includes catalog/package manifest hashes;
+targets remain publisher claims and runtime eligibility remains unverified.
+Discovery is bounded to 1,000 tags, 1 MiB per HTTP response and 15 seconds per
+operation; a truncated version list is explicitly incomplete. Public GitHub rate
+limits and proxy/TLS failures remain visible. Requests use configured proxy and
+TLS trust without collecting client credentials or following returned URLs.
+
+This CLI foundation starts no APM/provider process and writes no project files.
+It does not extend the fixed two-pack projection preview, install a selected
+release, or expose the planned +/−/Save controls yet.
+
 Inventory states mean only:
 
 | State | Evidence |
