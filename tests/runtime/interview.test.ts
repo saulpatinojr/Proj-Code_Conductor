@@ -19,7 +19,7 @@ describe('repository interview', () => {
     expect(() => interviewDraft('/project', saved)).toThrow(/recorded answers/);
   });
   it('refuses blank, oversized, control-containing and extra answers', () => {
-    for (const mission of ['', ' ', 'x'.repeat(8001), 'a\u0000b', 'a\u202eb']) expect(() => confirmInterview('/project', { ...INTERVIEW_DEFAULTS, mission })).toThrow();
+    for (const mission of ['', ' ', 'x'.repeat(8001), 'a\u0000b', 'a\u202eb', 'a\u200bb', 'a\u2028b', 'a' + String.fromCodePoint(0xe0061)]) expect(() => confirmInterview('/project', { ...INTERVIEW_DEFAULTS, mission })).toThrow();
     expect(() => confirmInterview('/project', { ...INTERVIEW_DEFAULTS, extra: 'unexpected' } as never)).toThrow();
   });
   it('preserves accepted-default origins separately from user confirmation and screens known secrets', () => {

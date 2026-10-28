@@ -256,7 +256,7 @@ export async function executeGatePlan(root: string, plan: readonly PlannedGate[]
       // Always blocking, advisory gates included: a gate that could not run validated nothing.
       const evidenceId = `E-${randomUUID()}`;
       const summary = `${commandLine} was not run: prerequisite missing (${missing.join('; ')}).${gate.remediation ? ` ${gate.remediation}` : ''} Code Conductor does not install prerequisites.`;
-      executions.push({ profile, blocking: true, result: { gate: gate.id, status: 'failed', evidenceIds: [evidenceId], summary }, evidence: { id: evidenceId, kind: 'test', source: commandLine, summary, sha256: createHash('sha256').update('').digest('hex') } });
+      executions.push({ profile, blocking: true, result: { blocking: true, gate: gate.id, status: 'failed', evidenceIds: [evidenceId], summary }, evidence: { id: evidenceId, kind: 'test', source: commandLine, summary, sha256: createHash('sha256').update('').digest('hex') } });
       continue;
     }
     // What actually starts: the resolved file, then any interpreter arguments the resolution
@@ -294,18 +294,18 @@ export async function executeGatePlan(root: string, plan: readonly PlannedGate[]
       profile,
       blocking: gate.blocking !== false,
       evidence,
-      result: { gate: gate.id, status: passed ? 'passed' : 'failed', evidenceIds: [evidenceId], summary },
+      result: { blocking: gate.blocking !== false, gate: gate.id, status: passed ? 'passed' : 'failed', evidenceIds: [evidenceId], summary },
     });
   }
   const id = `E-${randomUUID()}`;
   const empty = createHash('sha256').update('').digest('hex');
   if (!executions.length) {
     const summary = 'No applicable deterministic validation gates; readiness is blocked.';
-    executions.push({ profile: 'unmatched', blocking: true, result: { gate: 'no-applicable-gates', status: 'failed', evidenceIds: [id], summary }, evidence: { id, kind: 'test', source: 'gate-selection', summary, sha256: empty } });
+    executions.push({ profile: 'unmatched', blocking: true, result: { blocking: true, gate: 'no-applicable-gates', status: 'failed', evidenceIds: [id], summary }, evidence: { id, kind: 'test', source: 'gate-selection', summary, sha256: empty } });
   } else if (!executions.some((execution) => execution.blocking)) {
     // Advisory gates alone (for example an explicitly chosen plan review) never establish readiness.
     const summary = 'No blocking deterministic gate ran and passed; advisory gates alone never establish readiness. Choose a blocking profile too, for example `--gate-profiles terraform,terraform-plan`.';
-    executions.push({ profile: 'unmatched', blocking: true, result: { gate: 'no-blocking-gate-passed', status: 'failed', evidenceIds: [id], summary }, evidence: { id, kind: 'test', source: 'gate-selection', summary, sha256: empty } });
+    executions.push({ profile: 'unmatched', blocking: true, result: { blocking: true, gate: 'no-blocking-gate-passed', status: 'failed', evidenceIds: [id], summary }, evidence: { id, kind: 'test', source: 'gate-selection', summary, sha256: empty } });
   }
   return executions;
 }

@@ -18,12 +18,13 @@ export const INTERVIEW_DEFAULTS: Readonly<InterviewAnswers> = Object.freeze({
   style: 'Be pragmatic, curious, and concise. Explain decisions clearly and challenge unsupported assumptions.',
 });
 
+const UNREADABLE = /(?![\t\n\r])[\p{Cc}\p{Cf}\u2028\u2029]/u;
 function checked(answers: InterviewAnswers): InterviewAnswers {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers) || Object.keys(answers).some((key) => !INTERVIEW_FIELDS.includes(key as InterviewField))) throw new Error('Unsupported interview answers.');
   const result = {} as InterviewAnswers;
   for (const field of INTERVIEW_FIELDS) {
     const value = answers[field];
-    if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value) > 8000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(value)) throw new Error('Each interview answer must contain bounded, readable text.');
+    if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value) > 8000 || UNREADABLE.test(value)) throw new Error('Each interview answer must contain bounded, readable text.');
     if (redactSecrets(value).redacted) throw new Error('Remove credential-like values from interview answers.');
     result[field] = value;
   }

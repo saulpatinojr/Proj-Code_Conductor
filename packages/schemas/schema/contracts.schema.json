@@ -36,7 +36,7 @@
     },
     "GateResult": {
       "type": "object", "additionalProperties": false, "required": ["gate", "status", "evidenceIds"],
-      "properties": { "gate": { "type": "string" }, "status": { "type": "string", "enum": ["passed", "failed", "skipped"] }, "evidenceIds": { "type": "array", "items": { "type": "string" } }, "summary": { "type": "string" } }
+      "properties": { "blocking": { "type": "boolean" }, "gate": { "type": "string" }, "status": { "type": "string", "enum": ["passed", "failed", "skipped"] }, "evidenceIds": { "type": "array", "items": { "type": "string" } }, "summary": { "type": "string" } }
     },
     "AgentResult": {
       "type": "object", "additionalProperties": false,

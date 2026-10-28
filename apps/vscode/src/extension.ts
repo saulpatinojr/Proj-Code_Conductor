@@ -194,7 +194,8 @@ function runNode(runId: string): Node {
     });
   }
   for (const gate of manifest.gates) {
-    children.push({ label: `gate · ${printable(gate.gate, 60)}`, description: `${printable(gate.status, 20)}${gate.summary ? ` · ${printable(gate.summary, 80, false)}` : ''}`, tooltip: printable(gate.summary ?? gate.status, 600, false), ...statusLook(gate.status), command: open });
+    const policy = gate.blocking === true ? 'blocking' : gate.blocking === false ? 'advisory' : 'blocking policy unknown';
+    children.push({ label: `gate · ${printable(gate.gate, 60)}`, description: `${printable(gate.status, 20)} · ${policy}${gate.summary ? ` · ${printable(gate.summary, 80, false)}` : ''}`, tooltip: `${policy}: ${printable(gate.summary ?? gate.status, 600, false)}`, ...statusLook(gate.status), command: open });
   }
   const captures = manifest.results.flatMap((result) => result.evidence).filter((item) => isCaptureId(item.id) && ['test', 'tool'].includes(item.kind) && typeof item.sha256 === 'string' && /^[a-f0-9]{64}$/.test(item.sha256));
   if (captures.length) children.push({ label: 'Stored gate evidence', description: `${captures.length} reference(s)${captures.length > 50 ? "; showing first 50" : ""} · verify on open`, icon: 'output', children: captures.slice(0, 50).map((item) => ({ label: printable(item.id, 90), description: printable(item.source, 100, false), icon: 'file-text', tooltip: 'Open only the captured output matching this manifest digest. Evidence URIs are not followed.', command: { command: 'codeConductor.openEvidence', title: 'Open stored gate evidence', arguments: [runId, item.id] } })), command: open });
@@ -751,7 +752,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }));
   let interviewOpen = false;
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.setupOrchestrator', async () => {
-    const r = root(); if (!r || !vscode.workspace.isTrusted || interviewOpen) return;
+    const r = root();
+    if (!r) { await vscode.window.showWarningMessage('Select an open repository for orchestrator setup.'); return; }
+    if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Orchestrator setup requires a trusted workspace.'); return; }
+    if (interviewOpen) { await vscode.window.showInformationMessage('Orchestrator setup is already open.'); return; }
     interviewOpen = true;
     try { await runInterview(context, r, () => vscode.workspace.isTrusted && root() === r); }
     catch { await vscode.window.showWarningMessage('Orchestrator setup could not complete. Saved answers were not replaced by an invalid draft. Reopen setup to retry.'); }

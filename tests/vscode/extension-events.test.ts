@@ -86,6 +86,16 @@ async function setup(withStart: boolean) {
 }
 function rows() { return host.trees.get('codeConductor.runs').getChildren().map((item: any) => item.node); }
 describe('extension task, evidence and knowledge events', () => {
+  it('explains why orchestrator setup cannot start without a selected trusted repository', async () => {
+    await setup(false);
+    host.trusted = false;
+    await host.commands.get('codeConductor.setupOrchestrator')!();
+    const vscode = await import('vscode');
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Orchestrator setup requires a trusted workspace.');
+    host.trusted = true; host.folders = [];
+    await host.commands.get('codeConductor.setupOrchestrator')!();
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Select an open repository for orchestrator setup.');
+  });
 
   it('opens only manifest-bound evidence for the selected trusted repository and rechecks on refresh', async () => {
     const { run } = await setup(false);

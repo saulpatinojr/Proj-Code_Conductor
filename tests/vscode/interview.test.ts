@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const host = vi.hoisted(() => ({ choice: 'Use current answers' as string | undefined, save: 'Save answers', recover: 'Cancel', inputs: [] as (string | undefined)[], documents: [] as string[] }));
+const host = vi.hoisted(() => ({ choice: 'Use current answers' as string | undefined, save: 'Save answers', recover: 'Cancel', inputs: [] as (string | undefined)[], documents: [] as string[], prefills: [] as string[] }));
 vi.mock('vscode', () => ({
-  window: { showQuickPick: async () => host.choice, showInputBox: async () => host.inputs.shift(), showTextDocument: async () => {}, showInformationMessage: async () => host.save, showWarningMessage: async () => host.recover },
+  window: { showQuickPick: async () => host.choice, showInputBox: async (options: { value: string }) => { host.prefills.push(options.value); return host.inputs.shift(); }, showTextDocument: async () => {}, showInformationMessage: async () => host.save, showWarningMessage: async () => host.recover },
   workspace: { openTextDocument: async ({ content }: { content: string }) => { host.documents.push(content); return {}; } },
 }));
 import { runInterview } from '../../apps/vscode/src/interview.js';
-beforeEach(() => { host.choice = 'Use current answers'; host.save = 'Save answers'; host.recover = 'Cancel'; host.inputs = []; host.documents = []; });
+beforeEach(() => { host.choice = 'Use current answers'; host.save = 'Save answers'; host.recover = 'Cancel'; host.inputs = []; host.documents = []; host.prefills = []; });
 function storage() {
   const values = new Map<string, string>();
   return { values, context: { secrets: { get: async (key: string) => values.get(key), store: async (key: string, value: string) => { values.set(key, value); } } } as any };
@@ -46,4 +46,22 @@ it.each(['{broken', 'null', '{"version":99}'])('can recover invalid private stat
   host.save = 'Save answers';
   await runInterview(context, '/one', () => true);
   expect(JSON.parse(values.get(key)!).version).toBe(1);
+});
+
+it('prefills Redo from saved customized answers and resets both answers and origins', async () => {
+  const { values, context } = storage();
+  await runInterview(context, '/one', () => true);
+  const defaults = JSON.parse([...values.values()][0]!).answers;
+  host.choice = 'Customize'; host.inputs = ['Custom mission', defaults.priorities, defaults.style];
+  await runInterview(context, '/one', () => true);
+  const saved = JSON.parse([...values.values()][0]!);
+  expect(saved.origins).toEqual({ mission: 'user-input', priorities: 'default', style: 'default' });
+  host.prefills = []; host.inputs = [saved.answers.mission, saved.answers.priorities, saved.answers.style];
+  await runInterview(context, '/one', () => true);
+  expect(host.prefills).toEqual([saved.answers.mission, saved.answers.priorities, saved.answers.style]);
+  host.choice = 'Reset to defaults';
+  await runInterview(context, '/one', () => true);
+  const reset = JSON.parse([...values.values()][0]!);
+  expect(reset.answers).toEqual(defaults);
+  expect(reset.origins).toEqual({ mission: 'default', priorities: 'default', style: 'default' });
 });
