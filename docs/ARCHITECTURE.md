@@ -345,3 +345,10 @@ Production artifacts must be CI-built and traceable to source/release provenance
 - hard-coding current model version names into core orchestration logic
 - treating heuristic token estimates as billing/quota truth
 - stripping instructions/comments by default for the sake of a compression percentage
+
+## Optional knowledge navigation
+
+[ADR 0016](adr/0016-local-first-knowledge-navigation.md) proposes an explicitly
+selected, bounded local-vault index. It creates no execution authority, hosted
+service or synchronization dependency. [Obsidian integration](OBSIDIAN-INTEGRATION.md)
+records its scope and implementation status. No integration is claimed complete.
