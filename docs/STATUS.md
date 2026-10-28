@@ -48,24 +48,30 @@ a real installed Obsidian client remains unvalidated.
 
 ## Native installed-VSIX evidence
 
-The packaged source at `76b903a` passed eight real extension-host checks in an
+The packaged source at `76b903a`, repeated after integrating #149 at `8c4ab4f`,
+passed eight real extension-host checks in an
 installed test-publisher VSIX on Linux/VS Code 1.105.1 under Xvfb: activation,
 command registration, packaged defaults, optional absent APM, scoped run summary,
 open-summary refresh and a successful bundled native validation task. The
 unrelated empty workspace remained empty. This does not establish Windows,
 Restricted Mode, exhaustive click-through, accessibility or real Obsidian behavior.
 The reusable runner and bundle hashes are in the [native smoke record](validation/2026-10-28-linux-vsix-smoke.md).
+Post-integration validation: **72 files, 649 tests passed / 33 skipped**;
+repository validation, standalone bundle/default smoke, test-publisher packaging
+and all eight native checks passed again.
 
 ## APM evidence and remaining lifecycle
 
-Prepared on `feat/apm-exact-preview`: explicit fixed-catalog Codex projection
+[PR #149](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/149) merged at
+`8c4ab4f`: explicit fixed-catalog Codex projection
 comparison in a Linux bubblewrap write boundary (ADR 0017). The pinned native APM
 run passed staged audit and compared **54 unchanged files** for both reviewed
 packs against this repository. Local validation: **72 files, 645 passed / 33
 skipped**, typecheck, repository validation, standalone bundle/default smoke and
 test-publisher VSIX packaging passed. Independent critical review found and
 verified fixes for shared legacy ownership and pre-creation staging containment.
-GitHub review/required CI and merge are still pending for this prepared slice.
+Required GitHub CI passed and independent code/architecture review plus GitHub
+review findings were addressed before merge.
 This is not an installed-VSIX desktop walkthrough or a repository installation.
 
 The official APM 0.33.0 Linux archive was checked against its published SHA-256.

@@ -30,6 +30,13 @@ The reusable run completed at `2026-10-28T09:16:46Z`. Bundle SHA-256:
 | extension.js | `2181889abef66bc97a4d23305b40be4f1b7687e59df2fbdb04007dd3347ecc28` |
 | ccon.js | `b725286c140c47c8f0feda50d78f284e282bb8500bd773e429fc5d624a15be88` |
 
+After integrating merged PR #149 (`8c4ab4f`, product source `86b22ab`), the VSIX
+was rebuilt, reinstalled and all eight native checks passed again at
+`2026-10-28T09:26:38Z`. The extension bundle hash is unchanged; the updated runtime
+hash is `397c0123d5ebb5a270072bd09cb974085640fff2f313a3cdc283f12230f09dd1`.
+The integrated full suite passed **72 files, 649 tests / 33 skipped**; repository
+validation, standalone bundle/default smoke and VSIX packaging passed again.
+
 This is native extension-host command/virtual-document/task evidence, not an
 exhaustive mouse/keyboard walkthrough. The launch explicitly trusts a disposable
 empty fixture (`--disable-workspace-trust`); it does not establish Restricted Mode
