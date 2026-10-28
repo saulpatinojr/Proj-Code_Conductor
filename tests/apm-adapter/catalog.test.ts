@@ -50,6 +50,16 @@ describe('on-demand canonical pack/version discovery', () => {
     expect(calls).toContain(`/contents/${typescript}/apm.yml?ref=${current}`);
     expect(calls).not.toContain(`/contents/${typescript}/apm.yml?ref=main`);
   });
+  it('hashes exact verified source bytes including UTF-8 BOMs for catalog and package provenance', async () => {
+    const { request, values } = fixture();
+    const root = '\uFEFF' + stringify({ dependencies: { apm: [`${CATALOG_MIRROR}/${typescript}#${current}`] } });
+    const pack = '\uFEFF' + stringify({ name: typescript.slice(0, -5), version: '1.4.0', description: 'Test', targets: ['codex'] });
+    values.set(`/contents/apm.yml?ref=${head}`, file('apm.yml', root));
+    values.set(`/contents/${typescript}/apm.yml?ref=${current}`, file(`${typescript}/apm.yml`, pack));
+    const { catalog, selections } = await fetchCatalogSelections([catalogVersionId(identity())], { request });
+    expect(catalog.manifestSha256).toBe(createHash('sha256').update(Buffer.from(root)).digest('hex'));
+    expect(selections[0]?.packageManifestSha256).toBe(createHash('sha256').update(Buffer.from(pack)).digest('hex'));
+  });
   it('shares immutable tooling reads in a batch and refuses selecting two versions of one pack', async () => {
     const { request, calls } = fixture();
     const both = [catalogVersionId(identity()), catalogVersionId(identity(github, '1.2.0'))];
@@ -109,6 +119,16 @@ describe('on-demand canonical pack/version discovery', () => {
 });
 
 describe('local presence filtering is not an audit', () => {
+  it('checks every recorded projection even when only some have recorded hashes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-catalog-')); roots.push(root);
+    const first = '.codex/agents/first.toml'; const missing = '.codex/agents/missing.toml';
+    mkdirSync(join(root, '.codex/agents'), { recursive: true }); writeFileSync(join(root, first), 'Present');
+    writeFileSync(join(root, 'apm.yml'), stringify({ targets: ['codex'], dependencies: { apm: [`${CATALOG_MIRROR}/${typescript}#${current}`] } }));
+    writeFileSync(join(root, 'apm.lock.yaml'), stringify({ lockfile_version: '1', apm_version: '0.33.0', dependencies: [{ host: 'github.com', repo_url: CATALOG_MIRROR, materialization_repo_url: CATALOG_MIRROR, virtual_path: typescript, resolved_commit: current, version: '1.4.0', deployed_files: [first, missing], deployed_file_hashes: { [first]: 'sha256:' + 'f'.repeat(64) } }] }));
+    expect(locallyPresentCatalogVersions(root).versions).toEqual([]);
+    writeFileSync(join(root, missing), 'Also present');
+    expect(locallyPresentCatalogVersions(root).versions).toEqual([identity()]);
+  });
   it('filters present source-associated versions and leaves missing or symlinked projections available', () => {
     const root = mkdtempSync(join(tmpdir(), 'cc-catalog-')); roots.push(root);
     const path = '.codex/agents/typescript.toml'; mkdirSync(join(root, '.codex/agents'), { recursive: true });

@@ -16,7 +16,6 @@ const MAX_BYTES = 1024 * 1024;
 const MAX_PAGES = 10;
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const version = (value: unknown): value is string => typeof value === 'string' && value.length <= 80 && /^[0-9]/.test(value) && value.trim() === value && !!valid(value);
 
 export interface InstalledCatalogVersion { mirror: string; path: string; version: string; commit: string }
@@ -69,12 +68,12 @@ function document(text: string): Record<string, unknown> {
   return value;
 }
 /** Verify the GitHub content envelope and Git blob identity before interpreting YAML. */
-function content(value: unknown, path: string): { text: string; blob: string } {
+function content(value: unknown, path: string): { text: string; blob: string; sha256: string } {
   if (!object(value) || value.type !== 'file' || value.path !== path || value.encoding !== 'base64' || typeof value.content !== 'string' || value.content.length > 2 * MAX_BYTES || typeof value.sha !== 'string' || !SHA.test(value.sha) || !Number.isSafeInteger(value.size) || (value.size as number) > MAX_BYTES || (value.size as number) < 0) throw invalid();
   const encoded = value.content.replace(/[\r\n]/g, '');
   const bytes = Buffer.from(encoded, 'base64');
   if (bytes.length !== value.size || bytes.toString('base64') !== encoded || createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') !== value.sha) throw invalid();
-  try { return { text: utf8.decode(bytes), blob: value.sha }; } catch { throw invalid(); }
+  try { return { text: utf8.decode(bytes), blob: value.sha, sha256: createHash('sha256').update(bytes).digest('hex') }; } catch { throw invalid(); }
 }
 function catalogPaths(text: string): Set<string> {
   const value = document(text);
@@ -190,7 +189,7 @@ export async function fetchPackCatalog(installed: readonly InstalledCatalogVersi
       if (page === MAX_PAGES) { complete = false; break; }
       tags = await get(`/tags?per_page=100&page=${++page}`, signal);
     }
-    return { version: 1, mirror: CATALOG_MIRROR, canonicalSource: CATALOG_SOURCE, catalogCommit: commit, manifestSha256: sha256(manifest.text), manifestBlobSha: manifest.blob, observedAt: (options.now?.() ?? new Date()).toISOString(), complete, versions: [...versions.values()].sort((a, b) => a.path.localeCompare(b.path) || rcompare(a.version, b.version) || a.version.localeCompare(b.version)), diagnostics: [...(complete ? [] : ['Version discovery reached its 1,000-tag limit; this list is incomplete.']), ...[...paths].filter((path) => ![...versions.values()].some((item) => item.path === path)).map((path) => `No verified version tags found for ${path}.`)] };
+    return { version: 1, mirror: CATALOG_MIRROR, canonicalSource: CATALOG_SOURCE, catalogCommit: commit, manifestSha256: manifest.sha256, manifestBlobSha: manifest.blob, observedAt: (options.now?.() ?? new Date()).toISOString(), complete, versions: [...versions.values()].sort((a, b) => a.path.localeCompare(b.path) || rcompare(a.version, b.version) || a.version.localeCompare(b.version)), diagnostics: [...(complete ? [] : ['Version discovery reached its 1,000-tag limit; this list is incomplete.']), ...[...paths].filter((path) => ![...versions.values()].some((item) => item.path === path)).map((path) => `No verified version tags found for ${path}.`)] };
   });
 }
 
@@ -206,7 +205,7 @@ async function resolveCatalogSelection(catalog: PackCatalog, id: string, options
     if (content(toolingResponse, 'tooling/apm-version.txt').text.trim() !== '0.33.0') throw invalid();
     const manifest = content(manifestResponse, path); const value = document(manifest.text);
     if (value.name !== selected.path.slice(0, -5) || value.version !== selected.version || typeof value.description !== 'string' || value.description.length > 4000 || !Array.isArray(value.targets) || !value.targets.length || value.targets.length > 50 || value.targets.some((target: unknown) => typeof target !== 'string' || !/^[a-z][a-z0-9-]{0,39}$/.test(target)) || new Set(value.targets).size !== value.targets.length) throw invalid();
-    return { ...selected, name: value.name, description: value.description, declaredTargets: value.targets as string[], packageManifestSha256: sha256(manifest.text), packageManifestBlobSha: manifest.blob, catalogCommit: catalog.catalogCommit, catalogManifestSha256: catalog.manifestSha256, runtimeEligibility: 'unverified' };
+    return { ...selected, name: value.name, description: value.description, declaredTargets: value.targets as string[], packageManifestSha256: manifest.sha256, packageManifestBlobSha: manifest.blob, catalogCommit: catalog.catalogCommit, catalogManifestSha256: catalog.manifestSha256, runtimeEligibility: 'unverified' };
   });
 }
 
@@ -233,8 +232,8 @@ export function locallyPresentCatalogVersions(root: string): { versions: Install
   let canonical: string;
   try { canonical = realpathSync(root); } catch { return { versions, diagnostics: [] }; }
   for (const pack of inventory.packs) {
-    const files = Object.keys(pack.fileHashes ?? {});
-    if (pack.state !== 'locked' || !pack.commit || !version(pack.version) || !files.length) continue;
+    const files = pack.projections;
+    if (pack.state !== 'locked' || !PACK.test(pack.name) || !pack.commit || !version(pack.version) || !files.length || !Object.keys(pack.fileHashes ?? {}).length) continue;
     let present = true;
     for (const path of files) {
       if (--budget < 0) { present = false; break; }
