@@ -5,7 +5,7 @@
 - **Scope:** #142; selected public Agent Packs, Codex projections only
 - **Related:** ADR 0013, ADR 0015; D-004, D-059, D-060, D-077
 
-## Requirement and evidence
+## Context
 
 The approved APM workflow needs exact generated-file comparisons before any
 installation approval. APM 0.33.0 `install --dry-run` reports package plans but
@@ -20,7 +20,7 @@ isolation. This ADR adds an optional bounded preview, not a replacement resolver
 
 ## Decision
 
-This ADR narrowly supersedes D-060's extension process allowlist for the approved
+This ADR amends D-060's extension process allowlist with a narrow exception for the approved
 APM workflow: in addition to native read-only next/handoff, the extension may
 start the bounded `ccon apm-audit` and `ccon apm-preview` commands on explicit user
 request in a trusted selected repository. Preview additionally requires the local
@@ -62,7 +62,7 @@ ownership and approval constraints in D-060/D-059 remain in force.
    A comparison helper cannot claim an audit occurred. Terminal JSON escapes
    controls and formatting characters without changing decoded values.
 
-## Authority and limits
+## Consequences
 
 The result is explicitly `selected-pack-projections-only`. It is not a complete
 native installation diff: merging customer manifest/policy/local source, lock,
@@ -79,7 +79,7 @@ ephemeral. Do not describe this as a network sandbox. On unsupported hosts or
 namespace/configuration failure, fail explicitly; no unsafe fallback or automatic
 prerequisite installation is permitted.
 
-## Quality gates
+## Validation
 
 Independent critical source/code review checks native flag semantics, authority,
 file ownership and sandbox assumptions. Deterministic tests cover exact bytes,

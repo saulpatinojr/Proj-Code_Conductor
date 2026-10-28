@@ -176,6 +176,16 @@ function previewEnvironment(stage: string): NodeJS.ProcessEnv {
   return environment;
 }
 function succeeded(result: BoundedRunOutcome): boolean { return result.status === 0 && !result.timedOut && !result.truncated; }
+/** Fixed diagnostics derived from native stderr, never a partially redacted secret-bearing snippet. */
+function previewFailure(phase: 'version' | 'install' | 'audit', result: BoundedRunOutcome): Error {
+  const stderr = result.stderr.toLowerCase();
+  const has = (...terms: string[]) => terms.some((term) => stderr.includes(term));
+  const diagnostic = has('namespace', 'operation not permitted', 'bwrap:') ? 'Linux sandbox/namespace setup failed; check bubblewrap and host policy.'
+    : has('proxy', 'certificate', 'tls', 'ssl', 'resolve host', 'network', 'connection') ? 'Native network/TLS/proxy operation failed; check configured connectivity and certificate trust.'
+      : has('permission denied', 'no such file', 'not found') ? 'Native executable/path access failed; check absolute PATH and binaries outside the hidden home.'
+        : phase === 'version' ? 'Native version check did not establish APM 0.33.0.' : 'Native command failed; inspect package/policy compatibility with APM 0.33.0.';
+  return new Error(`APM preview ${phase} failed (exit ${result.status ?? 'unknown'}${result.timedOut ? ', timeout' : ''}${result.truncated ? ', output limit' : ''}). ${diagnostic} Native output SHA-256: ${result.sha256}. No repository files were changed.`);
+}
 function inside(root: string, path: string): boolean {
   const offset = relative(root, path);
   return !isAbsolute(offset) && offset !== '..' && !offset.startsWith('..' + sep);
@@ -195,6 +205,9 @@ export async function previewPacks(repository: string, selected: readonly Previe
   if (!selected.length || selected.length > PREVIEW_PACKS.length || new Set(selected).size !== selected.length || selected.some((pack) => !PREVIEW_PACKS.includes(pack))) throw new Error('Select reviewed packs from the fixed catalog.');
   const apm = resolveExecutable('apm').path; const bwrap = resolveExecutable('bwrap').path;
   if (!apm || !bwrap) throw new Error('Preview requires APM 0.33.0 and bubblewrap on absolute PATH entries.');
+  // Refuse unsupported local metadata before allocating staging or using the network.
+  // Comparison re-reads it after native work, so this is never a freshness claim.
+  lock(root, selected, { bytes: TOTAL }, false);
   // Reject before conductorTempDirectory creates or chmods anything, including
   // existing symlink ancestry and child names beginning with two dots.
   if (inside(root, prospectiveCanonical(join(conductorHome(), 'tmp')))) throw new Error('Private staging must be outside the selected repository.');
@@ -209,11 +222,11 @@ export async function previewPacks(repository: string, selected: readonly Previe
     const sandbox = ['--ro-bind', '/', '/', '--tmpfs', homedir(), '--bind', scratch, scratch, '--unshare-user', '--unshare-pid', '--die-with-parent', '--new-session', '--proc', '/proc', '--dev', '/dev', '--chdir', stage, '--', apm];
     const execute = (args: string[], timeoutMs: number) => runIsolated(bwrap, [...sandbox, ...args], { cwd: stage, env: previewEnvironment(scratch), timeoutMs, maxBytes: LIMIT });
     const version = await execute(['--version'], 5000);
-    if (!succeeded(version) || !/(?:^|\s)0\.33\.0(?:\s|$)/.test(version.stdout.trim())) throw new Error('Sandbox unavailable or APM version is not 0.33.0. No repository files were changed.');
+    if (!succeeded(version) || !/(?:^|\s)0\.33\.0(?:\s|$)/.test(version.stdout.trim())) throw previewFailure('version', version);
     const install = await execute(['install', '--only', 'apm', '--no-trust-bin', '--target', 'codex'], 600000);
-    if (!succeeded(install)) throw new Error(`Staged APM materialization failed${install.timedOut ? ' (timeout)' : install.truncated ? ' (output limit)' : ''}. No repository files were changed.`);
+    if (!succeeded(install)) throw previewFailure('install', install);
     const audit = await execute(['audit', '--ci', '--policy', './apm-policy.yml', '--no-fail-fast'], 120000);
-    if (!succeeded(audit)) throw new Error('Staged APM audit failed. No repository files were changed.');
+    if (!succeeded(audit)) throw previewFailure('audit', audit);
     const comparison = comparePackProjections(root, stage, selected);
     const snapshot = { ...comparison, audit: { status: 0 as const, outputSha256: audit.sha256 } };
     return { ...snapshot, digest: digest(JSON.stringify({ ...snapshot, digest: undefined })) };
