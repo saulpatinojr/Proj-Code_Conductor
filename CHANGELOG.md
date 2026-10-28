@@ -4,6 +4,11 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Discover the canonical public pack catalog and tagged versions explicitly with
+  `ccon apm-catalog`; resolve selected metadata by full commit and distinguish
+  installed exact versions by source, package, version and commit. All entries
+  remain candidates; discovery installs nothing and grants no runtime authority.
+
 - Open stored deterministic-tool evidence in repository-scoped read-only editor
   documents, reverify cached documents and capture changes, and bind recovery to
   actual manifest digests. Reject altered/ambiguous/truncated and legacy combined

@@ -14,6 +14,9 @@
     },
     {
       "path": "../context-optimizer"
+    },
+    {
+      "path": "../policy"
     }
   ]
 }

@@ -260,7 +260,8 @@
     "@code-conductor/schemas": "0.1.0",
     "yaml": "^2.9.1",
     "@code-conductor/context-optimizer": "0.1.0",
-    "@code-conductor/evidence": "0.1.0"
+    "@code-conductor/evidence": "0.1.0",
+    "@code-conductor/apm-adapter": "0.1.0"
   },
   "devDependencies": {
     "@types/vscode": "~1.105.0"

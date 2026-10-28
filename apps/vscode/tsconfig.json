@@ -30,6 +30,9 @@
     },
     {
       "path": "../../packages/evidence"
+    },
+    {
+      "path": "../../packages/apm-adapter"
     }
   ]
 }
