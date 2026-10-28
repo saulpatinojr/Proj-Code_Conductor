@@ -20,7 +20,6 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
   [GHSA-xcx6-jx8p-x3h5](https://github.com/advisories/GHSA-xcx6-jx8p-x3h5) for
   the security fix.
 
-
 ## 0.1.2 (2026-10-21, beta pre-release)
 
 Prepared 2026-10-21 from `main`; the tag decides the release date (`docs/RELEASE.md`). An odd minor version marks a pre-release.
