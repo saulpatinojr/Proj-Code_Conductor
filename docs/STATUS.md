@@ -103,6 +103,15 @@ under #142. See [APM workflows](APM-WORKFLOWS.md).
 
 ## Active delivery work
 
+The owner's clarified APM target is **+** catalog/version discovery, **− / ×**
+pending removals committed through **Save**, an illuminated **Orchestrator**
+refresh after additions, and Save-triggered reevaluation after removals. The
+chosen quality path is metadata validation plus approved AI review, with delta
+analysis and safe cache reuse. A short first-use/default/Redo interview produces
+the supplied blueprint's ten context files and live routing/handoff contracts.
+These controls/interview/files are **not implemented yet**. See [APM workflows](APM-WORKFLOWS.md)
+and proposed [ADR 0019](adr/0019-pack-controls-and-orchestrator-blueprint.md).
+
 - [#139](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/139): remaining
   cockpit action/state coverage and real installed-VSIX interaction/host evidence.
 - [#140](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/140): remaining

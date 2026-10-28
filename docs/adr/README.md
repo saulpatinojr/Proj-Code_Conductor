@@ -32,3 +32,4 @@ Do not use an ADR to justify bypassing a failing deterministic gate. Fix the pro
 
 - [ADR 0017 — Write-isolated selected-pack projection previews](0017-write-isolated-pack-projection-preview.md)
 - [ADR 0018 — Approve and deploy exact native APM artifacts](0018-approved-apm-artifact-deployment.md)
+- [ADR 0019 — Pack controls, short interview and a live orchestrator blueprint](0019-pack-controls-and-orchestrator-blueprint.md) — proposed.
