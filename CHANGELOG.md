@@ -4,6 +4,12 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Refresh cockpit runs and open summaries after extension-launched tasks finish;
+  show process outcomes separately from readiness, scope runs to the selected
+  repository, require multi-root selection, and open effective configuration as
+  read-only documents with provenance.
+
+
 ### Dependency maintenance
 
 - Upgrade the Kiro adapter's ACP SDK to 2.0.1. The adapter already uses the

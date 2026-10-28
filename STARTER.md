@@ -45,7 +45,9 @@ The repository foundation is implemented rather than architecture-only:
 - the VSIX packaging foundation is on `main` with pinned official `@vscode/vsce`; Marketplace publication/provenance automation remains under #14;
 - the large legacy agent/skill corpus migration is a parallel tracked workstream under issue #13 with a 100% source-lineage requirement.
 
-The authoritative current status is `docs/STATUS.md`.
+The authoritative current status is `docs/STATUS.md`. The approved cockpit,
+orchestration, APM and Obsidian follow-up is tracked in #139–#142; start with
+#139 reliability and retain installed-VSIX validation before claiming completion.
 
 ## Immediate work order
 
