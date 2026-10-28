@@ -13,6 +13,10 @@
     "./next-actions": {
       "types": "./dist/next-actions.d.ts",
       "default": "./dist/next-actions.js"
+    },
+    "./interview": {
+      "types": "./dist/interview.d.ts",
+      "default": "./dist/interview.js"
     }
   },
   "dependencies": {

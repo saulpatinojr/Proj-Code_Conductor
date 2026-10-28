@@ -130,6 +130,11 @@
       {
         "command": "codeConductor.openEvidence",
         "title": "Code Conductor: Open Stored Gate Evidence"
+      },
+      {
+        "command": "codeConductor.setupOrchestrator",
+        "title": "Code Conductor: Orchestrator Interview / Redo",
+        "icon": "$(comment-discussion)"
       }
     ],
     "viewsContainers": {
