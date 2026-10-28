@@ -42,6 +42,13 @@ describe('run execution', () => {
         execute: true, adapters, store: new RunStore(temp), worktrees: new SandboxWorktrees(temp),
         gateExecutor: () => ({ status: 0, stdout: 'ok', stderr: '' }), isHarnessTrusted: () => true, approver: approveAll,
       });
+      const journal = readFileSync(join(temp, outcome.plan.runId, 'events.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+      for (const assignment of outcome.manifest.assignments) {
+        const start = journal.findIndex((event) => event.type === 'assignment.started' && event.assignmentId === assignment.id);
+        const end = journal.findIndex((event) => ['assignment.completed', 'validation.completed'].includes(event.type) && event.assignmentId === assignment.id);
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+      }
       expect(outcome.manifest.results.map((r) => r.role)).toEqual(['builder', 'reviewer', 'validator']);
       expect(outcome.manifest.results[0]?.surface).toBe('cli');
       expect(outcome.manifest.gates.length).toBeGreaterThan(0);

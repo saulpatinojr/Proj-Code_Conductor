@@ -39,3 +39,30 @@ They create no repository files.
 Validation still required: installed VSIX click-through on Windows and Linux,
 including task cancellation, open-summary refresh, repository switching and
 packaged-default navigation in an unrelated empty repository.
+
+## Execution overview
+
+Runs show the stored assignment dependencies, provider, surface and authority.
+The summary includes a dependency table and plain-text evidence references.
+No workflow designer or new scheduler is introduced. Agent-controlled Markdown
+is escaped; journal observations cannot create commands or execution authority.
+
+The runtime records `assignment.started` immediately before approved provider
+execution and deterministic validation. Existing result and completion events
+remain authoritative for outcomes. New event metadata uses version 1; old
+manifests and journals remain readable, with absent observations shown honestly.
+A recent start is an observation, not a heartbeat. After five minutes without a
+result, a one-shot timer changes its display to unknown/stale. No polling or
+provider process is used. Local manifest/journal changes trigger a 150 ms
+coalesced refresh, including runs initiated outside the extension.
+
+A partial execution with no final decision is incomplete. The cockpit refuses a
+green display when results, mandatory human approval or blocking findings
+contradict a stored ready claim. Failed advisory gates alone do not override the
+runtime decision: legacy gate records do not carry the blocking flag. Recorded
+approvals are historical evidence and never authorize a new action.
+
+Run enumeration reads at most the latest 1,000 record directories per refresh
+and displays up to 25 matching runs. A visible limit notice explains older-record
+lookup. Malformed, oversized and missing-repository records are counted as
+unassociated/unavailable, and inaccessible stores show an actionable diagnostic.

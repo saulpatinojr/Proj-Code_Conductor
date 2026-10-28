@@ -1,3 +1,4 @@
+import { assignmentProgress, displayedDecision, nextProgressExpiry, progressEvents, type ProgressEvent } from './run-monitor.js';
 import { sameRepository } from './run-scope.js';
 import { stringify } from 'yaml';
 import { TaskLifecycle } from './task-lifecycle.js';
@@ -11,7 +12,7 @@ import type { RunManifest } from '@code-conductor/schemas';
 import { nativeOperation, signInHint } from './native-actions.js';
 import { runStartedAt, runSummaryMarkdown, runTitle } from './run-summary.js';
 import * as vscode from 'vscode';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -36,6 +37,7 @@ type Node = {
   children?: Node[];
   expanded?: boolean;
   contextValue?: string;
+  nextRefreshAt?: number;
 };
 type CapabilitySurface = { kind?: string; identifiers?: string[]; commands?: string[]; command?: string; interactive?: boolean; machine_execution?: boolean; requires_local_client?: boolean; enabled_by_default?: boolean };
 type HarnessCapability = { provider?: string; sign_in?: unknown; command_candidates?: string[]; primary_specializations?: string[]; preferred_execution_surface?: string; native_capabilities?: string[]; surfaces?: Record<string, CapabilitySurface> };
@@ -107,7 +109,8 @@ function surfaceCommands(harness: HarnessCapability, surface?: CapabilitySurface
   return harness.command_candidates ?? [];
 }
 function markdown(text: string): vscode.MarkdownString {
-  const value = new vscode.MarkdownString(text);
+  const value = new vscode.MarkdownString();
+  value.appendText(text);
   value.isTrusted = false;
   return value;
 }
@@ -122,10 +125,18 @@ function runsDirectory(): string { return join(process.env.CODE_CONDUCTOR_HOME |
 
 /** Bounded, read-only manifest load from the owner-private run store; malformed or oversized manifests are skipped. */
 function storedManifest(runId: string): RunManifest | undefined {
+  if (!validRunId(runId)) return undefined;
   try {
+    const directory = lstatSync(join(runsDirectory(), runId));
+    if (!directory.isDirectory() || directory.isSymbolicLink()) return undefined;
     const value = JSON.parse(readBoundedFile(join(runsDirectory(), runId, 'manifest.json'), 1048576).toString('utf8')) as Partial<RunManifest>;
     return value.runId === runId && validateContract('RunManifest', value).ok ? value as RunManifest : undefined;
   } catch { return undefined; }
+}
+
+function storedProgress(runId: string): ProgressEvent[] {
+  try { return progressEvents(readBoundedFile(join(runsDirectory(), runId, 'events.jsonl'), 1048576).toString('utf8'), runId); }
+  catch { return []; }
 }
 
 function decisionLook(decision: string): { icon: string; color?: string } {
@@ -141,6 +152,9 @@ function statusLook(status: string): { icon: string; color?: string } {
   switch (status) {
     case 'completed': case 'passed': return { icon: 'pass', color: 'testing.iconPassed' };
     case 'failed': case 'blocked': case 'cancelled': return { icon: 'error', color: 'testing.iconFailed' };
+    case 'running': return { icon: 'sync~spin', color: 'charts.blue' };
+    case 'waiting': return { icon: 'watch' };
+    case 'unknown': return { icon: 'question', color: 'charts.yellow' };
     case 'awaiting_external': return { icon: 'person', color: 'charts.yellow' };
     case 'skipped': return { icon: 'debug-step-over' };
     default: return { icon: 'circle-outline' };
@@ -149,26 +163,29 @@ function statusLook(status: string): { icon: string; color?: string } {
 
 function runNode(runId: string): Node {
   const manifest = storedManifest(runId);
-  if (!manifest) return { label: runId, description: 'record unavailable', icon: 'warning', tooltip: 'The manifest could not be read here, or is larger than 1 MiB. Use `ccon next --run <id>` in a terminal.' };
+  if (!manifest || !sameRepository(manifest.task.repository, workspaceRoot())) return { label: runId, description: 'record unavailable', icon: 'warning', tooltip: 'The manifest could not be read here, or is larger than 1 MiB. Use `ccon next --run <id>` in a terminal.' };
   let actions: NextAction[] = [];
   try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { /* shown without next actions */ }
-  const decision = manifest.mergeDecision?.decision ?? 'planned';
+  const events = storedProgress(runId);
+  const decision = displayedDecision(manifest, events);
+  const progress = assignmentProgress(manifest, events);
   const open: vscode.Command = { command: 'codeConductor.openRun', title: 'Open run summary', arguments: [runId] };
   const children: Node[] = [];
   children.push({
     label: decision === 'planned' ? 'Planned only' : `Decision: ${printable(decision, 40)}`,
-    description: printable(manifest.mergeDecision?.rationale ?? 'nothing was executed', 90, false),
-    tooltip: printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600, false),
+    description: printable(manifest.mergeDecision?.rationale ?? (decision === 'planned' ? 'nothing was executed' : 'execution observed; no final decision'), 90, false),
+    tooltip: printable(manifest.mergeDecision?.rationale ?? (decision === 'planned' ? 'Planned only; nothing was executed.' : 'Execution observed; no final decision recorded.'), 600, false),
     ...decisionLook(decision), command: open,
   });
   for (const assignment of manifest.assignments) {
+    const observation = progress.get(assignment.id)!;
     const result = manifest.results.find((item) => item.assignmentId === assignment.id);
     const blocking = result?.findings.filter((finding) => finding.blocking).length ?? 0;
     children.push({
       label: `${printable(assignment.role, 40)} · ${harnessLabel(assignment.harness)}`,
-      description: result ? `${printable(result.status, 40)} · ${printable(result.recommendation, 40)}${blocking ? ` · ${blocking} blocking` : ''}` : 'not started',
-      tooltip: markdown([`**${printable(assignment.agentId, 80)}** (${printable(assignment.stance, 20)}, ${printable(assignment.surface ?? 'surface unknown', 20)})`, ...(result ? [...result.blockers.map((b) => `- ⛔ ${printable(b, 400, false)}`), ...result.findings.map((f) => `- ${f.blocking ? '🛑' : '•'} ${printable(f.severity, 20)}: ${printable(f.summary, 400, false)}`), ...(result.notVerified ?? []).map((n) => `- not verified: ${printable(n, 300, false)}`)] : [])].join('\n')),
-      ...statusLook(result?.status ?? 'planned'), command: open,
+      description: result ? `${printable(result.status, 40)} · ${printable(result.recommendation, 40)}${blocking ? ` · ${blocking} blocking` : ''}` : observation.state === 'unknown' ? 'unknown / stale' : observation.state,
+      tooltip: markdown([`**${printable(assignment.agentId, 80)}** (${printable(assignment.stance, 20)}, ${printable(assignment.surface ?? 'surface unknown', 20)})`, `Depends on: ${assignment.dependsOn.map((id) => printable(id, 80)).join(', ') || 'none'}. Provider: ${printable(assignment.provider, 60)}. Authority: ${assignment.authority.map((item) => printable(item, 40)).join(', ')}.`, ...(observation.observedAt ? [`Last observation: ${observation.observedAt}. A start event is not a heartbeat.`] : []), ...(result ? [...result.blockers.map((b) => `- ⛔ ${printable(b, 400, false)}`), ...result.findings.map((f) => `- ${f.blocking ? '🛑' : '•'} ${printable(f.severity, 20)}: ${printable(f.summary, 400, false)}`), ...(result.notVerified ?? []).map((n) => `- not verified: ${printable(n, 300, false)}`)] : [])].join('\n')),
+      ...statusLook(observation.state), command: open,
     });
   }
   for (const gate of manifest.gates) {
@@ -187,8 +204,8 @@ function runNode(runId: string): Node {
   return {
     label: runTitle(manifest),
     description: `${printable(decision, 40)} · ${runStartedAt(runId).slice(5, 16)}`,
-    tooltip: markdown(`**${printable(runId, 80)}** · risk ${printable(manifest.task.risk, 8)} · ${runStartedAt(runId)}\n\n${printable(manifest.task.objective, 600, false)}\n\n${printable(manifest.mergeDecision?.rationale ?? 'Planned only; nothing was executed.', 600, false)}\n\nClick for the full summary.`),
-    ...decisionLook(decision), command: open, children, contextValue: 'run',
+    tooltip: markdown(`**${printable(runId, 80)}** · risk ${printable(manifest.task.risk, 8)} · ${runStartedAt(runId)}\n\n${printable(manifest.task.objective, 600, false)}\n\n${printable(manifest.mergeDecision?.rationale ?? (decision === 'planned' ? 'Planned only; nothing was executed.' : 'Execution observed; no final decision recorded.'), 600, false)}\n\nClick for the full summary.`),
+    ...decisionLook(decision), command: open, children, contextValue: 'run', nextRefreshAt: nextProgressExpiry(manifest, events),
   };
 }
 
@@ -197,7 +214,17 @@ function runNodes(): Node[] {
   if (!workspaceRoot()) return [{ label: 'Select a repository', icon: 'folder', command: { command: 'codeConductor.selectWorkspace', title: 'Select repository' } }];
   const outcome = taskOutcomes.get(workspaceRoot()!);
   const rows: Node[] = outcome ? [{ label: `Last task: ${outcome}`, icon: outcome === 'running' ? 'sync~spin' : outcome === 'succeeded' ? 'pass' : 'warning', tooltip: 'CLI process outcome; this is not a run readiness decision.' }] : [];
-  return [...rows, ...(existsSync(runs) ? readdirSync(runs, { withFileTypes: true }) : []).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse().filter((id) => sameRepository(storedManifest(id)?.task.repository, workspaceRoot())).slice(0, 25).map(runNode)];
+  try {
+    const entries = (existsSync(runs) ? readdirSync(runs, { withFileTypes: true }) : []).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse();
+    const scanned = entries.slice(0, 1000).map((id) => ({ id, manifest: storedManifest(id) }));
+    const unavailable = scanned.filter((item) => !item.manifest?.task.repository).length;
+    const scoped = scanned.filter((item) => sameRepository(item.manifest?.task.repository, workspaceRoot())).slice(0, 25).map((item) => runNode(item.id));
+    return [...rows, ...scoped,
+      ...(unavailable ? [{ label: 'Unassociated or unavailable records', description: String(unavailable), icon: 'info', tooltip: 'Missing repository association, malformed or unreadable local records are excluded. Inspect global records explicitly with the CLI; none are assigned by guessing task text.' }] : []),
+      ...(entries.length > 1000 ? [{ label: 'Run scan limited', description: 'latest 1,000 local records', icon: 'info', tooltip: 'Only the newest 1,000 local record directories were scanned. Use CLI run retention/lookup for older records.' }] : []),
+    ];
+  } catch { return [...rows, { label: 'Run store unavailable', icon: 'warning', tooltip: 'Local run records could not be listed. Check the run-store directory permissions, then Refresh Runs.' }]; }
+
 }
 
 // ---------------------------------------------------------------- Workstation
@@ -423,7 +450,7 @@ class RunSummaryProvider implements vscode.TextDocumentContentProvider {
     if (!manifest || !sameRepository(manifest.task.repository, workspaceRoot())) return `Run ${runId} could not be read here. Use \`ccon next --run ${runId}\` in a terminal.`;
     let actions: NextAction[] = [];
     try { actions = nextActions(manifest, { worktreeRoot: defaultWorktreeRoot() }); } catch { /* summary without next actions */ }
-    return runSummaryMarkdown(manifest, actions);
+    return runSummaryMarkdown(manifest, actions, storedProgress(runId));
   }
 }
 
@@ -533,8 +560,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const summaries = new RunSummaryProvider();
   const configurations = new ConfigurationProvider();
+  let runRows = runNodes();
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   const providers = {
-    runs: new ConductorProvider(runNodes),
+    runs: new ConductorProvider(() => runRows),
     workstation: new ConductorProvider(() => workstationNodes(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY))),
     policy: new ConductorProvider(() => policyNodes(root())),
   };
@@ -545,14 +574,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.registerTextDocumentContentProvider(RUN_SCHEME, summaries),
     vscode.workspace.registerTextDocumentContentProvider('code-conductor-config', configurations),
   );
-  await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().some((node) => node.contextValue === 'run'));
+  await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runRows.some((node) => node.contextValue === 'run'));
 
   const refreshViews = async (): Promise<void> => {
+    runRows = runNodes();
+    if (expiryTimer) clearTimeout(expiryTimer);
+    const expiries = runRows.flatMap((node) => node.nextRefreshAt === undefined ? [] : [node.nextRefreshAt]);
+    expiryTimer = expiries.length ? setTimeout(() => { expiryTimer = undefined; void refreshViews(); }, Math.max(1, Math.min(...expiries) - Date.now() + 1)) : undefined;
     summaries.refresh();
     configurations.refresh();
     Object.values(providers).forEach((provider) => provider.refresh());
-    await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runNodes().some((node) => node.contextValue === 'run'));
+    await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runRows.some((node) => node.contextValue === 'run'));
   };
+  await refreshViews();
+  context.subscriptions.push({ dispose: () => { if (expiryTimer) clearTimeout(expiryTimer); } });
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleRunRefresh = (): void => {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => { refreshTimer = undefined; void refreshViews(); }, 150);
+  };
+  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(runsDirectory(), '*/*'));
+  const changedRunFile = (uri: vscode.Uri): void => {
+    if (/\/(manifest\.json|events\.jsonl)$/.test(uri.path)) scheduleRunRefresh();
+  };
+  context.subscriptions.push(watcher, watcher.onDidCreate(changedRunFile), watcher.onDidChange(changedRunFile), watcher.onDidDelete(changedRunFile), { dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); } });
   taskLifecycle = new TaskLifecycle((taskRoot, outcome) => {
     taskOutcomes.set(taskRoot, outcome);
     void refreshViews();

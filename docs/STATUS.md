@@ -143,3 +143,23 @@ remaining blockers after corrections. Extension bundle size is 648,167 bytes
 (previously about 335 KB), including schema validation for untrusted manifests. Installed Windows/Linux VSIX interaction
 validation remains outstanding. This is an implementation checkpoint, not issue
 completion, release approval or evidence that the other workstreams are done.
+
+## Execution-overview follow-up
+
+PR #143 is merged at `e3a145c`. Post-merge typecheck, 39 VS Code tests,
+repository validation and standalone bundle smoke passed. This closes the first
+reliability slice, not all of #139.
+
+The next slice builds #140 on the existing manifest/journal: dependency and
+provider/authority detail, observed starts, coalesced local-evidence refresh,
+one-shot stale-state expiry, consistent partial-execution labels and inert
+evidence references. Legacy advisory-gate outcomes retain runtime semantics.
+Mocked extension-host tests cover fast-task events, watcher refresh, stale
+expiry, and foreign/malformed/oversized records. Real installed VSIX validation
+on Windows and Linux remains outstanding; APM and Obsidian implementation are
+not complete.
+
+Local validation for the execution-overview slice: 67 test files, 591 passed /
+32 skipped; typecheck, repository validation, standalone bundle smoke and local
+VSIX packaging passed. Independent focused review reported no remaining
+blockers after corrections. The VSIX used a test publisher, not publication.

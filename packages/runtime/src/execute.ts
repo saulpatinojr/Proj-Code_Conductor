@@ -324,6 +324,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           }
         }
         const render = gateOutputRenderer(store, plan.runId, options.toolOutput ?? 'bounded', (telemetry) => store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'gate.output.recorded', assignmentId: assignment.id, message: `${telemetry.evidenceId}: ${telemetry.mode}`, data: { ...telemetry } }));
+        store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'assignment.started', assignmentId: assignment.id, message: 'Deterministic validation started.', data: { version: 1 } });
         const gateExecutions = await executeGatePlan(validationRoot, gatePlan, options.gateExecutor, { render });
         ranIn(validationRoot, `gate commands (${assignment.id})`);
         executedGates.push(...gateExecutions);
@@ -484,6 +485,7 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
           }
         }
         try {
+          store.appendEvent({ at: new Date().toISOString(), runId: plan.runId, type: 'assignment.started', assignmentId: assignment.id, message: 'Approved provider execution started.', data: { version: 1, attempt: attempt + 1 } });
           const outcome = await adapter.execute(request);
           const parsed = parseAgentResult(assignment, outcome);
           // A completion claim from a client that did not end cleanly is not trusted: whatever
