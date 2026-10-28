@@ -1,4 +1,6 @@
 import { assignmentProgress, displayedDecision, nextProgressExpiry, progressEvents, type ProgressEvent } from './run-monitor.js';
+import { indexVault, obsidianOpenUri, resolveKnowledgeNote, validateConnection, type VaultConnection } from './knowledge.js';
+import { relative } from 'node:path';
 import { sameRepository } from './run-scope.js';
 import { stringify } from 'yaml';
 import { TaskLifecycle } from './task-lifecycle.js';
@@ -191,6 +193,7 @@ function runNode(runId: string): Node {
   for (const gate of manifest.gates) {
     children.push({ label: `gate · ${printable(gate.gate, 60)}`, description: `${printable(gate.status, 20)}${gate.summary ? ` · ${printable(gate.summary, 80, false)}` : ''}`, tooltip: printable(gate.summary ?? gate.status, 600, false), ...statusLook(gate.status), command: open });
   }
+  children.push({ label: 'Related knowledge', icon: 'book', tooltip: 'Find manually mapped local notes; no private run content is copied.', command: { command: 'codeConductor.knowledge', title: 'Related knowledge', arguments: [runId] } });
   actions.forEach((action, index) => {
     children.push({
       label: printable(action.title, 80, false),
@@ -555,6 +558,10 @@ async function initializeStartup(context: vscode.ExtensionContext): Promise<vsco
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const root = () => workspaceRoot();
+  const knowledgeKey = (r: string): string => `codeConductor.knowledge.${encodeURIComponent(r)}`;
+  const connectionFor = (r: string | undefined): VaultConnection | undefined => r ? context.workspaceState.get<VaultConnection>(knowledgeKey(r)) : undefined;
+  const knowledgeAvailable = (): boolean => vscode.workspace.isTrusted && !vscode.env.remoteName && process.platform === 'linux';
+
   let startupStatus = await initializeStartup(context);
   context.subscriptions.push({ dispose: () => startupStatus.dispose() });
 
@@ -564,7 +571,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   const providers = {
     runs: new ConductorProvider(() => runRows),
-    workstation: new ConductorProvider(() => workstationNodes(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY))),
+    workstation: new ConductorProvider(() => [...workstationNodes(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY)), { label: 'Knowledge', description: connectionFor(root()) ? 'connected · on demand' : 'optional · not connected', icon: 'book', tooltip: 'Explicitly connect an existing local vault folder. No scan or note write at startup.', command: { command: 'codeConductor.knowledge', title: 'Browse related knowledge' } }]),
     policy: new ConductorProvider(() => policyNodes(root())),
   };
   context.subscriptions.push(
@@ -637,6 +644,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { void vscode.commands.executeCommand('codeConductor.refresh'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.refreshRuns', refreshViews));
   context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { void vscode.commands.executeCommand('codeConductor.refresh'); }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.connectKnowledge', async () => {
+    const r = root(); if (!r) return;
+    if (!knowledgeAvailable()) { await vscode.window.showWarningMessage('Knowledge indexing requires a trusted local Linux workspace with descriptor-safe reads. Windows, macOS and remote hosts remain unsupported for indexing.'); return; }
+    const vault = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: 'Select existing Obsidian vault' });
+    if (!vault?.[0] || vault[0].scheme !== 'file' || r !== root()) return;
+    const folder = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, defaultUri: vault[0], openLabel: 'Select allowed folder inside vault' });
+    if (!folder?.[0] || folder[0].scheme !== 'file' || r !== root() || !knowledgeAvailable()) return;
+    try {
+      const connection = validateConnection({ vault: vault[0].fsPath, folder: relative(vault[0].fsPath, folder[0].fsPath).split('\\').join('/'), repository: r });
+      await context.workspaceState.update(knowledgeKey(r), connection);
+      await refreshViews();
+      await vscode.window.showInformationMessage('Knowledge connected. Browse to index explicitly. No notes were created or uploaded.');
+    } catch { await vscode.window.showWarningMessage('Knowledge connection refused. Select an existing non-symlink vault and a contained non-hidden folder.'); }
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.disconnectKnowledge', async () => {
+    const r = root(); if (!r) return;
+    await context.workspaceState.update(knowledgeKey(r), undefined);
+    await refreshViews();
+    await vscode.window.showInformationMessage('Knowledge disconnected. No notes were deleted.');
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.knowledge', async (runId: unknown) => {
+    const r = root(); if (!r) return;
+    if (!knowledgeAvailable()) { await vscode.window.showWarningMessage('Knowledge indexing requires a trusted local Linux workspace; remote/Windows/macOS indexing remains unsupported.'); return; }
+    const connection = connectionFor(r);
+    if (!connection) { await vscode.commands.executeCommand('codeConductor.connectKnowledge'); return; }
+    if (!sameRepository(connection.repository, r)) return;
+    if (runId !== undefined && (!validRunId(runId) || !sameRepository(storedManifest(runId)?.task.repository, r))) return;
+    try {
+      const index = indexVault(connection);
+      const notes = runId === undefined ? index.notes : index.notes.filter((note) => note.sources.some((source) => source.kind === 'run' && source.id === runId));
+      if (!notes.length) { await vscode.window.showInformationMessage(`No matching knowledge notes. ${index.limited ? 'Scan limit reached; narrow the folder.' : 'Only valid metadata for the selected repository is indexed.'} ${index.diagnostics.length} excluded/unavailable items.`); return; }
+      const selected = await vscode.window.showQuickPick(notes.map((note) => ({ label: printable(note.title, 100, false), description: `${note.kind} · ${note.sources.map((source) => source.state).join(', ') || 'no verified source'}`, detail: `${note.id}: ${note.edges.map((edge) => `${edge.kind} ${edge.target} (source ${edge.state})`).join('; ') || 'No declared edges'}`, note })), { placeHolder: `Local knowledge: ${notes.length} notes; ${index.diagnostics.length} excluded/unavailable items${index.limited ? ' · scan limited' : ''}`, matchOnDetail: true });
+      if (!selected) return;
+      const action = await vscode.window.showQuickPick(['Open in editor', 'Open in Obsidian'], { placeHolder: 'Knowledge is navigation; it grants no execution authority.' });
+      if (!action || r !== root() || !knowledgeAvailable() || JSON.stringify(connectionFor(r)) !== JSON.stringify(connection)) return;
+      const path = resolveKnowledgeNote(connection, selected.note);
+      if (action === 'Open in Obsidian') {
+        try { if (await vscode.env.openExternal(vscode.Uri.parse(obsidianOpenUri(path)))) return; }
+        catch { /* Unsupported URI characters or absent client fall back to the editor. */ }
+      }
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
+      await vscode.window.showTextDocument(document, { preview: true });
+    } catch { await vscode.window.showWarningMessage('Knowledge is unavailable or changed. Reconnect/refresh the selected folder. No note was changed or uploaded.'); }
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.doctor', async () => { const r = root(); if (r) await runCli(context, r, ['doctor', '.'], 'Code Conductor Doctor'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.validate', async () => { const r = root(); if (r) await runCli(context, r, ['workspace-validate', '.'], 'Code Conductor Validate'); }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.plan', async () => {

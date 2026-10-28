@@ -66,3 +66,22 @@ Run enumeration reads at most the latest 1,000 record directories per refresh
 and displays up to 25 matching runs. A visible limit notice explains older-record
 lookup. Malformed, oversized and missing-repository records are counted as
 unassociated/unavailable, and inaccessible stores show an actionable diagnostic.
+
+## Optional knowledge navigation
+
+**Knowledge** in Workstation, **Browse Knowledge**, and **Related knowledge** on a
+run use an explicitly connected existing vault folder. **Connect Knowledge Vault**
+stores non-secret connection paths only; it performs no scan. Browsing indexes
+on demand and filters metadata to the selected repository. Run navigation matches
+only declared run identifiers and copies no private execution content.
+
+**Disconnect Knowledge Vault** forgets the connection; it deletes no notes.
+Opening a note rechecks its hash, source/edge states, repository and connection
+before navigation. Native editor is the default. An unavailable Obsidian client or
+URI-ambiguous filename falls back to the editor. Notes and their source references
+never grant execution authority.
+
+Indexing currently supports trusted, local Linux extension hosts only. Windows,
+macOS, WSL/SSH/remote and virtual hosts are explicitly unsupported for indexing;
+URI unit tests do not establish installed-client validation on those hosts.
+See [Obsidian integration](OBSIDIAN-INTEGRATION.md) for schema, limits and evidence.

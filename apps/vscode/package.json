@@ -102,6 +102,18 @@
         "command": "codeConductor.selectWorkspace",
         "title": "Code Conductor: Select Repository",
         "icon": "$(folder)"
+      },
+      {
+        "command": "codeConductor.knowledge",
+        "title": "Code Conductor: Browse Knowledge"
+      },
+      {
+        "command": "codeConductor.connectKnowledge",
+        "title": "Code Conductor: Connect Knowledge Vault"
+      },
+      {
+        "command": "codeConductor.disconnectKnowledge",
+        "title": "Code Conductor: Disconnect Knowledge Vault"
       }
     ],
     "viewsContainers": {
@@ -226,7 +238,8 @@
     "@code-conductor/policy": "0.1.0",
     "@code-conductor/runtime": "0.1.0",
     "@code-conductor/schemas": "0.1.0",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "@code-conductor/context-optimizer": "0.1.0"
   },
   "devDependencies": {
     "@types/vscode": "~1.105.0"

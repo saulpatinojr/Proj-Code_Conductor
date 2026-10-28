@@ -47,7 +47,7 @@ The repository foundation is implemented rather than architecture-only:
 
 The authoritative current status is `docs/STATUS.md`. Read ADR 0016 and
 `docs/OBSIDIAN-INTEGRATION.md` before implementing the optional knowledge index;
-the ADR must merge before that implementation begins. The approved cockpit,
+ADR 0016 merged in #146; its read-only boundary now governs that implementation. The approved cockpit,
 orchestration, APM and Obsidian follow-up is tracked in #139–#142;
 PR #143 merged the initial scoped-run/configuration/task-refresh fixes; start with
 #139 reliability and retain installed-VSIX validation before claiming completion.
