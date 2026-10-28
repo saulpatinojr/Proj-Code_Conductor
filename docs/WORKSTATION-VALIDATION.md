@@ -1,5 +1,9 @@
 # Workstation validation runbook
 
+For repeatable installed-VSIX command/document/task checks, see the
+[Linux native smoke record and runner](validation/2026-10-28-linux-vsix-smoke.md).
+These checks supplement the provider trust and interactive walkthroughs below.
+
 Code Conductor deliberately separates repository/CI validation from subscription-backed client validation. GitHub Actions must never consume personal paid AI subscriptions. Run these checks on the workstation that will execute agents.
 
 This runbook follows ADR 0008/0009: the workstation is VS Code-centered, startup is lazy, and provider validation is **surface-aware** rather than treating every AI provider as only a CLI.

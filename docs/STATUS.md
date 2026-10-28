@@ -43,8 +43,18 @@ and local VSIX packaging passed. The VSIX uses a test publisher, not publication
 Independent read-only review found no remaining blockers after corrections and
 reran focused integration tests. Required GitHub checks passed before merge.
 Post-merge on `main`: typecheck, 100 focused tests (one host-specific skip),
-repository validation and standalone bundle smoke passed. Native desktop behavior
-is not validated here.
+repository validation and standalone bundle smoke passed. Knowledge navigation in
+a real installed Obsidian client remains unvalidated.
+
+## Native installed-VSIX evidence
+
+The packaged source at `76b903a` passed eight real extension-host checks in an
+installed test-publisher VSIX on Linux/VS Code 1.105.1 under Xvfb: activation,
+command registration, packaged defaults, optional absent APM, scoped run summary,
+open-summary refresh and a successful bundled native validation task. The
+unrelated empty workspace remained empty. This does not establish Windows,
+Restricted Mode, exhaustive click-through, accessibility or real Obsidian behavior.
+The reusable runner and bundle hashes are in the [native smoke record](validation/2026-10-28-linux-vsix-smoke.md).
 
 ## APM evidence and remaining lifecycle
 
@@ -91,9 +101,9 @@ under #142. See [APM workflows](APM-WORKFLOWS.md).
 
 ## Limits to retain
 
-- No clean Windows/Linux installed-VSIX click-through or real Obsidian walkthrough
-  was performed in this cloud environment. Mocked extension-host/URI tests are
-  not desktop release evidence.
+- Linux installed-VSIX command/document/task smoke passed as recorded above.
+  Clean Windows, exhaustive interactive click-through and real Obsidian walkthrough
+  remain outstanding. Mocked extension-host/URI tests are separate evidence.
 - Kiro modify remains fail-closed; Antigravity unattended execution stays blocked.
 - Context file reads and initial knowledge indexing require supported local Linux
   descriptor protection. The context optimizer MCP transport remains experimental.
