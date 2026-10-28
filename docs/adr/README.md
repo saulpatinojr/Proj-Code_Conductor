@@ -31,3 +31,4 @@ An accepted ADR that changes a locked baseline must update `docs/DECISIONS.md` i
 Do not use an ADR to justify bypassing a failing deterministic gate. Fix the problem or explicitly redesign the gate with evidence.
 
 - [ADR 0017 — Write-isolated selected-pack projection previews](0017-write-isolated-pack-projection-preview.md)
+- [ADR 0018 — Approve and deploy exact native APM artifacts](0018-approved-apm-artifact-deployment.md) — proposed.
