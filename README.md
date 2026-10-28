@@ -137,3 +137,7 @@ Start with [`docs/README.md`](docs/README.md). Key documents include:
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a change. Security issues must follow [`SECURITY.md`](SECURITY.md); do not place credentials or exploitable vulnerability details in public issues.
 
 This repository is licensed under the [Apache License 2.0](LICENSE).
+
+Optional local knowledge navigation is described in
+[Obsidian integration](docs/OBSIDIAN-INTEGRATION.md). It is read-only, on demand,
+and currently limited to trusted local Linux hosts; it is not release validation.

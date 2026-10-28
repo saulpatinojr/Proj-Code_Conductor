@@ -92,13 +92,13 @@ export function gitExecutable(env: NodeJS.ProcessEnv = process.env): string {
   return resolved.path;
 }
 
-interface RunGitOptions { env?: NodeJS.ProcessEnv; input?: string; maxBuffer?: number }
+interface RunGitOptions { env?: NodeJS.ProcessEnv; input?: string; maxBuffer?: number; timeoutMs?: number }
 function runGit(cwd: string, args: readonly string[], options: RunGitOptions & { encoding: 'utf8' }): SpawnSyncReturns<string>;
 function runGit(cwd: string, args: readonly string[], options?: RunGitOptions): SpawnSyncReturns<Buffer>;
 function runGit(cwd: string, args: readonly string[], options: RunGitOptions & { encoding?: 'utf8' } = {}): SpawnSyncReturns<string | Buffer> {
   // Programs Git starts itself (ssh, filters, credential helpers) follow the same rule.
   const env = absolutePathEnvironment(options.env ?? withoutGitLocalEnv());
-  return spawnSync(gitExecutable(env), [...SAFE_GIT, ...args], { cwd, env, shell: false, windowsHide: true, maxBuffer: options.maxBuffer ?? MAX_GIT_OUTPUT, ...(options.input !== undefined ? { input: options.input } : {}), ...(options.encoding ? { encoding: options.encoding } : {}) });
+  return spawnSync(gitExecutable(env), [...SAFE_GIT, ...args], { cwd, env, shell: false, windowsHide: true, maxBuffer: options.maxBuffer ?? MAX_GIT_OUTPUT, ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs, killSignal: 'SIGKILL' as const }), ...(options.input !== undefined ? { input: options.input } : {}), ...(options.encoding ? { encoding: options.encoding } : {}) });
 }
 
 function git(cwd: string, args: string[], allowFailure = false, env: NodeJS.ProcessEnv = withoutGitLocalEnv()): string {
@@ -698,6 +698,16 @@ export function redactUrl(url: string): string {
     if (cut.length) text = text.slice(0, Math.min(...cut));
   }
   return redactSecrets(text).text;
+}
+
+/** Read-only selected-repository identity for optional navigation, with tight resource bounds. */
+export function githubOriginRepository(path: string): string | undefined {
+  try {
+    const result = runGit(path, ['remote', 'get-url', '--', 'origin'], { encoding: 'utf8', timeoutMs: 2000, maxBuffer: 4096 });
+    if (result.status !== 0 || result.error || result.signal) return undefined;
+    const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(result.stdout.trim());
+    return match?.[1]?.toLowerCase();
+  } catch { return undefined; }
 }
 
 /**

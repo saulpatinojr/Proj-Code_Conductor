@@ -1,186 +1,89 @@
 # Code Conductor working status
 
-Validated **2026-10-28 (UTC)** against GitHub, release metadata, repository
-records,
-and a fresh npm lockfile audit. Baseline: `main` at
-[`a25be5c`](https://github.com/saulpatinojr/Proj-Code_Conductor/commit/a25be5c50adc0b1652ab772dafa369471b0371d8).
-Use this document for current status and next actions; Git history retains
-earlier checkpoints.
+Updated 2026-10-28 (UTC). This document distinguishes merged development work,
+prepared changes and released/workstation evidence. GitHub and executable
+validation remain authoritative; issue scope alone is not completion.
 
 ## Current position
 
-**0.1.2 beta is published. Dependency remediation and ACP 2.0.1 are locally
-validated in
-[PR #136](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/136),
-awaiting integration after review.**
+**0.1.2 beta is published. Reliability, stored execution monitoring, optional
+pack provenance/audit and the knowledge ADR have advanced on main. The read-only
+knowledge implementation is prepared for review; the full workstreams and
+release validation are not complete.**
 
-| Area | Validated status |
-| --- | --- |
-| Release | [v0.1.2](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.2), published October 22 UTC from `130c155`; VSIX, CycloneDX SBOM and checksums available. Release notes record checksum/provenance verification. |
-| Main CI | [CI](https://github.com/saulpatinojr/Proj-Code_Conductor/actions/runs/39704829119), release preflight and APM audit passed October 22; [CodeQL](https://github.com/saulpatinojr/Proj-Code_Conductor/actions/runs/40271051788) passed October 26. These historical results do not establish a current clean dependency audit. |
-| Main audit | **2 high, 2 moderate** on the baseline; see below. |
-| Open work | **2 issues**: [#14 Marketplace/release engineering](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/14), [#18 Antigravity safety](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/18). **2 PRs**: [#135 ACP SDK update](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/135) and replacement [#136](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/136). |
-| PR #135 | No merge conflict, but blocked. [Lockfile validation](https://github.com/saulpatinojr/Proj-Code_Conductor/actions/runs/40322418281) detects drift; [quality](https://github.com/saulpatinojr/Proj-Code_Conductor/actions/runs/40322417910) stops at dependency audit. That job's build/typecheck and unit tests were skipped. ACP 2 has breaking API changes; compatibility needs validation. |
+| Area | Evidence-backed status |
+|---|---|
+| Published release | [v0.1.2](https://github.com/saulpatinojr/Proj-Code_Conductor/releases/tag/v0.1.2), published October 22 from `130c155`, with VSIX, SBOM and checksums. New development changes are unreleased. |
+| Dependency remediation | [#136](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/136) merged at `f9130e8`: ACP 2.0.1 and dependency fixes. Local/CI validation is recorded in that PR. |
+| Initial cockpit reliability | [#143](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/143) merged at `e3a145c`: task-end refresh, repository-scoped runs, multi-root selection and effective read-only configuration. |
+| Stored execution overview | [#144](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/144) merged at `04ad126`: approved start observations, dependency/provider/authority details, evidence refresh, one-shot stale expiry and inert summary text. No new scheduler. |
+| Optional APM inventory/audit | [#145](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/145) merged at `8e2b2cb`: pinned source metadata, mismatch diagnostics, explicit bounded audit and absolute executable resolution. Installation lifecycle remains open. |
+| Knowledge architecture | [#146](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/146) merged at `5cf27ea`: accepted ADR 0016/D-078, optional bounded read-only navigation with no cloud activation. |
+| Workstation evidence | #4 is closed with recorded 0.1.1 Windows evidence: provider smoke tests, activation, R1/R2 and GitHub review. That is not clean-machine validation of 0.1.2 or current source. |
 
-The October 28 baseline audit found high-severity findings in
-`@azure/identity` and `@azure/msal-node`, and moderate findings in `fast-uri`
-and `qs`. The prepared change below fixes these; main still needs integration.
+## Prepared knowledge implementation
 
-## Prepared change (not merged or released)
+Branch `feat/knowledge-vault-index` adds explicit existing-vault/folder selection,
+repository-bound typed metadata, local source hashes, stale/broken states,
+click-time invalidation and native editor/Obsidian navigation. It creates no
+notes, copies no private run content and starts no indexing/provider/network
+operation at activation or connection. Indexing supports trusted local Linux
+hosts only; Windows/macOS/remote indexing fails explicitly.
 
-- ACP SDK **2.0.1**, patched `fast-uri`/`qs`, Azure Identity **4.14.0**, and a
-  scoped
-  MSAL Node **7.1.2** override. See [Unreleased](../CHANGELOG.md#unreleased) for
-  rationale.
-- **Passed locally, Node 24.19.0:** clean install, typecheck, full build,
-  standalone
-  bundle smoke, repository policy validation, VSIX packaging, and **62 test
-  files:
-  576 passed / 32 skipped** (PowerShell-dependent tests; `pwsh` is absent).
-- **Zero audit findings** on this branch. Lockfile regeneration is unchanged
-  using
-  CI's npm **11.19.0**. ACP streaming, permission cancellation and timeout tests
-  pass.
-- Offline smoke of vsce's actual Azure CLI credential chain passed with a fake
-  CLI;
-  this does not establish live Entra/Marketplace authorization. Independent
-  read-only
-  dependency review found no compatibility blocker. [GitHub checks at
-  `cfa2cfd`](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/136/checks)
-  passed all executed gates, including quality, lockfile, APM audit, CodeQL,
-  dependency review and packaging. Later status-only updates retain that tested
-  baseline;
-  consult the PR checks for the latest revision.
+The implementation reuses descriptor-bound reads, excludes hidden/credential
+and configured private-state paths, bounds traversal and total reads, and charges
+failed/invalid UTF-8 reads against its budget. A lazy local Git origin lookup has
+a two-second/4 KiB bound. Remote issues and run references remain unverified.
+URI-ambiguous paths and an unavailable Obsidian client use the editor fallback.
+See [Obsidian integration](OBSIDIAN-INTEGRATION.md) for schema and limitations.
 
-## Completed
+Validation after integration with current main: **70 test files, 618 passed /
+33 skipped**; typecheck, repository validation, standalone bundle/default smoke
+and local VSIX packaging passed. The VSIX uses a test publisher, not publication.
+Independent read-only review found no remaining blockers after corrections and
+reran focused integration tests. GitHub checks/review are still required before
+this prepared branch merges. Native desktop behavior is not validated here.
 
-- **Windows beta readiness:** [#4 closed October
-  22](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/4#issuecomment-6330561368).
-  Its [final
-  evidence](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/4#issuecomment-6286118810)
-  covers **0.1.1** installation, artifact verification, Claude/Codex read and
-  modify
-  smoke tests, Kiro read, 9 ms activation, R1 reaching `ready`, R2 with an
-  independent
-  challenger, and GitHub review. These workstation results were not rerun here.
-- **Corpus disposition:** [#13 closed October
-  22](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/13).
-  The [disposition record](ledger/dispositions-2026-10-19.md) excludes every
-  remaining
-  collection by owner decision; no new pack is required. The full external
-  ledger
-  was not independently re-audited here.
-- Bundled runtime, orchestration, worktrees, handoffs, deterministic gates and
-  APM
-  integration are on `main`. [CHANGELOG](../CHANGELOG.md) retains implementation
-  history;
-  [implementation plan](IMPLEMENTATION-PLAN.md) retains acceptance criteria.
+## APM evidence and remaining lifecycle
 
-## Next actions, in order
+The official APM 0.33.0 Linux archive was checked against its published SHA-256.
+`apm targets`, native audit and the built CLI audit passed all 31 checks with no
+drift against this repository's unchanged package source/projections.
 
-1. **Review and integrate the prepared dependency/ACP change.** Require GitHub
-CI
-   and independent review before integration. The implementing agent must not
-   approve
-   or merge its own change (AGENTS.md). Main retains its findings until
-   integration.
-2. **Reconcile #135 after integration.** The prepared change includes its SDK
-update
-   plus the security and lockfile fixes. Close the superseded PR only after the
-   replacement lands; do not treat its old failing checks as fixed on GitHub
-   yet.
-3. **Validate the published 0.1.2 VSIX on a clean Windows profile.** Follow
-   [workstation validation](WORKSTATION-VALIDATION.md); record installation,
-   Doctor,
-   startup, storage under `~/.code-conductor`, and representative run evidence.
-   Track this and beta defects in new issues; #4 is complete.
-4. **Finish Marketplace publication under #14.** Follow the
-   [publishing runbook](MARKETPLACE-PUBLISHING.md) and [release
-   verification](RELEASE.md).
-   The [October 25
-   read-back](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/14#issuecomment-6404057140)
-   records the protected environment and publisher variable as configured, but
-   the
-   Entra client/tenant secrets and publish switch as missing. Recheck before
-   acting.
-   The `v0.1.2` GitHub tag already exists: select the supported workflow or next
-   version rather than treating the tag as uncreated.
-5. **Broaden validation:** Linux/WSL context reads, macOS/Linux/remote
-installation,
-   then permission-model work for Kiro modify. [Antigravity #18 is
-   post-1.0](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/18#issuecomment-6404056881),
-   pending an installed, signed-in current CLI; `agy` is absent in this session
-   too.
+A disposable single-pack Codex fixture confirmed that native installation creates
+agent/skill projections, a lock and `.gitignore`. Native `install --dry-run` lists
+packages but explicitly omits per-package stale-file cleanup; it is not an exact
+projected-file diff. Selection, isolated exact-diff generation, conflict/ownership
+checks, action-bound install approval, deployment-correlated audit evidence and
+safe update/removal remain required under #142. See [APM workflows](APM-WORKFLOWS.md).
+
+## Active delivery work
+
+- [#139](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/139): remaining
+  cockpit action/state coverage and real installed-VSIX interaction/host evidence.
+- [#140](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/140): remaining
+  orchestration UX acceptance, source-linked evidence and desktop validation.
+- [#142](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/142): full APM
+  select/preview/approve/install/audit/update/removal workflow.
+- [#141](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/141): integrate
+  read-only vault slice, validate native navigation, then incremental indexing and
+  reviewed note-template/write workflows. No automatic vault write is authorized
+  by connection.
+- #137/#138 capture additional Second Brain/sidebar requests. Cloud sync needs
+  separate reviewed architecture and protected deployment gates; it is not
+  activated by the local adapter.
+- #14 remains the Marketplace/release-engineering path. Recheck publisher/Entra
+  configuration before acting; existing `v0.1.2` is not an uncreated tag.
 
 ## Limits to retain
 
-- **0.1.2 has no recorded clean-machine install validation.** The 0.1.1 Windows
-  evidence does not establish this for 0.1.2 or other platforms.
-- Kiro modify remains fail-closed; Antigravity unattended execution remains
-  blocked.
-- Context file reads require Linux/WSL (ADR 0007 / D-070); Windows and macOS
-  refuse
-  them. The context optimizer MCP adapter remains experimental.
-- Marketplace listing, representative live MCP use and the real-run tool-output
-  summary comparison remain unverified in the reviewed records.
-- Full product tests were run on the prepared branch; provider authentication,
-  clean-profile workstation tests and published artifact attestations were not
-  rerun.
-
-## Approved cockpit follow-up (2026-10-28)
-
-PR #136 is merged at `f9130e8`; the earlier prepared-change section records its
-pre-integration validation. Issues #139–#142 track the approved reliability,
-orchestration, APM and Obsidian workstreams; #137/#138 also capture Second Brain
-and sidebar requirements. These issues supersede the older open-work count.
-
-Branch `fix/cockpit-task-lifecycle` begins #139 with task-end refresh, refreshed
-open summaries, repository-scoped run navigation, explicit multi-root selection
-and effective read-only configuration. Local validation passed: typecheck, 65 test files (582 passed / 32 skipped),
-repository validation, standalone bundle smoke and VSIX packaging with a
-local-only test publisher ID. Independent focused read-only review found no
-remaining blockers after corrections. Extension bundle size is 648,167 bytes
-(previously about 335 KB), including schema validation for untrusted manifests. Installed Windows/Linux VSIX interaction
-validation remains outstanding. This is an implementation checkpoint, not issue
-completion, release approval or evidence that the other workstreams are done.
-
-## Execution-overview follow-up
-
-PR #143 is merged at `e3a145c`. Post-merge typecheck, 39 VS Code tests,
-repository validation and standalone bundle smoke passed. This closes the first
-reliability slice, not all of #139.
-
-The next slice builds #140 on the existing manifest/journal: dependency and
-provider/authority detail, observed starts, coalesced local-evidence refresh,
-one-shot stale-state expiry, consistent partial-execution labels and inert
-evidence references. Legacy advisory-gate outcomes retain runtime semantics.
-Mocked extension-host tests cover fast-task events, watcher refresh, stale
-expiry, and foreign/malformed/oversized records. Real installed VSIX validation
-on Windows and Linux remains outstanding; APM and Obsidian implementation are
-not complete.
-
-Local validation for the execution-overview slice: 67 test files, 591 passed /
-32 skipped; typecheck, repository validation, standalone bundle smoke and local
-VSIX packaging passed. Independent focused review reported no remaining
-blockers after corrections. The VSIX used a test publisher, not publication.
-
-## Optional APM inventory follow-up
-
-The current pack-inventory slice under #142 adds declared/locked/mismatch states,
-reviewed mirror identity checks, exact commit/version/target metadata, read-only
-provenance snapshots and an explicit audit command. It does not complete the
-select/preview/approve/install/update/removal workflow.
-
-The official APM 0.33.0 Linux archive was downloaded and checked against its
-published SHA-256. `apm targets` succeeded; native audit and the built CLI audit
-both passed all 31 checks with no drift. No package source or projection changed.
-These results apply to this repository, not every customer's installation.
-
-APM inventory local validation before integration: 66 test files, 588 passed /
-32 skipped; typecheck, repository validation, standalone bundle smoke and local
-VSIX packaging passed. Focused independent review found no remaining blockers.
-Integration with merged PR #144 requires fresh validation.
-
-After integration with PR #144: 68 test files, 597 passed / 32 skipped;
-typecheck, repository validation and standalone bundle smoke passed. The source
-conflicts preserved both execution-monitor and pack-inventory behavior.
+- No clean Windows/Linux installed-VSIX click-through or real Obsidian walkthrough
+  was performed in this cloud environment. Mocked extension-host/URI tests are
+  not desktop release evidence.
+- Kiro modify remains fail-closed; Antigravity unattended execution stays blocked.
+- Context file reads and initial knowledge indexing require supported local Linux
+  descriptor protection. The context optimizer MCP transport remains experimental.
+- No release, Marketplace publication, cloud provisioning or GitHub Project board
+  change was performed during these implementation slices.
+- PR creation and merge are owner-authorized after required checks; runtime
+  provider/disclosure/commit/deployment approvals remain action-specific.

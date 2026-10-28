@@ -1,22 +1,107 @@
 # Optional Obsidian integration
 
-The approved workstream is tracked in #141. [ADR 0016](adr/0016-local-first-knowledge-navigation.md)
-is the proposed read-only boundary and must be independently reviewed before
-implementation. No vault integration is currently claimed complete.
+[ADR 0016](adr/0016-local-first-knowledge-navigation.md) merged in #146. The
+read-only local Linux slice is implemented on the knowledge-index branch;
+installed VSIX/Obsidian validation and the whole #141 workstream remain open.
 
-The intended first experience is **connect an existing vault folder -> inspect
-repository-related notes -> open a verified local mapping in Obsidian or the
-native editor -> disconnect**. The connection creates no notes and uploads
-nothing. Indexing stays bounded, local and on demand.
+## Connect and browse
 
-Notes are navigation. Git/GitHub, approved ADRs, runtime evidence and APM remain
-their respective authorities. Missing or changed sources stay unverified/stale.
-No note may grant execution authority, change a gate or claim that a PR merged.
+1. In a trusted local Linux workspace, run **Connect Knowledge Vault**.
+2. Select an existing vault and a contained non-hidden folder for this repository.
+   Connection stores only paths in VS Code workspace state and performs no scan.
+3. Run **Browse Knowledge** or click **Knowledge** in Workstation. Indexing is
+   explicit, local and bounded. A run's **Related knowledge** filters declared
+   run identifiers without copying private prompts, manifests or output.
+4. Choose a note, then the native editor or Obsidian. The command rechecks note
+   content and source/edge states. If Obsidian cannot open it, or its path has
+   URI-reserved characters, the editor is used.
+5. **Disconnect Knowledge Vault** forgets connection state and deletes no notes.
 
-The separate cloud-sync request in #137 needs its own reviewed architecture and
-deployment gates. It is not activated by connecting a local vault. Private run
-outputs and provider credentials must never be copied automatically into a
-folder that may already be synchronized by another application.
+There is no startup scan, note generation, persistent content index, provider
+context disclosure, embedding service, network request, synchronization or cloud
+resource. GitHub references may trigger one safe local Git origin query, limited
+to two seconds and 4 KiB, only during explicit browsing. Git/GitHub, approved ADRs,
+runtime evidence and APM remain authoritative; notes cannot change their state.
 
-A later implementation will document the exact frontmatter schema, supported
-hosts, selection/disconnect commands and disposable-vault walkthrough here.
+## Supported metadata
+
+Only explicit `code_conductor` frontmatter version 1 is indexed. Ordinary prose,
+Markdown links, commands and arbitrary URIs are not interpreted as instructions.
+For example, manually author a note using the actual selected repository path:
+
+```yaml
+---
+code_conductor:
+  version: 1
+  id: decision-context
+  kind: decision
+  repository: /absolute/path/to/repository
+  sources:
+    - kind: file
+      path: docs/DECISIONS.md
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    - kind: issue
+      id: owner/repository#7
+    - kind: run
+      id: CC-example
+  edges:
+    - kind: decided_by
+      target: project-overview
+      source: 0
+---
+Human-owned prose stays here.
+```
+
+Replace the sample SHA-256 with the actual UTF-8 source-file digest. Quote a digest
+if it contains only digits so YAML keeps it a string. GitHub identity must match
+the selected repository's official GitHub `origin`; issue/PR existence/status
+remains unverified. Missing or unsupported origins cannot establish association.
+Run IDs remain unverified navigation references and are never treated as readiness.
+
+Node kinds: project, repository, decision, issue, pr, agent, skill, pack, task, run,
+evidence and lesson. Edge kinds: depends_on, uses, implements, decided_by,
+validated_by and related_to. Each edge points to a source index and another
+explicit note ID. Missing target IDs are broken; duplicate identities are excluded.
+
+Source states are `locally_matched` (local source digest matches), `stale` (digest
+changed), `broken` (missing, blocked or unavailable), or `unverified` (external/run
+claim). A matched digest identifies content; it does not prove a note's semantic
+claim. `observedAt` is the local indexing time, not remote verification.
+
+## Safety, bounds and host support
+
+Reads reuse the established descriptor-bound reader: regular single-link files,
+canonical scope, no symlink traversal and Linux descriptor-location verification.
+Hidden/sensitive path components, configured private run-store descendants,
+credential-shaped content, malformed or tagged YAML and unsupported metadata are
+excluded with generic diagnostics. No parser snippets or credential values are
+logged. Click-time changes require refreshing the selection.
+
+Limits: 200 Markdown files, 400 traversed entries, depth 8, 64 KiB per read,
+4 MiB total charged read budget, 8 KiB frontmatter, and 32 sources/edges per note.
+Directory iteration is bounded. Failed/invalid UTF-8 reads reserve their allowance
+rather than bypassing the budget. Repeated source reads share a per-scan hash cache.
+
+Windows, macOS and remote/virtual indexing fail explicitly. URI serialization and
+Windows path encoding have unit coverage, not installed-client evidence. Paths
+containing reserved query characters use the editor fallback to avoid native URI
+reinterpretation. No third-party Obsidian plugin is required.
+
+## Remaining work and validation
+
+Disposable tests cover two repository scopes, source changes, renamed/modified
+notes, traversal, symlinks, credentials, malformed metadata, scan limits, byte
+budgets and URI handling. Mocked VS Code tests cover no startup/connection scan,
+Restricted Mode, remote refusal, editor fallback and disconnect preservation.
+
+Real installed VSIX/native Obsidian walkthroughs, broader host support, incremental
+indexing and explicit note templates/write previews remain outstanding. The
+separate cloud-sync request #137 requires its own reviewed architecture and
+protected deployment gates; this adapter activates none of it.
+
+Official references:
+
+- [Obsidian URI](https://help.obsidian.md/Extending+Obsidian/Obsidian+URI)
+- [VS Code external opener](https://github.com/microsoft/vscode/blob/main/src/vs/editor/browser/services/openerService.ts)
+- [Obsidian Vault API](https://docs.obsidian.md/Plugins/Vault), a possible later
+  plugin boundary, not a dependency of this slice.

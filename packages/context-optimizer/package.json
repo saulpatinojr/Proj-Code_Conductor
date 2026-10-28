@@ -13,6 +13,10 @@
     "./tool-output": {
       "types": "./dist/tool-output.d.ts",
       "default": "./dist/tool-output.js"
+    },
+    "./checked-read": {
+      "types": "./dist/checked-read.d.ts",
+      "default": "./dist/checked-read.js"
     }
   },
   "dependencies": {

@@ -4,6 +4,11 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Connect an explicitly selected existing local vault folder and browse typed
+  repository-related metadata on demand. Read-only indexing is Linux-only with
+  descriptor-bound reads, sensitive/private-state exclusions and bounded I/O;
+  native editor/Obsidian navigation rechecks note and source state before opening.
+
 - Show stored execution dependencies, authority, evidence and observed progress;
   refresh on local evidence changes and expire stale starts without polling.
   Preserve runtime advisory-gate semantics and render untrusted summary text inert.

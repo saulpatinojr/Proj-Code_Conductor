@@ -1,6 +1,6 @@
 # ADR 0016 — Optional local knowledge is navigation, not execution authority
 
-- **Status:** Reviewed proposal; accepted for implementation when this ADR merges
+- **Status:** Accepted (merged in PR #146)
 - **Date:** 2026-10-28
 - **Scope:** owner-approved local-first Obsidian workstream, issue #141
 - **Related:** ADR 0007, ADR 0013, ADR 0015; D-059, D-060, D-063, D-072
