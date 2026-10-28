@@ -81,6 +81,7 @@ export function validateTeamAdvice(value: unknown, inputs: TeamInputs): TeamAdvi
     if (pair.length !== 2 || pair.some((role) => !roles.has(role))) invalid('unknown handoff role');
     const recipients = assignments.filter((item) => item.role === pair[0]);
     const sources = assignments.filter((item) => item.role === pair[1]);
+    if (!recipients.length || !sources.length) invalid('missing required handoff endpoint');
     if (recipients.some((recipient) => { const prior = ancestors(recipient.id); return sources.some((source) => !prior.has(source.id)); })) invalid('missing required handoff');
   }
   for (const [pairs, provider] of [[inputs.separateAgents, false], [inputs.separateProviders, true]] as const) {

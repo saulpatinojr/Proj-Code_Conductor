@@ -44,6 +44,8 @@ describe('orchestrator advice quality gates', () => {
     expect(() => validateTeamAdvice(cyclic, inputs)).toThrow(/cyclic/);
     const unordered = advice(); unordered.assignments[1]!.dependsOn = [];
     expect(() => validateTeamAdvice(unordered, inputs)).toThrow(/required handoff/);
+    const missingEndpoint = advice(); missingEndpoint.assignments.pop();
+    expect(() => validateTeamAdvice(missingEndpoint, { ...inputs, requiredRoles: ['builder'] })).toThrow(/handoff endpoint/);
   });
   it('preserves policy-required provider independence', () => {
     const same = structuredClone(inputs); same.agents[1]!.provider = same.agents[0]!.provider;
