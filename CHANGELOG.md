@@ -4,6 +4,11 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Reuse bounded in-memory knowledge frontmatter parsing by content and connection
+  scope while rechecking current notes, sources and relationships on every scan.
+  Renames/deletions refresh normally; disconnect and scope changes clear metadata.
+  No note bodies or verification states are persisted or reused.
+
 - Preserve effective blocking policy in native gate results. The cockpit requires
   a passed blocking gate and no unsuccessful blocking gate before displaying ready;
   older records with unknown gate policy remain readable and require review.
