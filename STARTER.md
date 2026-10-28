@@ -52,8 +52,7 @@ progress. PR #145 merged pack inspection/audit; #146 accepted ADR 0016, and
 inspection and audit are in `docs/APM-WORKFLOWS.md`;
 exact install preview and approval remain under #142. The approved workstreams
 are #139–#142. Read merged ADR 0016 and `docs/OBSIDIAN-INTEGRATION.md` before
-implementing the optional knowledge index. Continue
-#139 reliability and retain installed-VSIX validation before claiming completion.
+extending the optional knowledge index. Continue #139 reliability and retain installed-VSIX validation before claiming completion.
 
 ## Immediate work order
 

@@ -67,8 +67,8 @@ safe update/removal remain required under #142. See [APM workflows](APM-WORKFLOW
   orchestration UX acceptance, source-linked evidence and desktop validation.
 - [#142](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/142): full APM
   select/preview/approve/install/audit/update/removal workflow.
-- [#141](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/141): integrate
-  validate native navigation, then incremental indexing and
+- [#141](https://github.com/saulpatinojr/Proj-Code_Conductor/issues/141):
+  validate native navigation, then add incremental indexing and
   reviewed note-template/write workflows. No automatic vault write is authorized
   by connection.
 - #137/#138 capture additional Second Brain/sidebar requests. Cloud sync needs
