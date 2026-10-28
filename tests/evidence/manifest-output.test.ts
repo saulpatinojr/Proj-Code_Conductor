@@ -84,7 +84,7 @@ describe('manifest-bound tool output', () => {
     expect(evidenceText(repository, store.root, manifest, id)).toContain('cannot be verified');
   });
   it.skipIf(process.platform === 'win32')('refuses symlinked capture folders/files and hard-linked streams', () => {
-    const { root, store, manifest, id, stored, read } = fixture();
+    const { root, store, manifest, stored, read } = fixture();
     const stdout = stored.path.replace('.json', '.stdout'); const outside = join(root, 'outside'); writeFileSync(outside, 'outside');
     rmSync(stdout); symlinkSync(outside, stdout); expect(read).toThrow(/Unsafe/);
     rmSync(stdout); linkSync(outside, stdout); expect(read).toThrow(/Unsafe/);
