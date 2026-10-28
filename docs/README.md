@@ -53,3 +53,9 @@ Repository-wide contributor/review documentation lives at the root or under `.gi
 ## Documentation ownership
 
 Avoid duplicating authoritative content. When possible, update the authoritative document and link to it elsewhere. `STATUS.md` is the living checkpoint; `DECISIONS.md` is the durable decision record; `AGENTS.md` is the operating constitution.
+
+## Optional knowledge navigation
+
+- [Obsidian integration](OBSIDIAN-INTEGRATION.md) — current implementation boundary.
+- [ADR 0016](adr/0016-local-first-knowledge-navigation.md) — reviewed local-first
+  design proposal and its quality/implementation gates.

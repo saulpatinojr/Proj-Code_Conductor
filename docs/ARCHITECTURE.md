@@ -352,3 +352,10 @@ The cockpit consumes bounded local manifest/lock metadata and delegates explicit
 audit to the existing APM adapter. It does not become a package resolver or assert
 integrity from lock presence. See [APM workflows](APM-WORKFLOWS.md) for provenance
 states and the remaining installation boundary under #142.
+
+## Optional knowledge navigation
+
+[ADR 0016](adr/0016-local-first-knowledge-navigation.md) proposes an explicitly
+selected, bounded local-vault index. It creates no execution authority, hosted
+service or synchronization dependency. [Obsidian integration](OBSIDIAN-INTEGRATION.md)
+records its scope and implementation status. No integration is claimed complete.
