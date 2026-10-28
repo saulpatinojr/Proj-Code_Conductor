@@ -7,8 +7,15 @@ export async function runInterview(context: vscode.ExtensionContext, root: strin
   const key = `codeConductor.interview.${createHash('sha256').update(root).digest('hex')}`;
   const stored = await context.secrets.get(key);
   let previous: InterviewState | undefined;
-  try { previous = stored ? JSON.parse(stored) as InterviewState : undefined; }
-  catch { throw new Error('Saved interview is invalid.'); }
+  try {
+    previous = stored ? JSON.parse(stored) as InterviewState : undefined;
+    if (stored && !previous) throw new Error('Invalid saved interview.');
+    interviewDraft(root, previous);
+  } catch {
+    const recover = await vscode.window.showWarningMessage('Saved interview answers could not be validated. Start a new draft from defaults? The saved data will remain until you preview and save new answers.', 'Start new draft', 'Cancel');
+    if (recover !== 'Start new draft' || !stillSelected()) return;
+    previous = undefined;
+  }
   const answers = interviewDraft(root, previous);
   const origins: InterviewOrigins = previous ? { ...previous.origins } : { mission: 'default', priorities: 'default', style: 'default' };
   const choice = await vscode.window.showQuickPick(previous ? ['Use current answers', 'Customize', 'Reset to defaults'] : ['Use defaults', 'Customize'], { placeHolder: previous ? 'Redo orchestrator interview' : 'Set up your orchestrator — start with defaults or customize' });

@@ -38,9 +38,7 @@ grants denied. It is not a confidential-read or network sandbox. An APM executab
 inside the hidden home may be unavailable; unsupported hosts/namespace setup fail
 explicitly. No prerequisite is installed automatically. See [ADR 0017](adr/0017-write-isolated-pack-projection-preview.md).
 
-## On-demand catalog discovery
-
-### Orchestrator interview preview
+## Orchestrator interview preview
 
 The explicit **Orchestrator Interview / Redo** command offers defaults or three
 short answers: mission/success, priorities/constraints and working style. It opens
@@ -55,6 +53,8 @@ application remain required before its proposals can become a runtime blueprint.
 Unknown skills/tools/history remain explicitly unknown. Existing memory is never
 read or replaced by this preview. Setup is on demand, not an activation-time
 questionnaire or model call.
+
+## On-demand catalog discovery
 
 `ccon apm-catalog --repo /absolute/repository` fetches the canonical mirror's
 catalog and release tags explicitly. Each candidate records its virtual package,
