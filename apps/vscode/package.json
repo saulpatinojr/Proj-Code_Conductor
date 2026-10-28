@@ -102,6 +102,14 @@
         "command": "codeConductor.selectWorkspace",
         "title": "Code Conductor: Select Repository",
         "icon": "$(folder)"
+      },
+      {
+        "command": "codeConductor.inspectPacks",
+        "title": "Code Conductor: Inspect Pack Provenance"
+      },
+      {
+        "command": "codeConductor.auditPacks",
+        "title": "Code Conductor: Audit Packs"
       }
     ],
     "viewsContainers": {

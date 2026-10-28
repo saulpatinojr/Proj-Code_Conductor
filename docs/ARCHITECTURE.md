@@ -345,3 +345,10 @@ Production artifacts must be CI-built and traceable to source/release provenance
 - hard-coding current model version names into core orchestration logic
 - treating heuristic token estimates as billing/quota truth
 - stripping instructions/comments by default for the sake of a compression percentage
+
+## Optional APM cockpit inventory
+
+The cockpit consumes bounded local manifest/lock metadata and delegates explicit
+audit to the existing APM adapter. It does not become a package resolver or assert
+integrity from lock presence. See [APM workflows](APM-WORKFLOWS.md) for provenance
+states and the remaining installation boundary under #142.

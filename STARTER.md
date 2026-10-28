@@ -46,8 +46,11 @@ The repository foundation is implemented rather than architecture-only:
 - the large legacy agent/skill corpus migration is a parallel tracked workstream under issue #13 with a 100% source-lineage requirement.
 
 The authoritative current status is `docs/STATUS.md`. The approved cockpit,
-orchestration, APM and Obsidian follow-up is tracked in #139–#142;
-PR #143 merged the initial scoped-run/configuration/task-refresh fixes; start with
+orchestration, APM and Obsidian follow-up is tracked in #139–#142. PR #143 merged
+the initial scoped-run/configuration/task-refresh fixes, and #144 added stored
+execution progress. Optional pack inspection and audit are documented in
+`docs/APM-WORKFLOWS.md`; exact install preview and approval remain under #142.
+Continue
 #139 reliability and retain installed-VSIX validation before claiming completion.
 
 ## Immediate work order
