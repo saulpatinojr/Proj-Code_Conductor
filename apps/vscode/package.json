@@ -114,6 +114,14 @@
       {
         "command": "codeConductor.disconnectKnowledge",
         "title": "Code Conductor: Disconnect Knowledge Vault"
+      },
+      {
+        "command": "codeConductor.inspectPacks",
+        "title": "Code Conductor: Inspect Pack Provenance"
+      },
+      {
+        "command": "codeConductor.auditPacks",
+        "title": "Code Conductor: Audit Packs"
       }
     ],
     "viewsContainers": {

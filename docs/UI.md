@@ -85,3 +85,21 @@ Indexing currently supports trusted, local Linux extension hosts only. Windows,
 macOS, WSL/SSH/remote and virtual hosts are explicitly unsupported for indexing;
 URI unit tests do not establish installed-client validation on those hosts.
 See [Obsidian integration](OBSIDIAN-INTEGRATION.md) for schema, limits and evidence.
+
+## Optional pack inspection and audit
+
+**Inspect Pack Provenance** opens a repository-bound, read-only text snapshot of
+manifest/lock SHA-256 hashes, declared references, exact locked commits, versions,
+targets and recorded projection paths. Matching a reviewed GitHub mirror pin is
+shown as locked; absent or foreign/mismatched sources remain declared or mismatch.
+Malformed, symlinked and oversized metadata produces a diagnostic.
+
+**Audit Packs** invokes the existing CLI audit only on request in a trusted
+workspace. It requires APM 0.33.0, resolves the executable from absolute PATH
+entries only, and shows its bounded result in the task terminal. No APM process
+starts to populate the view. Audit status remains unknown in the static inventory;
+a lock or successful earlier terminal task never grants current integrity,
+provider authorization or runtime readiness.
+
+This slice does not install/update/remove packs, generate an exact proposed
+projection diff, or overwrite human instructions. See [APM workflows](APM-WORKFLOWS.md).

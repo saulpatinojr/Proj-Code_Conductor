@@ -163,3 +163,24 @@ Local validation for the execution-overview slice: 67 test files, 591 passed /
 32 skipped; typecheck, repository validation, standalone bundle smoke and local
 VSIX packaging passed. Independent focused review reported no remaining
 blockers after corrections. The VSIX used a test publisher, not publication.
+
+## Optional APM inventory follow-up
+
+The current pack-inventory slice under #142 adds declared/locked/mismatch states,
+reviewed mirror identity checks, exact commit/version/target metadata, read-only
+provenance snapshots and an explicit audit command. It does not complete the
+select/preview/approve/install/update/removal workflow.
+
+The official APM 0.33.0 Linux archive was downloaded and checked against its
+published SHA-256. `apm targets` succeeded; native audit and the built CLI audit
+both passed all 31 checks with no drift. No package source or projection changed.
+These results apply to this repository, not every customer's installation.
+
+APM inventory local validation before integration: 66 test files, 588 passed /
+32 skipped; typecheck, repository validation, standalone bundle smoke and local
+VSIX packaging passed. Focused independent review found no remaining blockers.
+Integration with merged PR #144 requires fresh validation.
+
+After integration with PR #144: 68 test files, 597 passed / 32 skipped;
+typecheck, repository validation and standalone bundle smoke passed. The source
+conflicts preserved both execution-monitor and pack-inventory behavior.

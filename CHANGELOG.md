@@ -13,6 +13,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
   refresh on local evidence changes and expire stale starts without polling.
   Preserve runtime advisory-gate semantics and render untrusted summary text inert.
 
+- Inspect optional pack provenance from bounded manifest/lock metadata and request
+  APM audit explicitly. Require APM 0.33.0 for CLI audit and resolve its executable
+  from absolute PATH entries, preserving optional/lazy startup.
+
 - Refresh cockpit runs and open summaries after extension-launched tasks finish;
   show process outcomes separately from readiness, scope runs to the selected
   repository, require multi-root selection, and open effective configuration as

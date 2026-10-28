@@ -14,7 +14,7 @@ import { agentWorktreeRemovalProblem, defaultWorktreeRoot, redactSecrets, remove
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
 import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, processSucceeded, providerEnvironment } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
-import { apmAudit, apmLockPresent, apmTargets, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
+import { apmAudit, apmLockPresent, apmTargets, apmVersion, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
 import { gh, githubAuthStatus, pullRequestStatus, summarizePullRequest, type PullRequestSummary } from '@code-conductor/github-gate';
 import { ContextOptimizer } from '@code-conductor/context-optimizer';
@@ -515,7 +515,20 @@ function mcpList(args: string[]): number {
   }));
   console.log(JSON.stringify({ note: MCP_SELECTION_NOTE, profiles, allowSeparatelyBilledApi: allowApi, servers }, null, 2)); return 0;
 }
-function apmCheck(rootArg?: string): number { const root = resolve(rootArg ?? '.'); if (!hasCommand('apm')) { console.error('ERROR apm.missing: apm executable is required.'); return 1; } const result = apmAudit(root); process.stdout.write(result.stdout); process.stderr.write(result.stderr); return result.ok ? 0 : 1; }
+function apmCheck(rootArg?: string): number {
+  const root = resolve(rootArg ?? '.');
+  const version = apmVersion(root);
+  if (version.errorCode === 'ENOENT') { console.error('ERROR apm.missing: APM executable must exist on an absolute PATH entry.'); return 1; }
+  if (!version.ok || !/(?:^|\s)0\.33\.0(?:\s|$)/.test(version.stdout.trim())) {
+    console.error('ERROR apm.version: this workflow requires APM 0.33.0. No audit was started.');
+    return 1;
+  }
+  const result = apmAudit(root);
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  return result.ok ? 0 : 1;
+}
+
 // Names, branches, authors and URLs come from GitHub, where anyone who can open a pull
 // request or post a check chooses them: each is shown on one line with control and
 // format characters replaced.
