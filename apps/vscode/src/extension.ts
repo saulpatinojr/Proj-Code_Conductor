@@ -1,3 +1,4 @@
+import { evidenceText, isCaptureId } from './evidence.js';
 import { assignmentProgress, displayedDecision, nextProgressExpiry, progressEvents, type ProgressEvent } from './run-monitor.js';
 import { indexVault, obsidianOpenUri, resolveKnowledgeNote, validateConnection, type VaultConnection } from './knowledge.js';
 import { relative } from 'node:path';
@@ -194,6 +195,8 @@ function runNode(runId: string): Node {
   for (const gate of manifest.gates) {
     children.push({ label: `gate · ${printable(gate.gate, 60)}`, description: `${printable(gate.status, 20)}${gate.summary ? ` · ${printable(gate.summary, 80, false)}` : ''}`, tooltip: printable(gate.summary ?? gate.status, 600, false), ...statusLook(gate.status), command: open });
   }
+  const captures = manifest.results.flatMap((result) => result.evidence).filter((item) => isCaptureId(item.id) && ['test', 'tool'].includes(item.kind) && typeof item.sha256 === 'string' && /^[a-f0-9]{64}$/.test(item.sha256));
+  if (captures.length) children.push({ label: 'Stored gate evidence', description: `${captures.length} reference(s)${captures.length > 50 ? "; showing first 50" : ""} · verify on open`, icon: 'output', children: captures.slice(0, 50).map((item) => ({ label: printable(item.id, 90), description: printable(item.source, 100, false), icon: 'file-text', tooltip: 'Open only the captured output matching this manifest digest. Evidence URIs are not followed.', command: { command: 'codeConductor.openEvidence', title: 'Open stored gate evidence', arguments: [runId, item.id] } })), command: open });
   children.push({ label: 'Related knowledge', icon: 'book', tooltip: 'Find manually mapped local notes; no private run content is copied.', command: { command: 'codeConductor.knowledge', title: 'Related knowledge', arguments: [runId] } });
   actions.forEach((action, index) => {
     children.push({
@@ -582,6 +585,21 @@ class PackInventoryProvider implements vscode.TextDocumentContentProvider {
   }
 }
 
+class EvidenceProvider implements vscode.TextDocumentContentProvider {
+  private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  readonly onDidChange = this.changed.event;
+  refresh(): void { for (const document of vscode.workspace.textDocuments) if (document.uri.scheme === 'code-conductor-evidence') this.changed.fire(document.uri); }
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    const r = workspaceRoot();
+    if (!r || !vscode.workspace.isTrusted || !sameRepository(r, uri.query)) return 'Evidence is unavailable for the selected trusted repository.';
+    const parts = uri.path.split('/');
+    const runId = parts[1]; const evidenceId = parts[2]?.replace(/\.txt$/, '');
+    if (parts.length !== 3 || !validRunId(runId) || !isCaptureId(evidenceId)) return 'Invalid evidence reference.';
+    const manifest = storedManifest(runId);
+    return manifest ? evidenceText(r, runsDirectory(), manifest, evidenceId) : 'Run manifest is unavailable.';
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const root = () => workspaceRoot();
   const knowledgeKey = (r: string): string => `codeConductor.knowledge.${encodeURIComponent(r)}`;
@@ -596,6 +614,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let runRows = runNodes();
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   const packs = new PackInventoryProvider();
+  const evidence = new EvidenceProvider();
   const providers = {
     runs: new ConductorProvider(() => runRows),
     workstation: new ConductorProvider(() => [...workstationNodes(root(), context.workspaceState.get<LocalDiscovery>(STARTUP_DISCOVERY_KEY)), { label: 'Knowledge', description: connectionFor(root()) ? 'connected · on demand' : 'optional · not connected', icon: 'book', tooltip: 'Explicitly connect an existing local vault folder. No scan or note write at startup.', command: { command: 'codeConductor.knowledge', title: 'Browse related knowledge' } }]),
@@ -607,6 +626,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerTreeDataProvider('codeConductor.policy', providers.policy),
     vscode.workspace.registerTextDocumentContentProvider(RUN_SCHEME, summaries),
     vscode.workspace.registerTextDocumentContentProvider('code-conductor-packs', packs),
+    vscode.workspace.registerTextDocumentContentProvider('code-conductor-evidence', evidence),
     vscode.workspace.registerTextDocumentContentProvider('code-conductor-config', configurations),
   );
   await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runRows.some((node) => node.contextValue === 'run'));
@@ -619,6 +639,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     summaries.refresh();
     configurations.refresh();
     packs.refresh();
+    evidence.refresh();
     Object.values(providers).forEach((provider) => provider.refresh());
     await vscode.commands.executeCommand('setContext', 'codeConductor.hasRuns', runRows.some((node) => node.contextValue === 'run'));
   };
@@ -629,11 +650,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => { refreshTimer = undefined; void refreshViews(); }, 150);
   };
-  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(runsDirectory(), '*/*'));
+  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(runsDirectory(), '{*/manifest.json,*/events.jsonl,*/tool-output/*}'));
+  let captureRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const changedRunFile = (uri: vscode.Uri): void => {
     if (/\/(manifest\.json|events\.jsonl)$/.test(uri.path)) scheduleRunRefresh();
+    else if (/\/tool-output\/E-[A-Za-z0-9-]{8,80}\.(json|stdout|stderr)$/.test(uri.path) && !captureRefreshTimer) captureRefreshTimer = setTimeout(() => { captureRefreshTimer = undefined; evidence.refresh(); }, 150);
   };
-  context.subscriptions.push(watcher, watcher.onDidCreate(changedRunFile), watcher.onDidChange(changedRunFile), watcher.onDidDelete(changedRunFile), { dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); } });
+  context.subscriptions.push(watcher, watcher.onDidCreate(changedRunFile), watcher.onDidChange(changedRunFile), watcher.onDidDelete(changedRunFile), { dispose: () => { if (refreshTimer) clearTimeout(refreshTimer); if (captureRefreshTimer) clearTimeout(captureRefreshTimer); } });
   taskLifecycle = new TaskLifecycle((taskRoot, outcome) => {
     taskOutcomes.set(taskRoot, outcome);
     void refreshViews();
@@ -755,6 +778,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.nextActions', async (runId: unknown) => showNextActions(context, runId)));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.performAction', async (runId: unknown, index: unknown) => performRunAction(context, runId, index)));
+  context.subscriptions.push(vscode.commands.registerCommand('codeConductor.openEvidence', async (runId: unknown, evidenceId: unknown) => {
+    const r = root();
+    if (!r || !vscode.workspace.isTrusted || !validRunId(runId) || !isCaptureId(evidenceId) || !sameRepository(storedManifest(runId)?.task.repository, r)) { await vscode.window.showWarningMessage('Evidence is unavailable for the selected trusted repository.'); return; }
+    const uri = vscode.Uri.from({ scheme: 'code-conductor-evidence', path: `/${runId}/${evidenceId}.txt`, query: r });
+    const document = await vscode.workspace.openTextDocument(uri);
+    evidence.refresh(); // Reverify already-open virtual documents; VS Code may cache openTextDocument.
+    if (!vscode.workspace.isTrusted || !sameRepository(root(), r)) return;
+    await vscode.window.showTextDocument(document, { preview: true });
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.openRun', async (runId: unknown) => openRunSummary(runId)));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.openFile', async (path: unknown, relative: unknown) => openWorkspaceFile(path, relative)));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.signIn', async (harnessId: unknown) => showSignIn(root(), harnessId)));

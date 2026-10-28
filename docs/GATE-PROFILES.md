@@ -132,10 +132,20 @@ the capture limit; when a capture was truncated, the record says so and the dige
 covers the bytes that were not kept.
 
 `ccon gate-output --evidence <E-id> [--run <runId>] [--stderr]` prints a stored output
-back after two checks: the streams must match the digests written with them, and, unless
-the capture was truncated, they must reproduce the evidence digest in the manifest. Output
-altered after the run is refused. On a terminal, control and format characters are
-replaced for display; redirect stdout for the exact bytes.
+back only when the unique tool/test evidence ID, source and full-output digest match
+the requested run manifest, the stored streams match their recorded hashes, and the
+`streams` digest reproduces the manifest digest. Evidence-provided URIs are never
+followed. Reading an absent store creates nothing. Redirected stdout preserves exact
+captured bytes, including whether the final newline exists; terminal display replaces
+control and format characters.
+
+Changed, ambiguous, truncated and legacy `combined` captures are refused by this
+strong recovery path. A combined digest trims/joins streams, so it cannot prove exact
+bytes or stream identity; a truncated digest covers bytes that are no longer stored.
+Original capture files remain intact for manual inspection; no migration invents
+missing provenance or claims they were verified. New native gate captures use `streams`.
+Capture-header exit/timeout metadata is not covered by the output digest: the CLI
+labels it unverified and reports gate verdicts from the manifest separately.
 
 What the evidence shows under its verdict line is chosen per run with
 `ccon run --tool-output <bounded|summary>`:

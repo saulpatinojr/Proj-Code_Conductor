@@ -9,7 +9,7 @@ import { conductorTempDirectory } from '@code-conductor/core/home';
 import { validateRepositoryConfig, loadConfiguration } from '@code-conductor/policy';
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { assignmentPrompt, createTask, DEFAULT_SHELL, executeTask, formatCommand, handoffProblem, importRunManifest, nextActions, openDraftPullRequest, planPullRequest, planTask, parseAgentResult, printable, recordedAgentWorktrees, roleInstructions, stoppedForGitControl, TOOL_OUTPUT_MODES, type NextAction, type PullRequestOptions, type ToolOutputMode } from '@code-conductor/runtime';
-import { RunStore } from '@code-conductor/evidence';
+import { RunStore, readManifestToolOutput, ToolOutputIntegrityError } from '@code-conductor/evidence';
 import { agentWorktreeRemovalProblem, defaultWorktreeRoot, redactSecrets, removeCleanAgentWorktree, resolveRepositoryRoot } from '@code-conductor/git';
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
 import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, processSucceeded, providerEnvironment } from '@code-conductor/adapters';
@@ -404,22 +404,29 @@ function worktreesCommand(args: string[]): number {
 
 /** Print a gate's stored full output after checking it against the digests stored with it and in the evidence. */
 function gateOutputCommand(args: string[]): number {
-  const store = new RunStore();
+  const store = new RunStore(undefined, { initializeRoot: false });
   const runId = getOption(args, '--run') ?? store.latestRunId();
   const evidenceId = getOption(args, '--evidence');
   if (!runId) { console.error('ERROR gate-output.no_runs: No stored runs.'); return 2; }
   if (!evidenceId) { console.error('ERROR gate-output.evidence_required: --evidence <E-id> is required; the evidence id is in the run manifest and in `ccon next --json`.'); return 2; }
   let stored: ReturnType<RunStore['readToolOutput']>;
-  try { stored = store.readToolOutput(runId, evidenceId); }
-  catch (error) { console.error(`ERROR gate-output.unreadable: ${printable(error instanceof Error ? error.message : String(error))}`); return 1; }
+  let manifest: RunManifest;
+  try {
+    manifest = storedManifest(store, runId);
+    if (manifest.runId !== runId) throw new Error('Stored manifest run identity differs from the requested directory.');
+    stored = readManifestToolOutput(store.root, manifest, evidenceId);
+  }
+  catch (error) { console.error(`ERROR gate-output.${error instanceof ToolOutputIntegrityError ? 'altered' : 'unreadable'}: ${error instanceof ToolOutputIntegrityError ? error.message : 'Capture or manifest unavailable. Check run identity, stored syntax, paths and file limits.'}`); return 1; }
   const { record, verification } = stored;
   if (!verification.storedIntact) { console.error(`ERROR gate-output.altered: the stored output for ${printable(evidenceId)} does not match the digests written with it; it was changed after the run.`); return 1; }
   const evidenceCheck = verification.matchesEvidence === undefined ? 'not checkable (the capture was truncated; the evidence digest covers output that was not stored)' : verification.matchesEvidence ? 'matches the evidence digest' : 'does NOT match the evidence digest recorded in the manifest';
-  console.error(`${printable(record.source)}: exit ${String(record.status)}${record.timedOut ? ' (timeout)' : ''}; stored output intact; ${evidenceCheck} (sha256 ${record.sha256}).`);
+  console.error(`${printable(record.source)}: capture header reports exit ${String(record.status)}${record.timedOut ? ' (timeout)' : ''} (exit/timeout metadata is not verified by the output digest); stored output intact; ${evidenceCheck} (sha256 ${record.sha256}).`);
+  const verdicts = [...new Set([...manifest.gates, ...manifest.results.flatMap((result) => result.tests)].filter((gate) => gate.evidenceIds.includes(evidenceId)).map((gate) => `${printable(gate.gate, 100)}: ${gate.status}`))];
+  console.error(`Manifest gate verdict: ${verdicts.join('; ') || 'not recorded'}.`);
   if (verification.matchesEvidence === false) return 1;
   const stream = args.includes('--stderr') ? record.stderr : record.stdout;
+  if (!process.stdout.isTTY) { process.stdout.write(stream); return 0; }
   const text = stream && !stream.endsWith('\n') ? `${stream}\n` : stream;
-  if (!process.stdout.isTTY) { process.stdout.write(text); return 0; }
   // On a terminal, tool output must not drive it: control and format characters are
   // replaced for display. Redirect stdout for the exact bytes.
   const shown = terminalText(text);

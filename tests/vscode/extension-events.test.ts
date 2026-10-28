@@ -1,9 +1,11 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { RunStore } from '../../packages/evidence/src/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const host = vi.hoisted(() => ({
-  trusted: true, remoteName: undefined as string | undefined, dialogs: [] as any[], picks: [] as any[], opened: [] as any[], tasks: [] as any[], folders: [] as any[], commands: new Map<string, (...args: any[]) => any>(), trees: new Map<string, any>(), listeners: new Map<string, (event: any) => any>(), changes: [] as any[],
+  trusted: true, remoteName: undefined as string | undefined, dialogs: [] as any[], picks: [] as any[], opened: [] as any[], tasks: [] as any[], folders: [] as any[], commands: new Map<string, (...args: any[]) => any>(), trees: new Map<string, any>(), providers: new Map<string, any>(), documents: new Map<string, any>(), listeners: new Map<string, (event: any) => any>(), changes: [] as any[],
 }));
 vi.mock('vscode', async () => {
   const { URI } = await import('vscode-uri');
@@ -13,15 +15,19 @@ vi.mock('vscode', async () => {
     Uri: URI, env: { get remoteName() { return host.remoteName; }, openExternal: async () => false },
     TreeItem: class { constructor(public label: string) {} }, ThemeIcon: class {}, ThemeColor: class {},
     MarkdownString: class { appendText() {} },
-    EventEmitter: class { event = () => disposable(); fire(value: any) { host.changes.push(value); } },
+    EventEmitter: class { handlers = new Set<(value: any) => void>(); event = (handler: (value: any) => void) => { this.handlers.add(handler); return { dispose: () => this.handlers.delete(handler) }; }; fire(value: any) { host.changes.push(value); for (const handler of this.handlers) handler(value); } },
     TreeItemCollapsibleState: { Expanded: 2, Collapsed: 1, None: 0 }, StatusBarAlignment: { Left: 1 },
     TaskScope: { Workspace: 1 }, TaskRevealKind: { Always: 1 }, TaskPanelKind: { Dedicated: 1 },
     Task: class { presentationOptions = {}; constructor(public definition: any) {} }, ProcessExecution: class {}, RelativePattern: class {},
     extensions: { getExtension: () => undefined },
     workspace: {
-      get isTrusted() { return host.trusted; }, textDocuments: [], get workspaceFolders() { return host.folders; },
-      registerTextDocumentContentProvider: disposable,
-      openTextDocument: async (uri: any) => { host.opened.push(uri); return { uri }; },
+      get isTrusted() { return host.trusted; }, get textDocuments() { return [...host.documents.values()]; }, get workspaceFolders() { return host.folders; },
+      registerTextDocumentContentProvider: (scheme: string, provider: any) => { host.providers.set(scheme, provider); return provider.onDidChange?.((uri: any) => { const doc = host.documents.get(uri.toString()); if (doc) doc.text = provider.provideTextDocumentContent(uri); }) ?? disposable(); },
+      openTextDocument: async (uri: any) => {
+        host.opened.push(uri); const key = uri.toString();
+        if (!host.documents.has(key)) host.documents.set(key, { uri, text: host.providers.get(uri.scheme)?.provideTextDocumentContent(uri) ?? '', getText() { return this.text; } });
+        return host.documents.get(key);
+      },
       onDidChangeWorkspaceFolders: listen('folders'), onDidGrantWorkspaceTrust: listen('trust'),
       createFileSystemWatcher: () => ({ dispose() {}, onDidCreate: listen('fileCreate'), onDidChange: listen('fileChange'), onDidDelete: listen('fileDelete') }),
     },
@@ -58,7 +64,7 @@ let temp: string; let subscriptions: any[] = [];
 afterEach(() => {
   for (const item of subscriptions) item.dispose(); subscriptions = [];
   if (temp) rmSync(temp, { recursive: true, force: true });
-  host.folders = []; host.commands.clear(); host.trees.clear(); host.listeners.clear(); host.changes = [];
+  host.folders = []; host.commands.clear(); host.trees.clear(); host.providers.clear(); host.documents.clear(); host.listeners.clear(); host.changes = [];
   host.trusted = true; host.remoteName = undefined; host.dialogs = []; host.picks = []; host.opened = []; host.tasks = [];
   vi.restoreAllMocks();
   vi.unstubAllEnvs(); vi.useRealTimers();
@@ -80,6 +86,37 @@ async function setup(withStart: boolean) {
 }
 function rows() { return host.trees.get('codeConductor.runs').getChildren().map((item: any) => item.node); }
 describe('extension task, evidence and knowledge events', () => {
+
+  it('opens only manifest-bound evidence for the selected trusted repository and rechecks on refresh', async () => {
+    const { run } = await setup(false);
+    const store = new RunStore(join(temp, 'home/runs'));
+    const evidenceId = 'E-aaaaaaaa-1111'; const stdout = 'Captured native evidence'; const sha256 = createHash('sha256').update(createHash('sha256').update(stdout).digest()).update(createHash('sha256').update('').digest()).digest('hex');
+    const source = 'node test.js (/usr/bin/node)';
+    store.saveToolOutput(run.runId, { evidenceId, source, stdout, stderr: '', status: 1, timedOut: false, truncated: false, sha256, digestMethod: 'streams' });
+    (run.results as any[]).push({ taskId: 'T', assignmentId: 'A', agentId: 'validator', role: 'validator', stance: 'neutral', provider: 'local', harness: 'internal', billingChannel: 'local', status: 'completed', changes: [], tests: [], evidence: [{ id: evidenceId, kind: 'test', source, summary: 'stored', sha256, uri: 'command:untrusted.never-execute' }], findings: [], risks: [], blockers: [], recommendation: 'changes_required' });
+    store.saveManifest(run as any);
+    await host.commands.get('codeConductor.refreshRuns')!();
+    const row = rows().find((row: any) => row.contextValue === 'run').children.find((row: any) => row.label === 'Stored gate evidence');
+    expect(row.children[0].command.arguments).toEqual([run.runId, evidenceId]);
+    await host.commands.get('codeConductor.openEvidence')!(run.runId, evidenceId);
+    const uri = host.opened.at(-1); expect(uri.scheme).toBe('code-conductor-evidence');
+    const provider = host.providers.get(uri.scheme);
+    const document = host.documents.get(uri.toString());
+    expect(document.getText()).toContain(stdout);
+    expect(provider.provideTextDocumentContent(uri)).toContain(stdout);
+    expect(provider.provideTextDocumentContent(uri)).not.toContain('untrusted.never-execute');
+    host.trusted = false; expect(provider.provideTextDocumentContent(uri)).not.toContain(stdout);
+    host.trusted = true; host.folders = []; expect(provider.provideTextDocumentContent(uri)).not.toContain(stdout);
+    host.folders = [{ uri: { fsPath: run.task.repository }, name: 'repo' }];
+    writeFileSync(join(temp, 'home/runs', run.runId, 'tool-output', `${evidenceId}.stdout`), 'changed');
+    await host.commands.get('codeConductor.openEvidence')!(run.runId, evidenceId);
+    expect(document.getText()).toContain('cannot be verified');
+    store.saveToolOutput(run.runId, { evidenceId, source, stdout, stderr: '', status: 1, timedOut: false, truncated: false, sha256, digestMethod: 'streams' });
+    host.listeners.get('fileChange')!({ path: join(temp, 'home/runs', run.runId, 'tool-output', `${evidenceId}.stdout`) });
+    await vi.advanceTimersByTimeAsync(151); expect(document.getText()).toContain(stdout);
+    const opened = host.opened.length;
+    await host.commands.get('codeConductor.openEvidence')!(run.runId, '../manifest'); expect(host.opened).toHaveLength(opened);
+  });
 
   it.skipIf(process.platform !== 'linux')('starts pack preview only after explicit selection and rechecks trust/scope after selection', async () => {
     await setup(false); expect(host.tasks).toHaveLength(0);

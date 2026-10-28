@@ -44,6 +44,15 @@ packaged-default navigation in an unrelated empty repository.
 
 Runs show the stored assignment dependencies, provider, surface and authority.
 The summary includes a dependency table and plain-text evidence references.
+Stored tool/test references also appear under **Stored gate evidence** (first 50
+per run), opening read-only plain text bound to the selected trusted repository.
+The viewer verifies the evidence ID/source/digest against the manifest and reads
+only the fixed private capture locations, never evidence-supplied URIs. It shows
+manifest gate verdicts; capture-header exit metadata cannot set the verdict.
+Modified, missing, duplicate, truncated and legacy combined-digest captures remain
+unavailable without deleting their files. See [stored output](GATE-PROFILES.md#stored-output-and-the-summary-mode-94).
+Reopening revalidates cached documents. A separate 150 ms coalesced capture watcher
+refreshes open evidence documents without rescanning run manifests or polling.
 No workflow designer or new scheduler is introduced. Agent-controlled Markdown
 is escaped; journal observations cannot create commands or execution authority.
 

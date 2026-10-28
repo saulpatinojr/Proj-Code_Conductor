@@ -4,6 +4,12 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Open stored deterministic-tool evidence in repository-scoped read-only editor
+  documents, reverify cached documents and capture changes, and bind recovery to
+  actual manifest digests. Reject altered/ambiguous/truncated and legacy combined
+  captures; keep original evidence files. Redirected CLI streams preserve final
+  newline state, and capture-header exit metadata cannot override manifest verdicts.
+
 - Preview reviewed public pack Codex projections explicitly in a write-isolated
   Linux staging sandbox, with native APM audit, exact file hashes/text and local
   conflict detection. This comparison installs nothing; full APM lifecycle remains open.
