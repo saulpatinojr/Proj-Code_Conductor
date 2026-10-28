@@ -751,7 +751,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }));
   let interviewOpen = false;
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.setupOrchestrator', async () => {
-    const r = root(); if (!r || !vscode.workspace.isTrusted || interviewOpen) return;
+    const r = root();
+    if (!r) { await vscode.window.showWarningMessage('Select an open repository for orchestrator setup.'); return; }
+    if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Orchestrator setup requires a trusted workspace.'); return; }
+    if (interviewOpen) { await vscode.window.showInformationMessage('Orchestrator setup is already open.'); return; }
     interviewOpen = true;
     try { await runInterview(context, r, () => vscode.workspace.isTrusted && root() === r); }
     catch { await vscode.window.showWarningMessage('Orchestrator setup could not complete. Saved answers were not replaced by an invalid draft. Reopen setup to retry.'); }
