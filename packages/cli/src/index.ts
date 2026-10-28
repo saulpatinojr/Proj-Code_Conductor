@@ -14,7 +14,7 @@ import { agentWorktreeRemovalProblem, defaultWorktreeRoot, redactSecrets, remove
 import { assertContract, type HandoffPacket, type RunManifest } from '@code-conductor/schemas';
 import { BILLING_CREDENTIAL_VARIABLES, BILLING_ROUTING_VARIABLES, configurationInsideRepository, createBuiltinAdapters, processSucceeded, providerEnvironment } from '@code-conductor/adapters';
 import { WorkstationStore, type HarnessTrustMode } from '@code-conductor/workstation';
-import { fetchPackCatalog, fetchCatalogSelections, locallyPresentCatalogVersions, PREVIEW_PACKS, previewPacks, type PreviewPack, apmAudit, apmLockPresent, apmTargets, apmVersion, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
+import { CatalogError, fetchPackCatalog, fetchCatalogSelections, locallyPresentCatalogVersions, PREVIEW_PACKS, previewPacks, type PreviewPack, apmAudit, apmLockPresent, apmTargets, apmVersion, inventoryNativeCustomizations } from '@code-conductor/apm-adapter';
 import { detectRepositoryProfiles, loadMcpCatalog, selectMcpServers } from '@code-conductor/mcp';
 import { gh, githubAuthStatus, pullRequestStatus, summarizePullRequest, type PullRequestSummary } from '@code-conductor/github-gate';
 import { ContextOptimizer } from '@code-conductor/context-optimizer';
@@ -632,13 +632,16 @@ switch (command) {
     try {
       const root = resolve(getOption(args, '--repo') ?? '.');
       const selected = getOption(args, '--select');
-      if (selected) console.log(terminalSafeJson(await fetchCatalogSelections([selected])));
+      if (args.includes('--select')) {
+        if (!selected || selected.startsWith('--')) throw new CatalogError('--select requires a catalog version id.');
+        console.log(terminalSafeJson(await fetchCatalogSelections([selected])));
+      }
       else {
         const local = locallyPresentCatalogVersions(root);
         const catalog = await fetchPackCatalog(local.versions);
         console.log(terminalSafeJson({ ...catalog, diagnostics: [...catalog.diagnostics, ...local.diagnostics] }));
       }
-    } catch { console.error('Catalog discovery/selection failed. Check connectivity, source/version compatibility or local metadata; no package was installed.'); exitCode = 1; }
+    } catch (error) { console.error(error instanceof CatalogError ? error.message : 'Catalog discovery/selection failed. Check connectivity, source/version compatibility or local metadata; no package was installed.'); exitCode = 1; }
     break;
   }
   case 'apm-preview': {
