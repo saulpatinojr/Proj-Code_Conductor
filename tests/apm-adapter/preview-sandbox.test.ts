@@ -33,6 +33,7 @@ describe.skipIf(process.platform !== 'linux')('explicit native preview sandbox',
   it('downloads only fixed pins with denied scripts/executables, hidden home and read-only host mounts', async () => {
     const preview = await previewPacks(repository, [PREVIEW_PACKS[0]]);
     expect(preview.audit).toMatchObject({ status: 0, outputSha256: sha('native evidence') });
+    expect(preview.digest).toBe(sha(JSON.stringify({ ...preview, digest: undefined })));
     expect(preview.changes[0]?.operation).toBe('add');
     expect(run).toHaveBeenCalledTimes(3);
     const [binary, args, options] = run.mock.calls[1]!;

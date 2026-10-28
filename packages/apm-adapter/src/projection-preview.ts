@@ -216,6 +216,6 @@ export async function previewPacks(repository: string, selected: readonly Previe
     if (!succeeded(audit)) throw new Error('Staged APM audit failed. No repository files were changed.');
     const comparison = comparePackProjections(root, stage, selected);
     const snapshot = { ...comparison, audit: { status: 0 as const, outputSha256: audit.sha256 } };
-    return { ...snapshot, digest: digest(JSON.stringify(snapshot)) };
+    return { ...snapshot, digest: digest(JSON.stringify({ ...snapshot, digest: undefined })) };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
