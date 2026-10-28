@@ -59,3 +59,9 @@ Avoid duplicating authoritative content. When possible, update the authoritative
 - [Obsidian integration](OBSIDIAN-INTEGRATION.md) — current implementation boundary.
 - [ADR 0016](adr/0016-local-first-knowledge-navigation.md) — reviewed local-first
   design proposal and its quality/implementation gates.
+
+## Optional pack workflows
+
+- [APM workflows](APM-WORKFLOWS.md) — provenance, staged projection preview and audit.
+- [ADR 0017](adr/0017-write-isolated-pack-projection-preview.md) — write-isolated
+  fixed-catalog previews and their authority limits.

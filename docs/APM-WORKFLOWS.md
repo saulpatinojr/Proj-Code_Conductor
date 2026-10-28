@@ -13,6 +13,30 @@ version is 0.33.0, coordinated with Agent Packs (ADR 0015 / D-077).
   workspace. The CLI checks the version, then calls the existing bounded native
   audit. Failures remain failures; partial output and timeout diagnostics stay in
   the terminal. This command installs nothing and grants no runtime authority.
+- **Preview Pack Projections:** select one or both reviewed public TypeScript/
+  GitHub engineer packs and compare staged Codex projections. Requires trusted
+  local Linux, APM 0.33.0 and bubblewrap. Downloads occur only on request; the
+  selected repository remains unchanged. Available without existing APM metadata
+  through the command palette.
+
+CLI equivalent:
+
+```sh
+ccon apm-preview --repo /absolute/repository --packs typescript-distinguished-engineer-pack
+```
+
+Use both catalog names separated by a comma to compare both packs. Terminal JSON
+contains exact before/after text and SHA-256 hashes, operations and conflicts,
+the source pins, lock digests and a digest of the comparison. `audit` describes
+the disposable staged project only. Unmanaged, modified, shared or unsafe local
+instructions block replacement/removal candidates. This result is explicitly
+`selected-pack-projections-only`: no manifest/lock merging, other-target cleanup,
+deployment or installation approval is implied.
+
+Materialization uses a write-isolated native sandbox with scripts/executable
+grants denied. It is not a confidential-read or network sandbox. An APM executable
+inside the hidden home may be unavailable; unsupported hosts/namespace setup fail
+explicitly. No prerequisite is installed automatically. See [ADR 0017](adr/0017-write-isolated-pack-projection-preview.md).
 
 Inventory states mean only:
 
@@ -35,7 +59,8 @@ its read-only virtual document; nothing writes into the repository.
 
 ## Remaining installation workflow (#142)
 
-Selection, exact projected-file diffs, local-conflict detection, digest-bound
+The first fixed-catalog Codex projection comparison is available; complete
+installation diffs including metadata/local source/all targets, digest-bound
 installation approval, audit evidence tied to the actual deployment, and safe
 update/removal are still required. Existing APM owns resolution and lock generation;
 Code Conductor must not hand-edit the lock or overwrite human instructions.

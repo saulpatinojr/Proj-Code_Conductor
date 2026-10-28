@@ -4,6 +4,10 @@ All notable Code Conductor changes are recorded here. The project follows a pre-
 
 ## Unreleased
 
+- Preview reviewed public pack Codex projections explicitly in a write-isolated
+  Linux staging sandbox, with native APM audit, exact file hashes/text and local
+  conflict detection. This comparison installs nothing; full APM lifecycle remains open.
+
 - Connect an explicitly selected existing local vault folder and browse typed
   repository-related metadata on demand. Read-only indexing is Linux-only with
   descriptor-bound reads, sensitive/private-state exclusions and bounded I/O;
