@@ -119,6 +119,18 @@ describe('on-demand canonical pack/version discovery', () => {
 });
 
 describe('local presence filtering is not an audit', () => {
+  it('accepts native skill directory records and requires their hashed SKILL.md to be a regular file', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cc-catalog-')); roots.push(root);
+    const directory = '.agents/skills/example'; const skill = directory + '/SKILL.md';
+    mkdirSync(join(root, directory), { recursive: true }); writeFileSync(join(root, skill), 'Skill');
+    writeFileSync(join(root, 'apm.yml'), stringify({ targets: ['codex'], dependencies: { apm: [`${CATALOG_MIRROR}/${typescript}#${current}`] } }));
+    writeFileSync(join(root, 'apm.lock.yaml'), stringify({ lockfile_version: '1', apm_version: '0.33.0', dependencies: [{ host: 'github.com', repo_url: CATALOG_MIRROR, materialization_repo_url: CATALOG_MIRROR, virtual_path: typescript, resolved_commit: current, version: '1.4.0', deployed_files: [directory, skill], deployed_file_hashes: { [skill]: 'sha256:' + 'f'.repeat(64) } }] }));
+    expect(locallyPresentCatalogVersions(root).versions).toEqual([identity()]);
+    rmSync(join(root, skill));
+    expect(locallyPresentCatalogVersions(root).versions).toEqual([]);
+    mkdirSync(join(root, skill));
+    expect(locallyPresentCatalogVersions(root).versions).toEqual([]);
+  });
   it('checks every recorded projection even when only some have recorded hashes', () => {
     const root = mkdtempSync(join(tmpdir(), 'cc-catalog-')); roots.push(root);
     const first = '.codex/agents/first.toml'; const missing = '.codex/agents/missing.toml';

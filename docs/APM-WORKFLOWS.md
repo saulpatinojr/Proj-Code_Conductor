@@ -44,7 +44,8 @@ explicitly. No prerequisite is installed automatically. See [ADR 0017](adr/0017-
 catalog and release tags explicitly. Each candidate records its virtual package,
 declared version and immutable full commit; packs sharing a commit stay distinct.
 `locallyPresent` marks exact source-associated versions whose recorded projections
-are present as regular files. It does not verify their contents or establish an
+are present as safe regular files/directories (hashed entries must be files).
+It does not verify their contents or establish an
 audit pass. Missing/incomplete local metadata leaves versions visible with a
 diagnostic. Consumers can hide present versions and offer other releases.
 

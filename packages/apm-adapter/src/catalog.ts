@@ -241,7 +241,11 @@ export function locallyPresentCatalogVersions(root: string): { versions: Install
       try {
         for (const part of path.split('/')) {
           current = join(current, part); const stat = lstatSync(current);
-          if (stat.isSymbolicLink() || (current === join(canonical, path) ? !stat.isFile() : !stat.isDirectory())) { present = false; break; }
+          const final = current === join(canonical, path);
+          // Native APM records skill directories as well as files. A hash always
+          // describes file bytes; an unhashed directory is presence metadata only.
+          const supported = final ? stat.isFile() || (stat.isDirectory() && !Object.hasOwn(pack.fileHashes ?? {}, path)) : stat.isDirectory();
+          if (stat.isSymbolicLink() || !supported) { present = false; break; }
         }
       } catch { present = false; }
       if (!present) break;
