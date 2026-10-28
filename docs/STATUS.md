@@ -9,7 +9,7 @@ Use this document for current status and next actions; Git history retains earli
 
 **0.1.2 beta is published. Dependency remediation and ACP 2.0.1 are locally
 validated in [PR #136](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/136),
-pending GitHub review/CI.**
+awaiting integration after review.**
 
 | Area | Validated status |
 | --- | --- |
@@ -30,7 +30,10 @@ pending GitHub review/CI.**
   CI's npm **11.19.0**. ACP streaming, permission cancellation and timeout tests pass.
 - Offline smoke of vsce's actual Azure CLI credential chain passed with a fake CLI;
   this does not establish live Entra/Marketplace authorization. Independent read-only
-  dependency review found no compatibility blocker. GitHub CI is still pending.
+  dependency review found no compatibility blocker. [GitHub checks at `cfa2cfd`](https://github.com/saulpatinojr/Proj-Code_Conductor/pull/136/checks)
+  passed all executed gates, including quality, lockfile, APM audit, CodeQL,
+  dependency review and packaging. Later status-only updates retain that tested baseline;
+  consult the PR checks for the latest revision.
 
 ## Completed
 
