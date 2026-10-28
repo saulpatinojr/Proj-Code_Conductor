@@ -59,6 +59,14 @@ its read-only virtual document; nothing writes into the repository.
 
 ## Remaining installation workflow (#142)
 
+[ADR 0018](adr/0018-approved-apm-artifact-deployment.md) defines the remaining
+preview/approval/artifact-application boundary. Native fixture testing reproduced
+unowned-file deletion and annotated-skill overwrite during same-version reinstall
+without `--force`; direct customer-tree reinstall is unsuitable for this workflow.
+The reviewed design keeps generation in staging and requires complete per-file ownership,
+fresh approval, constrained application and deployment-correlated native audit.
+The design is accepted; the install action remains unimplemented.
+
 The first fixed-catalog Codex projection comparison is available; complete
 installation diffs including metadata/local source/all targets, digest-bound
 installation approval, audit evidence tied to the actual deployment, and safe
