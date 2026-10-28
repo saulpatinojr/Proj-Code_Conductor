@@ -38,6 +38,22 @@ grants denied. It is not a confidential-read or network sandbox. An APM executab
 inside the hidden home may be unavailable; unsupported hosts/namespace setup fail
 explicitly. No prerequisite is installed automatically. See [ADR 0017](adr/0017-write-isolated-pack-projection-preview.md).
 
+## Orchestrator interview preview
+
+The explicit **Orchestrator Interview / Redo** command offers defaults or three
+short answers: mission/success, priorities/constraints and working style. It opens
+a plaintext proposal for the ten `.agent/` context files. **Save answers** stores
+only the repository-specific interview in VS Code SecretStorage; Cancel preserves
+the previous answers. Redo prefills the confirmed values and can reset the draft
+to defaults. Answer origin remains distinct from user confirmation.
+
+This setup stage starts no provider and applies no project files. Installed-pack
+analysis, approved AI review, graph validation, ownership comparison and guarded
+application remain required before its proposals can become a runtime blueprint.
+Unknown skills/tools/history remain explicitly unknown. Existing memory is never
+read or replaced by this preview. Setup is on demand, not an activation-time
+questionnaire or model call.
+
 ## On-demand catalog discovery
 
 `ccon apm-catalog --repo /absolute/repository` fetches the canonical mirror's
