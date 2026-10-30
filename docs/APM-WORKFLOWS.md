@@ -38,6 +38,25 @@ grants denied. It is not a confidential-read or network sandbox. An APM executab
 inside the hidden home may be unavailable; unsupported hosts/namespace setup fail
 explicitly. No prerequisite is installed automatically. See [ADR 0017](adr/0017-write-isolated-pack-projection-preview.md).
 
+## Orchestrator blueprint generation
+
+The internal runtime renderer produces the ten `.agent/` context files,
+`ORCHESTRATOR.md`, a versioned `orchestration.json` proposal and one handoff
+template per assignment. It validates the full team graph before rendering,
+keeps manual/native binding labels explicit, binds file hashes to the interview
+and input digests, and rejects colliding or unsupported handoff filenames.
+
+Its pure update planner compares an owner-private accepted baseline with current
+file bytes. Redo preserves human text outside an unchanged managed Markdown
+region. Existing files without that baseline, edited managed content, missing
+accepted files and annotations on retired handoffs produce conflicts. A conflict
+returns no applicable changes. Markers alone never establish ownership. The
+machine JSON must match the accepted baseline exactly before replacement.
+
+These functions prepare proposals only. They do not record acceptance, write
+project files, run an AI review, or activate a blueprint in the task runtime.
+Their before/after bytes still require the reviewed artifact application path.
+
 ## Orchestrator interview preview
 
 The explicit **Orchestrator Interview / Redo** command offers defaults or three
