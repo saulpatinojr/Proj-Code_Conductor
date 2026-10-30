@@ -45,7 +45,9 @@ The repository foundation is implemented rather than architecture-only:
 - the VSIX packaging foundation is on `main` with pinned official `@vscode/vsce`; Marketplace publication/provenance automation remains under #14;
 - the large legacy agent/skill corpus migration is a parallel tracked workstream under issue #13 with a 100% source-lineage requirement.
 
-The authoritative current status is `docs/STATUS.md`. PR #143 merged the initial
+The authoritative current status is `docs/STATUS.md`. Knowledge indexing may reuse
+only bounded in-memory parsed metadata; current source checks and click-time
+scope validation remain mandatory. PR #143 merged the initial
 scoped-run/configuration/task-refresh fixes, and #144 added stored execution
 progress. PR #145 merged pack inspection/audit; #146 accepted ADR 0016, and
 #147 merged the first read-only local Linux knowledge slice. Optional pack

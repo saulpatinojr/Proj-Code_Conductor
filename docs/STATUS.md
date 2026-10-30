@@ -141,6 +141,21 @@ and proposed [ADR 0019](adr/0019-pack-controls-and-orchestrator-blueprint.md).
 - PR creation and merge are owner-authorized after required checks; runtime
   provider/disclosure/commit/deployment approvals remain action-specific.
 
+## Incremental knowledge parsing follow-up
+
+The `feat/knowledge-incremental-index` branch adds a bounded metadata-only parsing
+cache for explicit knowledge browsing. Descriptor-bound note/source reads and
+click-time verification still run each time. Relationships are rebuilt, renamed
+notes use their new path/title, and deleted entries are pruned. The cache is
+owner-process memory only (200 entries / 2 MiB serialized metadata); connection,
+repository/folder changes and disposal clear it. This is incremental parsing,
+not a background watcher, persistent semantic index, remote verification or vault
+write workflow. Local validation passed: typecheck, **78 files / 703 passed /
+33 skipped**, repository validation and standalone bundle/default smoke.
+Independent read-only review found no blockers; installed Obsidian/desktop and
+whole-workstream acceptance remain separate. The associated PR records packaging
+and GitHub gate evidence.
+
 ## Prepared plan-review details
 
 Branch `feat/plan-review-details` adds a read-only plan-detail entry and summary
