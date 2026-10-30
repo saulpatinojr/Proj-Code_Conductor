@@ -30,6 +30,7 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
   const decision = manifest.mergeDecision;
   const shownDecision = displayedDecision(manifest, events);
   const progress = assignmentProgress(manifest, events);
+  const snapshot = manifest.planReview;
   const lines: string[] = [
     `# Run ${p(manifest.runId, 80)}`,
     '',
@@ -40,8 +41,9 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
     '',
     '## Recorded plan and approval boundaries',
     '',
-    `- **Requested specializations:** ${manifest.task.specializations?.length ? manifest.task.specializations.map((value) => p(value, 100)).join(', ') : 'not recorded; objective-inferred routing specializations were not persisted'}`,
-    '- **Planned gate commands:** not recorded in this manifest. The runtime resolves the exact command plan and prerequisites in the validation worktree before asking for execution approval; recorded gate results below describe outcomes, not a future command plan.',
+    `- **Requested specializations:** ${manifest.task.specializations?.length ? manifest.task.specializations.map((value) => p(value, 100)).join(', ') : snapshot ? 'none explicitly supplied' : 'not recorded; objective-inferred routing specializations were not persisted'}`,
+    ...(snapshot ? [`- **Planning snapshot:** version ${snapshot.version}, captured ${p(snapshot.capturedAt, 40)}. Historical observations only; the validation worktree is re-planned before fresh execution approval.`, `- **Routing specializations:** ${snapshot.specializations.values.map((value) => p(value, 100)).join(', ') || 'none'} (source: ${p(snapshot.specializations.source, 30)}).`] : []),
+    `- **Planned gate commands:** ${snapshot?.checks.state === 'recorded' ? `${snapshot.checks.gates.length} recorded (${p(snapshot.checks.selection, 20)} profiles); see the bounded command preview below.` : 'not recorded in this manifest. The runtime resolves the exact command plan and prerequisites in the validation worktree before asking for execution approval; recorded gate results below describe outcomes, not a future command plan.'}`,
     '- **Provider readiness:** the plan records a chosen provider/surface, not an authentication, billing-account or workstation-trust snapshot. Recorded results below are historical outcomes; current availability, sign-in, health and trust remain unknown here. Use Doctor and the official client for current checks.',
     '- **Required approvals:** D-059 requires a fresh, exact-context decision immediately before each consequential action. Workspace Trust, a plan, past approvals and a successful result do not authorize another action.',
     '- Provider starts and selected-context disclosures each require recipient-bound approval. Deterministic gate commands require approval of the exact command plan. Commits require approval of the exact tree. Deployments, when supported, require their own approval; planning does not schedule a deployment.',
@@ -57,11 +59,13 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
     '',
     'Re-plan through the supported CLI/configuration when the objective, risk or selection needs changing; this read-only summary does not alter an assignment.',
     '',
-    '## Assignments',
-    '',
-    '| Role | Agent | Status | Recommendation |',
-    '|---|---|---|---|',
   ];
+  if (snapshot?.checks.state === 'recorded') {
+    lines.push('### Planned checks at original repository', '',
+      ...(snapshot.checks.gates.length ? snapshot.checks.gates.map((gate) => `- ${p(gate.profile, 80)} / ${p(gate.id, 80)} (configured ${gate.configuredBlocking ? 'blocking' : 'advisory'}): ${code(formatCommand([gate.executable ?? gate.command, ...(gate.prefixArgs ?? []), ...gate.args]), 1000)}; timeout ${gate.timeoutMs} ms; ${gate.missing.length ? `missing prerequisites: ${gate.missing.map((item) => p(item, 200)).join('; ')} (execution would block)` : 'no missing prerequisites observed at capture'}.`) : ['No applicable checks were detected. This does not establish readiness.']),
+      '', 'This bounded preview is not permission to run commands or proof of current prerequisites. The runtime rechecks the worktree and exact command plan before approval.', '');
+  }
+  lines.push('## Assignments', '', '| Role | Agent | Status | Recommendation |', '|---|---|---|---|');
   for (const assignment of manifest.assignments) {
     const result = manifest.results.find((item) => item.assignmentId === assignment.id);
     lines.push(`| ${p(assignment.role, 40)} | ${p(assignment.agentId, 60)} | ${result ? p(result.status, 40) : progress.get(assignment.id)!.state} | ${result ? p(result.recommendation, 40) : ''} |`);
@@ -74,7 +78,14 @@ export function runSummaryMarkdown(manifest: RunManifest, actions: readonly Next
   lines.push('', '### Chosen provider and recorded evidence', '');
   for (const assignment of manifest.assignments) {
     const result = manifest.results.find((item) => item.assignmentId === assignment.id);
-    lines.push(`- ${p(assignment.id, 80)}: chosen ${p(assignment.provider, 60)} / ${p(assignment.harness, 60)} / ${p(assignment.surface ?? 'unknown', 40)}; ${result ? `recorded result ${p(result.status, 40)} from ${p(result.provider, 60)} / ${p(result.harness, 60)} / ${p(result.surface ?? 'surface not recorded', 40)}` : 'no result recorded'}. Current availability/trust is not established by this record.`);
+    const inventory = snapshot?.providers.find((item) => item.harness === assignment.harness && item.provider === assignment.provider && item.surface === (assignment.surface ?? 'unknown'));
+    const inventoryText = inventory ? `Planning inventory: ${inventory.inventory}; local client ${inventory.localClientRequired ? 'required' : 'not required by selected surface'}. This is adapter discovery, not authentication or trust.` : 'Planning inventory: not recorded for this selection.';
+    lines.push(`- ${p(assignment.id, 80)}: chosen ${p(assignment.provider, 60)} / ${p(assignment.harness, 60)} / ${p(assignment.surface ?? 'unknown', 40)}; ${result ? `recorded result ${p(result.status, 40)} from ${p(result.provider, 60)} / ${p(result.harness, 60)} / ${p(result.surface ?? 'surface not recorded', 40)}` : 'no result recorded'}. Current availability/trust is not established by this record. ${inventoryText}`);
+  }
+  if (snapshot) {
+    lines.push('', '### Configured harness inventory at planning', '', '| Harness | Provider / surface | Local client required | Inventory membership |', '|---|---|---|---|');
+    for (const provider of snapshot.providers) lines.push(`| ${p(provider.harness, 60)} | ${p(provider.provider, 60)} / ${p(provider.surface, 40)} | ${provider.localClientRequired ? 'yes' : 'no'} | ${p(provider.inventory, 30)} |`);
+    lines.push('', 'Inventory membership is not role eligibility, authentication, health, workstation trust or present readiness. Absent manual/platform clients may be valid native handoffs; no alternative is automatically selected here.', '');
   }
   lines.push('', 'Billing lanes are planned channels, not proof of the client account or permission to incur API charges.', '');
   lines.push('', 'States reflect stored results and local journal observations. A start event is not a heartbeat; liveness is unverified. Starts older than five minutes are unknown. Historical approvals never authorize another action.', '');

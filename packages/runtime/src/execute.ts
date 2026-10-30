@@ -145,8 +145,8 @@ export async function executeTask(root: string, task: TaskEnvelope, options: Exe
   const store = options.store ?? new RunStore();
   const worktrees = options.worktrees ?? new WorktreeManager();
   const available = new Set([...adapters.entries()].filter(([, adapter]) => adapter.available()).map(([id]) => id));
-  const plan = planTask(root, task, { availableHarnesses: available.size ? available : undefined });
-  const manifest: RunManifest = { runId: plan.runId, task, assignments: plan.assignments, results: [], gates: [] };
+  const plan = planTask(root, task, { availableHarnesses: available.size ? available : undefined, inventoryHarnesses: available, ...(options.gateProfiles ? { gateProfiles: options.gateProfiles } : {}) });
+  const manifest: RunManifest = { planReview: plan.planReview, runId: plan.runId, task, assignments: plan.assignments, results: [], gates: [] };
   if (options.handoffTtlMs !== undefined && !validHandoffTtl(options.handoffTtlMs)) throw new Error('Handoff TTL must be a positive number of milliseconds, at most 7 days.');
   const clock = options.now ?? Date.now;
   const approvals = new ApprovalGate({ ...(options.approver ? { approver: options.approver } : {}), ...(options.approvalTtlMs !== undefined ? { ttlMs: options.approvalTtlMs } : {}), ...(options.now ? { now: options.now } : {}) });

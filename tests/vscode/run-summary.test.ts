@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+import { createTask, planTask } from '../../packages/runtime/src/index.js';
 import { describe, expect, it } from 'vitest';
 import type { RunManifest } from '../../packages/schemas/src/index.js';
 import type { NextAction } from '../../packages/runtime/src/next-actions.js';
@@ -61,6 +63,25 @@ describe('run summary document', () => {
     const escaped = runSummaryMarkdown(running, []);
     expect(escaped).toContain('\\[click\\](https://attacker.invalid)');
     expect(escaped).toContain('\\<img src=x\\> \\| injected');
+  });
+  it('renders future planning snapshots as historical checks and discovery, not execution authority', () => {
+    const planned = structuredClone(manifest);
+    planned.planReview = planTask(resolve('.'), createTask('AWS implementation', 'R1', resolve('.')), { availableHarnesses: new Set(['codex', 'claude', 'kiro']), gateProfiles: ['terraform-plan'] }).planReview;
+    planned.assignments[0]!.provider = 'aws'; planned.assignments[0]!.harness = 'kiro'; planned.assignments[0]!.surface = 'acp';
+    const text = runSummaryMarkdown(planned, []);
+    expect(text).toContain('source: objective\\_signals');
+    expect(text).toContain('### Planned checks at original repository');
+    expect(text).toContain('terraform-plan / terraform-plan (configured advisory)');
+    expect(text).toContain('missing prerequisites:');
+    expect(text).toContain('(execution would block)');
+    expect(text).toContain('Planning inventory: present; local client required');
+    expect(text).toContain('### Configured harness inventory at planning');
+    expect(text).toContain('| kiro | aws / acp | yes | present |');
+    expect(text).toContain('Inventory membership is not role eligibility');
+    expect(text).toContain('This is adapter discovery, not authentication or trust');
+    expect(text).toContain('The runtime rechecks the worktree and exact command plan before approval');
+    expect(text).not.toContain('objective-inferred routing specializations were not persisted');
+    expect(text.indexOf('### Planned checks')).toBeLessThan(text.indexOf('## Assignments'));
   });
   it.each(['R0', 'R1', 'R2', 'R3', 'R4'] as const)('shows recorded plan details without inventing current readiness for %s', (risk) => {
     const planned = structuredClone(manifest);

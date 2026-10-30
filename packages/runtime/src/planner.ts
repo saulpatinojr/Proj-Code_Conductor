@@ -1,6 +1,7 @@
+import { planGates } from '@code-conductor/gates';
 import { randomUUID } from 'node:crypto';
 import { loadConfiguration, roleInstructionsProblem, type ConfigurationName } from '@code-conductor/policy';
-import type { AgentAssignment, BillingChannel, RiskClass, Stance, TaskEnvelope } from '@code-conductor/schemas';
+import type { AgentAssignment, PlanReviewSnapshot, BillingChannel, RiskClass, Stance, TaskEnvelope } from '@code-conductor/schemas';
 
 interface RoleConstraints {
   different_provider_from_builder_when_risk_at_least?: RiskClass;
@@ -116,8 +117,8 @@ function orderBySpecialization(candidates: string[], capabilities: CapabilityDoc
     .map((entry) => entry.harness);
 }
 
-export interface PlanOptions { availableHarnesses?: Set<string> }
-export interface TaskPlan { runId: string; task: TaskEnvelope; assignments: AgentAssignment[] }
+export interface PlanOptions { availableHarnesses?: Set<string>; inventoryHarnesses?: Set<string>; gateProfiles?: string[] }
+export interface TaskPlan { planReview: PlanReviewSnapshot; runId: string; task: TaskEnvelope; assignments: AgentAssignment[] }
 
 export function planTask(root: string, task: TaskEnvelope, options: PlanOptions = {}): TaskPlan {
   const roles = load<RolesDocument>(root, 'roles');
@@ -170,7 +171,26 @@ export function planTask(root: string, task: TaskEnvelope, options: PlanOptions 
     assignments.push(assignment);
     if (roleName === 'builder') { builderProvider = capability.provider; builderAssignmentId = assignment.id; }
   }
-  return { runId: `CC-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`, task, assignments };
+  const inventory = options.inventoryHarnesses ?? available;
+  const providers = Object.entries(capabilities.harnesses).map(([harness, capability]) => ({
+    harness, provider: capability.provider, surface: preferredSurface(capability),
+    localClientRequired: requiresWorkstationClient(capability),
+    inventory: !inventory ? 'not_checked' as const : inventory.has(harness) ? 'present' as const : 'absent' as const,
+  }));
+  let checks: PlanReviewSnapshot['checks'] = { state: 'unavailable', selection: options.gateProfiles?.length ? 'explicit' : 'detected', gates: [] };
+  try {
+    const planned = planGates(root, options.gateProfiles, undefined, { maxEntries: 2000, maxDepth: 12 });
+    if (planned.length <= 256) checks = { ...checks, state: 'recorded', gates: planned.map(({ profile, gate, timeoutMs, missing, executable, prefixArgs }) => ({
+      profile, id: gate.id, command: gate.command, args: [...(gate.args ?? [])], configuredBlocking: gate.blocking !== false,
+      timeoutMs, missing: [...missing], ...(executable ? { executable } : {}), ...(prefixArgs ? { prefixArgs: [...prefixArgs] } : {}),
+    })) };
+  } catch { /* An unavailable read-only preview cannot grant or bypass later gate execution. */ }
+  const planReview: PlanReviewSnapshot = {
+    version: 1, capturedAt: new Date().toISOString(),
+    specializations: { source: task.specializations?.length ? 'requested' : requestedSpecializations.size ? 'objective_signals' : 'none', values: [...requestedSpecializations] },
+    providers, checks,
+  };
+  return { runId: `CC-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`, task, assignments, planReview };
 }
 
 export function createTask(objective: string, risk: RiskClass, repository?: string, specializations: string[] = []): TaskEnvelope {
