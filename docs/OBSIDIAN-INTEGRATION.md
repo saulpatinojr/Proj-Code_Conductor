@@ -87,15 +87,42 @@ Windows path encoding have unit coverage, not installed-client evidence. Paths
 containing reserved query characters use the editor fallback to avoid native URI
 reinterpretation. No third-party Obsidian plugin is required.
 
+## Incremental parsing and cache retention
+
+Explicit refreshes reuse validated frontmatter parsing for unchanged note-content
+SHA-256 hashes within one canonical vault/folder/repository scope. Parsing is the
+only reused work: every scan still descriptor-reads current note bytes, enforces
+the existing scan/read budgets, reads referenced local sources and rechecks the
+local GitHub origin association. Source verification results and remote/run
+status are never cached. Relationships and observation timestamps are rebuilt
+from that current scan; changed or missing targets become stale/broken normally.
+Click-time revalidation performs the same fresh reads even on a parsing cache hit.
+
+The extension retains at most 200 entries and 2 MiB of serialized parsed metadata
+in memory. It retains no note bodies, source contents or persistent content index.
+Entry and byte bounds can cause a valid note to be reparsed; they never omit it
+from the current bounded scan. Renamed notes receive their current path/title;
+deleted or no-longer-readable notes leave the result and their unused cache
+entries are pruned at the next scan. Unsupported repository/source associations
+are not retained as accepted metadata.
+
+Only the latest active connection scope is retained. Connecting/disconnecting,
+selecting a repository, workspace-folder changes and extension disposal clear
+retained metadata. Invalid connections or a failed root scan also clear it. While idle, the bounded
+metadata remains in memory until one of those events; there is no background
+rescan, expiry timer, disk persistence or claim of current remote verification.
+Returned notes cannot mutate the retained parsed metadata.
+
 ## Remaining work and validation
 
 Disposable tests cover two repository scopes, source changes, renamed/modified
 notes, traversal, symlinks, credentials, malformed metadata, scan limits, byte
-budgets and URI handling. Mocked VS Code tests cover no startup/connection scan,
+budgets, incremental parsing reuse, cache bounds/mutation isolation and URI handling. Mocked VS Code tests cover no startup/connection scan,
 Restricted Mode, remote refusal, editor fallback and disconnect preservation.
 
-Real installed VSIX/native Obsidian walkthroughs, broader host support, incremental
-indexing and explicit note templates/write previews remain outstanding. The
+Real installed VSIX/native Obsidian walkthroughs, broader host support, note-body
+search and explicit note templates/write previews remain outstanding. Incremental
+parsing does not remove the full bounded file/source safety checks on each scan. The
 separate cloud-sync request #137 requires its own reviewed architecture and
 protected deployment gates; this adapter activates none of it.
 

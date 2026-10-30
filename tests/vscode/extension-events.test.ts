@@ -163,7 +163,15 @@ describe('extension task, evidence and knowledge events', () => {
     host.picks = ['first', 'Open in Obsidian'];
     await host.commands.get('codeConductor.knowledge')!();
     expect(host.opened[0].fsPath).toBe(notePath);
+    const cache = scan.mock.calls[0]?.[1];
+    expect(cache?.statistics).toMatchObject({ entries: 1, parsed: 1, reused: 1 });
+    host.listeners.get('folders')!();
+    expect(cache?.statistics.entries).toBe(0);
+    host.picks = ['first', 'Open in editor'];
+    await host.commands.get('codeConductor.knowledge')!();
+    expect(cache?.statistics.entries).toBe(1);
     await host.commands.get('codeConductor.disconnectKnowledge')!();
+    expect(cache?.statistics).toEqual({ entries: 0, bytes: 0, parsed: 0, reused: 0 });
     expect([...state.keys()].some((key) => key.startsWith('codeConductor.knowledge.'))).toBe(false);
     expect(readFileSync(notePath, 'utf8')).toBe(text);
   });
