@@ -62,6 +62,37 @@ describe('run summary document', () => {
     expect(escaped).toContain('\\[click\\](https://attacker.invalid)');
     expect(escaped).toContain('\\<img src=x\\> \\| injected');
   });
+  it.each(['R0', 'R1', 'R2', 'R3', 'R4'] as const)('shows recorded plan details without inventing current readiness for %s', (risk) => {
+    const planned = structuredClone(manifest);
+    planned.task.risk = risk;
+    planned.task.specializations = ['typescript', '[AWS](command:bad)'];
+    planned.task.acceptanceCriteria = ['Keep human annotations'];
+    planned.task.constraints = ['No provider execution'];
+    planned.results = []; planned.gates = []; planned.approvals = [];
+    delete planned.mergeDecision;
+    planned.assignments[0]!.billingChannel = 'api';
+    const text = runSummaryMarkdown(planned, []);
+    expect(text).toContain('**Requested specializations:** typescript, \\[AWS\\](command:bad)');
+    expect(text).toContain('| constructive | api |');
+    expect(text).toContain('| critical | subscription |');
+    expect(text).toContain('- Keep human annotations');
+    expect(text).toContain('- No provider execution');
+    expect(text).toContain('**Planned gate commands:** not recorded');
+    expect(text).toContain('no result recorded. Current availability/trust is not established');
+    expect(text).toContain('fresh, exact-context decision immediately before each consequential action');
+    expect(text).not.toContain('**Decision:** `ready`');
+    expect(text.includes('final readiness requires a human decision')).toBe(['R3', 'R4'].includes(risk));
+    expect(text).not.toContain('[AWS](command:bad)');
+  });
+  it('separates recorded chosen and observed provider identities and labels absent planning snapshots', () => {
+    const observed = structuredClone(manifest);
+    observed.results[0]!.provider = 'other-provider';
+    const text = runSummaryMarkdown(observed, []);
+    expect(text).toContain('chosen openai / codex / cli; recorded result completed from other-provider / codex / surface not recorded');
+    expect(text).toContain('objective-inferred routing specializations were not persisted');
+    expect(text).toContain('current availability, sign-in, health and trust remain unknown here');
+    expect(text).toContain('Billing lanes are planned channels');
+  });
   it('describes a planned run that executed nothing', () => {
     const planned: RunManifest = { ...manifest, results: [], gates: [], approvals: [], worktrees: [], mergeDecision: undefined } as RunManifest;
     const text = runSummaryMarkdown(planned, []);

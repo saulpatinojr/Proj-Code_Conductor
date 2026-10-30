@@ -123,3 +123,23 @@ a complete native installation diff or grant installation approval.
 
 Installation/update/removal and metadata/local-source merging remain separate.
 See [APM workflows](APM-WORKFLOWS.md).
+
+## Recorded plan review
+
+The run's **Plan details and approval boundaries** row opens its read-only
+summary. It shows stored requested specializations, acceptance criteria and
+constraints, each assignment's stance/billing lane/provider/harness/surface, and
+recorded provider results separately from the chosen assignment. Billing lanes
+are planned channels, not authenticated accounts or permission for API spending.
+
+Current manifests do not preserve objective-inferred specializations, planned
+gate command snapshots or historical provider availability/trust. The view labels
+those gaps rather than recomputing a historical plan from today's configuration.
+Exact deterministic commands and prerequisites are resolved by the runtime in
+the validation worktree before the terminal's action-specific approval. Existing
+gate results are outcomes, not proposed future commands. Current readiness must
+be checked through Doctor/official clients and runtime safeguards.
+
+The summary explains D-059 approval boundaries and R3/R4 human decisions. It does
+not replay historical approvals, schedule deployment, start a client or modify
+the plan. Changes require the supported CLI/configuration re-planning path.
