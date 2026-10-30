@@ -1,6 +1,6 @@
 import { readBoundedFile } from '@code-conductor/policy/bounded-read';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, opendirSync, readdirSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { absolutePathEnvironment, resolveExecutable, runIsolated } from '@code-conductor/core/processes';
 import { gateCommandProblem, loadConfiguration } from '@code-conductor/policy';
@@ -115,6 +115,27 @@ export function commandOnPath(command: string, env: NodeJS.ProcessEnv = process.
   return Boolean(resolveExecutable(command, env).path);
 }
 
+export interface GateDiscoveryLimits { maxEntries: number; maxDepth: number }
+/** Optional preview-only bounds; execution's existing discovery remains unchanged. */
+function boundedFiles(root: string, limits: GateDiscoveryLimits): string[] {
+  const files: string[] = [];
+  let entries = 0;
+  function walk(folder: string, depth: number): void {
+    if (depth > limits.maxDepth) throw new Error('Gate preview discovery depth exceeded.');
+    const directory = opendirSync(folder);
+    try {
+      for (let entry = directory.readSync(); entry; entry = directory.readSync()) {
+        if (++entries > limits.maxEntries) throw new Error('Gate preview discovery entry budget exceeded.');
+        if (['.git', 'node_modules', 'dist', '.terraform'].includes(entry.name)) continue;
+        const full = join(folder, entry.name);
+        if (entry.isDirectory()) walk(full, depth + 1);
+        else files.push(relative(root, full).replaceAll('\\', '/'));
+      }
+    } finally { directory.closeSync(); }
+  }
+  walk(root, 0);
+  return files;
+}
 function listFiles(root: string): string[] {
   const output: string[] = [];
   function walk(dir: string): void {
@@ -164,7 +185,7 @@ export function loadGateConfig(root: string): GateConfig {
   return loadConfiguration<GateConfig>(root, 'gates').document;
 }
 
-export function detectGateProfiles(root: string, config = loadGateConfig(root)): string[] {
+export function detectGateProfiles(root: string, config = loadGateConfig(root), discoveryLimits?: GateDiscoveryLimits): string[] {
   let files: string[] | undefined;
   const selected: string[] = [];
   for (const [name, profile] of Object.entries(config.profiles)) {
@@ -180,7 +201,7 @@ export function detectGateProfiles(root: string, config = loadGateConfig(root)):
     const allFiles = detect.all_files?.every((file) => existsSync(join(root, file))) ?? false;
     const anyFile = detect.any_file?.some((file) => existsSync(join(root, file))) ?? false;
     const anyGlob = detect.any_glob?.length
-      ? detect.any_glob.some((pattern) => (files ??= listFiles(root)).some((file) => globMatch(file, pattern)))
+      ? detect.any_glob.some((pattern) => (files ??= discoveryLimits ? boundedFiles(root, discoveryLimits) : listFiles(root)).some((file) => globMatch(file, pattern)))
       : false;
     if (allFiles || anyFile || anyGlob) selected.push(name);
   }
@@ -224,9 +245,9 @@ function missingPrerequisites(root: string, gate: GateDefinition): string[] {
  * to bind pre-action approval). Explicitly selected profiles are used as given;
  * otherwise profiles are detected. Forbidden infrastructure-changing commands throw.
  */
-export function planGates(root: string, profiles?: string[], config = loadGateConfig(root)): PlannedGate[] {
+export function planGates(root: string, profiles?: string[], config = loadGateConfig(root), discoveryLimits?: GateDiscoveryLimits): PlannedGate[] {
   const explicit = Boolean(profiles?.length);
-  const selected = explicit ? [...new Set(profiles)] : detectGateProfiles(root, config);
+  const selected = explicit ? [...new Set(profiles)] : detectGateProfiles(root, config, discoveryLimits);
   return selected.flatMap((profileName) => {
     const profile = Object.hasOwn(config.profiles, profileName) ? config.profiles[profileName] : undefined;
     if (!profile) throw new Error(`Unknown gate profile: ${profileName}. Available: ${Object.keys(config.profiles).join(', ')}.`);

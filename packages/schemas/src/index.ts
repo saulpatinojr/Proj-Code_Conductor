@@ -38,6 +38,13 @@ export interface HandoffPacket {
 export interface HandoffReference { id: string; to: string; sha256: string; expiresAt: string }
 /** An isolated agent worktree created for a run, so native Source Control review can find it. */
 export interface WorktreeRecord { assignmentId: string; path: string; branch: string; baseSha: string }
-export interface RunManifest { runId: string; task: TaskEnvelope; assignments: AgentAssignment[]; results: AgentResult[]; gates: GateResult[]; approvals?: ApprovalRecord[]; worktrees?: WorktreeRecord[]; handoffs?: HandoffReference[]; mergeDecision?: MergeDecision }
+/** Historical read-only planning observations; never execution or approval authority. */
+export interface PlanReviewSnapshot {
+  version: 1; capturedAt: string;
+  specializations: { source: 'requested' | 'objective_signals' | 'none'; values: string[] };
+  providers: Array<{ harness: string; provider: string; surface: string; localClientRequired: boolean; inventory: 'present' | 'absent' | 'not_checked' }>;
+  checks: { state: 'recorded' | 'unavailable'; selection: 'explicit' | 'detected'; gates: Array<{ profile: string; id: string; command: string; args: string[]; configuredBlocking: boolean; timeoutMs: number; missing: string[]; executable?: string; prefixArgs?: string[] }> };
+}
+export interface RunManifest { planReview?: PlanReviewSnapshot; runId: string; task: TaskEnvelope; assignments: AgentAssignment[]; results: AgentResult[]; gates: GateResult[]; approvals?: ApprovalRecord[]; worktrees?: WorktreeRecord[]; handoffs?: HandoffReference[]; mergeDecision?: MergeDecision }
 
 export { validateContract, assertContract, type ContractName, type ContractValidationResult } from './validate.js';

@@ -132,9 +132,25 @@ constraints, each assignment's stance/billing lane/provider/harness/surface, and
 recorded provider results separately from the chosen assignment. Billing lanes
 are planned channels, not authenticated accounts or permission for API spending.
 
-Current manifests do not preserve objective-inferred specializations, planned
-gate command snapshots or historical provider availability/trust. The view labels
-those gaps rather than recomputing a historical plan from today's configuration.
+New plans carry an optional version-1 `planReview` snapshot: requested or
+objective-derived routing specializations, the provided adapter-inventory set's
+membership for configured harnesses, and a read-only gate command/prerequisite
+preview from the original repository. It records no authentication or trust.
+Absent inventory is `not_checked`; membership does not establish sign-in, health,
+workstation permission or subscription billing. Manual/platform surfaces may not
+require a local client, regardless of inventory membership.
+
+A gate preview records detected/explicit profile selection, command/args, resolved
+executable/interpreter prefix when found, configured blocking policy, timeout and
+missing prerequisites. It runs no gate, starts no provider and grants no approval.
+Snapshot discovery is bounded to 2,000 directory entries and depth 12; a limit
+refuses the whole preview instead of presenting a partial detected plan.
+Missing prerequisites prevent execution and count as blocking at run time even
+for advisory checks. Unavailable/over-limit previews are labeled unrecorded.
+The original-repository preview may differ from the eventual builder worktree.
+
+Legacy manifests lack these historical snapshots. The view labels those gaps
+rather than recomputing a historical plan from today's configuration.
 Exact deterministic commands and prerequisites are resolved by the runtime in
 the validation worktree before the terminal's action-specific approval. Existing
 gate results are outcomes, not proposed future commands. Current readiness must
