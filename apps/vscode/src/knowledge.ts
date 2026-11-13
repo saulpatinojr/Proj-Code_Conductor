@@ -12,6 +12,15 @@ export interface VaultConnection { vault: string; folder: string; repository: st
 export interface KnowledgeSource { kind: 'file' | 'issue' | 'pr' | 'run'; path?: string; sha256?: string; id?: string; state: 'locally_matched' | 'stale' | 'broken' | 'unverified' }
 export interface KnowledgeNote { id: string; kind: string; title: string; path: string; sha256: string; observedAt: string; sources: KnowledgeSource[]; edges: { kind: string; target: string; source: number; state: KnowledgeSource['state'] }[] }
 export interface KnowledgeIndex { notes: KnowledgeNote[]; diagnostics: string[]; limited: boolean }
+export interface KnowledgeRelation {
+  anchor: KnowledgeNote;
+  source: KnowledgeNote;
+  target: KnowledgeNote;
+  direction: 'outgoing' | 'backlink';
+  kind: string;
+  sourceIndex: number;
+  sourceState: KnowledgeSource['state'];
+}
 
 type KnowledgeSourceReference = Omit<KnowledgeSource, 'state'>;
 type KnowledgeEdgeReference = Omit<KnowledgeNote['edges'][number], 'state'>;
@@ -242,10 +251,63 @@ export function indexVault(input: VaultConnection, cache?: KnowledgeIndexCache):
   if (result.limited) result.diagnostics.push('Knowledge scan limit reached; narrow the selected folder.');
   return result;
 }
+/** Resolve only links declared in the current index; missing targets are never navigable. */
+export function relatedKnowledgeNotes(index: KnowledgeIndex, selected: KnowledgeNote): KnowledgeRelation[] {
+  const notesById = new Map(index.notes.map((item) => [item.id, item]));
+  const relations: KnowledgeRelation[] = [];
+  for (const edge of selected.edges) {
+    const note = notesById.get(edge.target);
+    if (note && note.id !== selected.id) relations.push({
+      anchor: selected, source: selected, target: note, direction: 'outgoing', kind: edge.kind,
+      sourceIndex: edge.source, sourceState: edge.state,
+    });
+  }
+  for (const note of index.notes) {
+    if (note.id === selected.id) continue;
+    for (const edge of note.edges) {
+      if (edge.target === selected.id) relations.push({
+        anchor: selected, source: note, target: selected, direction: 'backlink', kind: edge.kind,
+        sourceIndex: edge.source, sourceState: edge.state,
+      });
+    }
+  }
+  return relations.sort((a, b) => {
+    const aNote = a.direction === 'outgoing' ? a.target : a.source;
+    const bNote = b.direction === 'outgoing' ? b.target : b.source;
+    return aNote.title.localeCompare(bNote.title) || a.direction.localeCompare(b.direction) || a.kind.localeCompare(b.kind);
+  });
+}
+function sameKnowledgeNote(current: KnowledgeNote | undefined, expected: KnowledgeNote): current is KnowledgeNote {
+  return !!current && current.id === expected.id && current.path === expected.path && current.sha256 === expected.sha256
+    && JSON.stringify(current.sources) === JSON.stringify(expected.sources)
+    && JSON.stringify(current.edges) === JSON.stringify(expected.edges);
+}
 export function resolveKnowledgeNote(connection: VaultConnection, selected: KnowledgeNote, cache?: KnowledgeIndexCache): string {
   const current = indexVault(connection, cache).notes.find((item) => item.id === selected.id && item.path === selected.path);
-  if (!current || current.sha256 !== selected.sha256 || JSON.stringify(current.sources) !== JSON.stringify(selected.sources) || JSON.stringify(current.edges) !== JSON.stringify(selected.edges)) throw new Error('The note changed, moved or is no longer in scope. Refresh knowledge.');
+  if (!sameKnowledgeNote(current, selected)) throw new Error('The note changed, moved or is no longer in scope. Refresh knowledge.');
   return safeCanonical(realpathSync(connection.vault), current.path);
+}
+/** Re-read both endpoints and the exact declared edge before following a picker result. */
+export function resolveKnowledgeRelation(connection: VaultConnection, relation: KnowledgeRelation, cache?: KnowledgeIndexCache): string {
+  const index = indexVault(connection, cache);
+  const currentAnchor = index.notes.find((note) => note.id === relation.anchor.id && note.path === relation.anchor.path);
+  const currentSource = index.notes.find((note) => note.id === relation.source.id && note.path === relation.source.path);
+  const currentTarget = index.notes.find((note) => note.id === relation.target.id && note.path === relation.target.path);
+  const directionMatchesAnchor = relation.direction === 'outgoing'
+    ? relation.source.id === relation.anchor.id && relation.source.path === relation.anchor.path
+    : relation.target.id === relation.anchor.id && relation.target.path === relation.anchor.path;
+  const edgeStillExists = currentSource?.edges.some((edge) =>
+    edge.kind === relation.kind && edge.target === relation.target.id && edge.source === relation.sourceIndex && edge.state === relation.sourceState,
+  ) ?? false;
+  if (!directionMatchesAnchor
+    || !sameKnowledgeNote(currentAnchor, relation.anchor)
+    || !sameKnowledgeNote(currentSource, relation.source)
+    || !sameKnowledgeNote(currentTarget, relation.target)
+    || !edgeStillExists) {
+    throw new Error('The selected knowledge relationship changed or is no longer in scope. Refresh knowledge.');
+  }
+  const destination = relation.direction === 'outgoing' ? currentTarget : currentSource;
+  return safeCanonical(realpathSync(connection.vault), destination.path);
 }
 export function obsidianOpenUri(absolutePath: string): string {
   if (!plain(absolutePath, 4096)) throw new Error('Invalid note path.');

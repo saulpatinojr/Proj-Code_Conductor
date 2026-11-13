@@ -2,7 +2,7 @@ import { evidenceText, isCaptureId } from './evidence.js';
 import { interviewStorageKey, runInterview } from './interview.js';
 import { orchestratorStatusText } from './orchestrator-status.js';
 import { assignmentProgress, displayedDecision, nextProgressExpiry, progressEvents, type ProgressEvent } from './run-monitor.js';
-import { KnowledgeIndexCache, indexVault, obsidianOpenUri, resolveKnowledgeNote, validateConnection, type VaultConnection } from './knowledge.js';
+import { KnowledgeIndexCache, indexVault, obsidianOpenUri, relatedKnowledgeNotes, resolveKnowledgeNote, resolveKnowledgeRelation, validateConnection, type KnowledgeRelation, type VaultConnection } from './knowledge.js';
 import { relative } from 'node:path';
 import { packInventory, packInventoryText } from './pack-inventory.js';
 import { sameRepository } from './run-scope.js';
@@ -782,16 +782,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!notes.length) { await vscode.window.showInformationMessage(`No matching knowledge notes. ${index.limited ? 'Scan limit reached; narrow the folder.' : 'Only valid metadata for the selected repository is indexed.'} ${index.diagnostics.length} excluded/unavailable items.`); return; }
       const selected = await vscode.window.showQuickPick(notes.map((note) => ({ label: printable(note.title, 100, false), description: `${note.kind} · ${note.sources.map((source) => source.state).join(', ') || 'no verified source'}`, detail: `${note.id}: ${note.edges.map((edge) => `${edge.kind} ${edge.target} (source ${edge.state})`).join('; ') || 'No declared edges'}`, note })), { placeHolder: `Local knowledge: ${notes.length} notes; ${index.diagnostics.length} excluded/unavailable items${index.limited ? ' · scan limited' : ''}`, matchOnDetail: true });
       if (!selected) return;
-      const action = await vscode.window.showQuickPick(['Open in editor', 'Open in Obsidian'], { placeHolder: 'Knowledge is navigation; it grants no execution authority.' });
+      const relations = relatedKnowledgeNotes(index, selected.note);
+      const action = await vscode.window.showQuickPick(['Open in editor', 'Open in Obsidian', ...(relations.length ? ['Browse related notes'] : [])], { placeHolder: 'Knowledge is navigation; it grants no execution authority.' });
       if (!action || r !== root() || !knowledgeAvailable() || JSON.stringify(connectionFor(r)) !== JSON.stringify(connection)) return;
-      const path = resolveKnowledgeNote(connection, selected.note, knowledgeCache);
-      if (action === 'Open in Obsidian') {
+      let selectedRelation: KnowledgeRelation | undefined;
+      let destination: string | undefined = action;
+      if (action === 'Browse related notes') {
+        const relation = await vscode.window.showQuickPick(relations.map((item) => ({
+          label: printable((item.direction === 'outgoing' ? item.target : item.source).title, 100, false),
+          description: `${item.direction} · ${item.kind} · source ${item.sourceState}`,
+          detail: `${(item.direction === 'outgoing' ? item.target : item.source).id} · ${(item.direction === 'outgoing' ? item.target : item.source).kind}`,
+          relation: item,
+        })), { placeHolder: 'Declared links and backlinks; source status is not semantic verification.' });
+        if (!relation) return;
+        selectedRelation = relation.relation;
+        destination = await vscode.window.showQuickPick(['Open in editor', 'Open in Obsidian'], { placeHolder: 'Open the related note using a fixed native action.' });
+      }
+      if ((destination !== 'Open in editor' && destination !== 'Open in Obsidian') || r !== root() || !knowledgeAvailable() || JSON.stringify(connectionFor(r)) !== JSON.stringify(connection)) return;
+      const path = selectedRelation
+        ? resolveKnowledgeRelation(connection, selectedRelation, knowledgeCache)
+        : resolveKnowledgeNote(connection, selected.note, knowledgeCache);
+      if (destination === 'Open in Obsidian') {
         try { if (await vscode.env.openExternal(vscode.Uri.parse(obsidianOpenUri(path)))) return; }
         catch { /* Unsupported URI characters or absent client fall back to the editor. */ }
       }
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
       await vscode.window.showTextDocument(document, { preview: true });
-    } catch { await vscode.window.showWarningMessage('Knowledge is unavailable or changed. Reconnect/refresh the selected folder. No note was changed or uploaded.'); }
+    } catch { await vscode.window.showWarningMessage('The selected knowledge note or relationship is unavailable or changed. Refresh knowledge and choose it again. No note was changed or uploaded.'); }
   }));
   context.subscriptions.push(vscode.commands.registerCommand('codeConductor.inspectPacks', async () => {
     const r = root(); if (!r) return;

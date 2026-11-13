@@ -12,9 +12,13 @@ installed VSIX/Obsidian validation and the whole #141 workstream remain open.
 3. Run **Browse Knowledge** or click **Knowledge** in Workstation. Indexing is
    explicit, local and bounded. A run's **Related knowledge** filters declared
    run identifiers without copying private prompts, manifests or output.
-4. Choose a note, then the native editor or Obsidian. The command rechecks note
-   content and source/edge states. If Obsidian cannot open it, or its path has
-   URI-reserved characters, the editor is used.
+4. Choose a note. **Browse related notes** lists its declared outgoing links and
+   backlinks to notes in the current index, with each link's source state. Missing
+   targets are not navigable; stale, broken or unverified provenance is shown as
+   such rather than upgraded to verified. Choose an editor or Obsidian destination
+   for the selected note. The command rechecks note content and source/edge states
+   before opening it. If Obsidian cannot open it, or its path has URI-reserved
+   characters, the editor is used.
 5. **Disconnect Knowledge Vault** forgets connection state and deletes no notes.
 
 There is no startup scan, note generation, persistent content index, provider

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { URI } from 'vscode-uri';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@code-conductor/git', async (original) => ({ ...await original<typeof import('@code-conductor/git')>(), githubOriginRepository: () => 'owner/repo' }));
-import { indexVault, obsidianOpenUri, resolveKnowledgeNote, validateConnection, type VaultConnection } from '../../apps/vscode/src/knowledge.js';
+import { indexVault, obsidianOpenUri, relatedKnowledgeNotes, resolveKnowledgeNote, resolveKnowledgeRelation, validateConnection, type KnowledgeIndex, type KnowledgeNote, type VaultConnection } from '../../apps/vscode/src/knowledge.js';
 const roots: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -45,6 +45,34 @@ describe.skipIf(process.platform !== 'linux')('bounded read-only knowledge index
     expect(() => resolveKnowledgeNote(connection, selected)).toThrow(/changed/);
     renameSync(path, join(connection.vault, connection.folder, 'renamed.md'));
     expect(() => resolveKnowledgeNote(connection, selected)).toThrow(/changed/);
+  });
+  it('refuses a removed outgoing edge and resolves a current backlink to its source note', () => {
+    const { connection, repository } = fixture();
+    const sourceText = 'approved decision';
+    writeFileSync(join(repository, 'decision.md'), sourceText);
+    const sources = [{ kind: 'file', path: 'decision.md', sha256: hash(sourceText) }];
+    const alphaPath = writeNote(connection, 'alpha.md', {
+      sources,
+      edges: [{ kind: 'related_to', target: 'beta', source: 0 }],
+    });
+    writeNote(connection, 'beta.md');
+    const initialIndex = indexVault(connection);
+    const alpha = initialIndex.notes.find((note) => note.id === 'alpha');
+    const beta = initialIndex.notes.find((note) => note.id === 'beta');
+    if (!alpha || !beta) throw new Error('Knowledge fixture notes were not indexed.');
+    const outgoing = relatedKnowledgeNotes(initialIndex, alpha).find((relation) => relation.direction === 'outgoing');
+    if (!outgoing) throw new Error('Outgoing test relationship was not indexed.');
+
+    writeNote(connection, 'alpha.md', { sources, edges: [] });
+    expect(() => resolveKnowledgeRelation(connection, outgoing)).toThrow(/relationship changed/);
+
+    writeNote(connection, 'alpha.md', { sources, edges: [{ kind: 'related_to', target: 'beta', source: 0 }] });
+    const refreshedIndex = indexVault(connection);
+    const refreshedBeta = refreshedIndex.notes.find((note) => note.id === 'beta');
+    if (!refreshedBeta) throw new Error('Knowledge fixture target was not reindexed.');
+    const backlink = relatedKnowledgeNotes(refreshedIndex, refreshedBeta).find((relation) => relation.direction === 'backlink');
+    if (!backlink) throw new Error('Backlink test relationship was not indexed.');
+    expect(resolveKnowledgeRelation(connection, backlink)).toBe(alphaPath);
   });
   it('rejects escapes, symlinks, malformed metadata, secrets and foreign repositories', () => {
     const { connection, root } = fixture(); const outside = join(root, 'outside.md'); writeFileSync(outside, 'outside');
@@ -102,6 +130,37 @@ describe.skipIf(process.platform !== 'linux')('bounded read-only knowledge index
     const { connection } = fixture();
     for (let n = 0; n < 201; n++) writeNote(connection, `note${n}.md`);
     const index = indexVault(connection); expect(index.notes).toHaveLength(200); expect(index.limited).toBe(true);
+  });
+});
+describe('declared knowledge navigation', () => {
+  it('resolves outgoing links and backlinks without promoting their source status', () => {
+    const alpha: KnowledgeNote = {
+      id: 'alpha', kind: 'decision', title: 'Alpha', path: 'alpha.md', sha256: 'a'.repeat(64), observedAt: '2026-01-01T00:00:00.000Z',
+      sources: [], edges: [
+        { kind: 'related_to', target: 'beta', source: 0, state: 'stale' },
+        { kind: 'uses', target: 'missing', source: 0, state: 'broken' },
+      ],
+    };
+    const beta: KnowledgeNote = {
+      id: 'beta', kind: 'lesson', title: 'Beta', path: 'beta.md', sha256: 'b'.repeat(64), observedAt: '2026-01-01T00:00:00.000Z',
+      sources: [], edges: [{ kind: 'implements', target: 'alpha', source: 0, state: 'unverified' }],
+    };
+    const index: KnowledgeIndex = { notes: [alpha, beta], diagnostics: [], limited: false };
+
+    const alphaRelations = relatedKnowledgeNotes(index, alpha).map(({ source, target, direction, kind, sourceState }) => ({
+      sourceId: source.id, targetId: target.id, direction, kind, sourceState,
+    }));
+    const betaRelations = relatedKnowledgeNotes(index, beta).map(({ source, target, direction, kind, sourceState }) => ({
+      sourceId: source.id, targetId: target.id, direction, kind, sourceState,
+    }));
+    expect(alphaRelations).toEqual(expect.arrayContaining([
+      { sourceId: 'alpha', targetId: 'beta', direction: 'outgoing', kind: 'related_to', sourceState: 'stale' },
+      { sourceId: 'beta', targetId: 'alpha', direction: 'backlink', kind: 'implements', sourceState: 'unverified' },
+    ]));
+    expect(betaRelations).toEqual(expect.arrayContaining([
+      { sourceId: 'beta', targetId: 'alpha', direction: 'outgoing', kind: 'implements', sourceState: 'unverified' },
+      { sourceId: 'alpha', targetId: 'beta', direction: 'backlink', kind: 'related_to', sourceState: 'stale' },
+    ]));
   });
 });
 describe('native Obsidian navigation', () => {

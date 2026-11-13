@@ -180,6 +180,94 @@ describe('extension task, evidence and knowledge events', () => {
     expect(host.trees.get('codeConductor.workstation').getChildren().map((item: any) => item.node).find((node: any) => node.label === 'Knowledge').children.map((node: any) => node.label)).toEqual(['Connect / browse knowledge']);
     expect(readFileSync(notePath, 'utf8')).toBe(text);
   });
+  it.skipIf(process.platform !== 'linux')('follows declared links in the editor after a fresh click-time check', async () => {
+    const { run } = await setup(false);
+    const vault = join(temp, 'vault'); mkdirSync(join(vault, 'project'), { recursive: true });
+    const sourcePath = join(run.task.repository, 'decision.md');
+    const sourceText = 'owner-approved decision';
+    writeFileSync(sourcePath, sourceText);
+    const sha256 = createHash('sha256').update(sourceText).digest('hex');
+    const alphaPath = join(vault, 'project/alpha.md');
+    const alphaText = '---\n' + JSON.stringify({ code_conductor: { version: 1, id: 'alpha', kind: 'decision', repository: run.task.repository, sources: [{ kind: 'file', path: 'decision.md', sha256 }], edges: [{ kind: 'related_to', target: 'beta', source: 0 }] } }) + '\n---\nHuman-owned alpha prose.';
+    const betaPath = join(vault, 'project/beta.md');
+    const betaText = '---\n' + JSON.stringify({ code_conductor: { version: 1, id: 'beta', kind: 'lesson', repository: run.task.repository, sources: [], edges: [] } }) + '\n---\nHuman-owned beta prose.';
+    writeFileSync(alphaPath, alphaText); writeFileSync(betaPath, betaText);
+    host.dialogs = [[{ scheme: 'file', fsPath: vault }], [{ scheme: 'file', fsPath: join(vault, 'project') }]];
+    await host.commands.get('codeConductor.connectKnowledge')!();
+    host.picks = [
+      (items: any[]) => items.find((item) => item.note?.id === 'alpha'),
+      'Browse related notes',
+      (items: any[]) => items.find((item) => item.relation?.target.id === 'beta'),
+      'Open in editor',
+    ];
+
+    await host.commands.get('codeConductor.knowledge')!();
+
+    expect(host.opened[0].fsPath).toBe(betaPath);
+    expect(readFileSync(alphaPath, 'utf8')).toBe(alphaText);
+    expect(readFileSync(betaPath, 'utf8')).toBe(betaText);
+  });
+  it.skipIf(process.platform !== 'linux')('refuses to open a destination after its outgoing edge is removed while the picker is open', async () => {
+    const { run } = await setup(false);
+    const vault = join(temp, 'vault'); mkdirSync(join(vault, 'project'), { recursive: true });
+    const sourcePath = join(run.task.repository, 'decision.md');
+    const sourceText = 'owner-approved decision';
+    writeFileSync(sourcePath, sourceText);
+    const sha256 = createHash('sha256').update(sourceText).digest('hex');
+    const alphaPath = join(vault, 'project/alpha.md');
+    const alphaText = '---\n' + JSON.stringify({ code_conductor: { version: 1, id: 'alpha', kind: 'decision', repository: run.task.repository, sources: [{ kind: 'file', path: 'decision.md', sha256 }], edges: [{ kind: 'related_to', target: 'beta', source: 0 }] } }) + '\n---\nHuman-owned alpha prose.';
+    const betaPath = join(vault, 'project/beta.md');
+    const betaText = '---\n' + JSON.stringify({ code_conductor: { version: 1, id: 'beta', kind: 'lesson', repository: run.task.repository, sources: [], edges: [] } }) + '\n---\nHuman-owned beta prose.';
+    writeFileSync(alphaPath, alphaText); writeFileSync(betaPath, betaText);
+    host.dialogs = [[{ scheme: 'file', fsPath: vault }], [{ scheme: 'file', fsPath: join(vault, 'project') }]];
+    await host.commands.get('codeConductor.connectKnowledge')!();
+    const editedAlphaText = alphaText.replace('"edges":[{"kind":"related_to","target":"beta","source":0}]', '"edges":[]');
+    host.picks = [
+      (items: any[]) => items.find((item) => item.note?.id === 'alpha'),
+      'Browse related notes',
+      (items: any[]) => {
+        writeFileSync(alphaPath, editedAlphaText);
+        return items.find((item) => item.relation?.target.id === 'beta');
+      },
+      'Open in editor',
+    ];
+
+    await host.commands.get('codeConductor.knowledge')!();
+
+    const vscode = await import('vscode');
+    expect(host.opened).toHaveLength(0);
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+      'The selected knowledge note or relationship is unavailable or changed. Refresh knowledge and choose it again. No note was changed or uploaded.',
+    );
+    expect(readFileSync(betaPath, 'utf8')).toBe(betaText);
+  });
+  it.skipIf(process.platform !== 'linux')('follows a backlink to the note that declares the relationship', async () => {
+    const { run } = await setup(false);
+    const vault = join(temp, 'vault'); mkdirSync(join(vault, 'project'), { recursive: true });
+    const sourcePath = join(run.task.repository, 'decision.md');
+    const sourceText = 'owner-approved decision';
+    writeFileSync(sourcePath, sourceText);
+    const sha256 = createHash('sha256').update(sourceText).digest('hex');
+    const alphaPath = join(vault, 'project/alpha.md');
+    const alphaText = '---\n' + JSON.stringify({ code_conductor: { version: 1, id: 'alpha', kind: 'decision', repository: run.task.repository, sources: [{ kind: 'file', path: 'decision.md', sha256 }], edges: [{ kind: 'related_to', target: 'beta', source: 0 }] } }) + '\n---\nHuman-owned alpha prose.';
+    const betaPath = join(vault, 'project/beta.md');
+    const betaText = '---\n' + JSON.stringify({ code_conductor: { version: 1, id: 'beta', kind: 'lesson', repository: run.task.repository, sources: [], edges: [] } }) + '\n---\nHuman-owned beta prose.';
+    writeFileSync(alphaPath, alphaText); writeFileSync(betaPath, betaText);
+    host.dialogs = [[{ scheme: 'file', fsPath: vault }], [{ scheme: 'file', fsPath: join(vault, 'project') }]];
+    await host.commands.get('codeConductor.connectKnowledge')!();
+    host.picks = [
+      (items: any[]) => items.find((item) => item.note?.id === 'beta'),
+      'Browse related notes',
+      (items: any[]) => items.find((item) => item.relation?.direction === 'backlink' && item.relation?.source.id === 'alpha'),
+      'Open in editor',
+    ];
+
+    await host.commands.get('codeConductor.knowledge')!();
+
+    expect(host.opened[0].fsPath).toBe(alphaPath);
+    expect(readFileSync(alphaPath, 'utf8')).toBe(alphaText);
+    expect(readFileSync(betaPath, 'utf8')).toBe(betaText);
+  });
   it('provides repository selection and honest optional APM status in the sidebar', async () => {
     const { run } = await setup(false);
     host.folders = [
