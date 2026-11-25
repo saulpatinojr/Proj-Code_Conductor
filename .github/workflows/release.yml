@@ -54,7 +54,7 @@ jobs:
             echo "::error::Set the VSCE_PUBLISHER repository variable to the Marketplace publisher ID (docs/RELEASE.md)."
             exit 1
           fi
-      - uses: microsoft/apm-action@d723bb64ed70c135bbaf87d126b721dd2dae0439 # v1.10.0
+      - uses: microsoft/apm-action@64544310be26812256300543071bfbaa8bc93aad # v1.12.0
         with:
           apm-version: '0.33.0'
           setup-only: true
